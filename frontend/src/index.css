@@ -1,1 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Space+Grotesk:wght@500;600;700&display=swap');
 @import "tailwindcss";
+
+@theme {
+  --color-brand-primary: #00ffcc;
+  --color-brand-glow: rgba(0, 255, 204, 0.4);
+  --color-background: #020609;
+  --color-surface: rgba(255, 255, 255, 0.03);
+  
+  --font-display: "Playfair Display", serif;
+  --font-heading: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: white;
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .glow-text {
+    text-shadow: 0 0 20px var(--color-brand-glow);
+  }
+
+  .glow-box {
+    box-shadow: 0 0 30px rgba(0, 255, 204, 0.15);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, #fff 0%, #a5a5a5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    padding: 0.1em 0.2em;
+    margin-right: -0.2em;
+  }
+}
