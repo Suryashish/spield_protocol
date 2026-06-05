@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronRight, Menu, X as Close } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import logo from '@/assets/logo.png';
 
@@ -96,8 +97,8 @@ const Navbar = () => {
 
           {/* Right side */}
           <div className="flex items-center gap-2 shrink-0">
-            <a
-              href="#"
+            <Link
+              to="/dashboard"
               className="hidden sm:flex group items-center gap-2 liquid-chip rounded-full pl-4 pr-3 py-2 transition-all duration-300 hover:border-brand-primary/30"
             >
               <span className="text-[10px] font-bold tracking-[0.22em] text-white/90">LAUNCH APP</span>
@@ -106,7 +107,7 @@ const Navbar = () => {
                 strokeWidth={2.5}
                 className="text-brand-primary transition-transform duration-300 group-hover:translate-x-0.5"
               />
-            </a>
+            </Link>
 
             {/* Mobile toggle */}
             <button
@@ -144,13 +145,14 @@ const Navbar = () => {
                     {item.label}
                   </a>
                 ))}
-                <a
-                  href="#"
+                <Link
+                  to="/dashboard"
+                  onClick={() => setOpen(false)}
                   className="mt-1 flex items-center justify-between px-3 py-2.5 rounded-xl liquid-chip text-xs font-bold tracking-[0.18em] text-white"
                 >
                   LAUNCH APP
                   <ChevronRight size={14} className="text-brand-primary" />
-                </a>
+                </Link>
               </div>
             </motion.div>
           )}

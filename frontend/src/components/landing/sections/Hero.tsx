@@ -1,19 +1,45 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowDown, ArrowRight, Check } from 'lucide-react';
+import { ArrowDown, ArrowRight, Check, Loader2 } from 'lucide-react';
+import { BACKEND_URL } from '@/lib/config';
 
 const ease = [0.16, 1, 0.3, 1] as const;
 
 const Hero = () => {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
-    setSubmitted(true);
+    if (!valid || loading) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/waitlist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to join waitlist');
+      }
+
+      setSubmitted(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,30 +95,48 @@ const Hero = () => {
               </span>
             </motion.div>
           ) : (
-            <motion.form
-              key="form"
-              onSubmit={handleSubmit}
-              initial={{ opacity: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              className="group flex items-center gap-1.5 liquid-glass rounded-xl p-1.5 focus-within:border-brand-primary/40 transition-colors"
-            >
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                aria-label="Email address"
-                className="flex-1 bg-transparent px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none"
-              />
-              <button
-                type="submit"
-                disabled={!valid}
-                className="flex shrink-0 items-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            <div className="space-y-3">
+              <motion.form
+                key="form"
+                onSubmit={handleSubmit}
+                initial={{ opacity: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                className="group flex items-center gap-1.5 liquid-glass rounded-xl p-1.5 focus-within:border-brand-primary/40 transition-colors"
               >
-                JOIN WAITLIST
-                <ArrowRight size={14} strokeWidth={2.5} />
-              </button>
-            </motion.form>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  aria-label="Email address"
+                  className="flex-1 bg-transparent px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none"
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  disabled={!valid || loading}
+                  className="flex shrink-0 items-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed min-w-[140px] justify-center"
+                >
+                  {loading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <>
+                      JOIN WAITLIST
+                      <ArrowRight size={14} strokeWidth={2.5} />
+                    </>
+                  )}
+                </button>
+              </motion.form>
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-xs text-red-400 font-medium"
+                >
+                  {error}
+                </motion.p>
+              )}
+            </div>
           )}
         </AnimatePresence>
 

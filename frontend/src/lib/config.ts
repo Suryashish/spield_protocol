@@ -49,6 +49,9 @@ export const ASSETS = {
   yt: { code: 'SPLDYT', issuer: PT_YT_ISSUER },
 } as const;
 
+/** Waitlist API URL */
+export const BACKEND_URL = 'https://spield-protocol-waitlistbackend.vercel.app';
+
 /** Token display metadata, keyed by contract address. */
 export const TOKEN_META: Record<string, { symbol: string; label: string }> = {
   [CONTRACTS.usdc]: { symbol: 'USDC', label: 'USD Coin' },
