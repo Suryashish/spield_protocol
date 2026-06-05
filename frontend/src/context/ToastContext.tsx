@@ -33,13 +33,18 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // How long a terminal toast lingers before auto-dismissing. Success stays longer
+  // so the confirmation is clearly seen and the explorer link is clickable; errors
+  // clear sooner.
+  const lifespan = (kind: ToastKind) => (kind === 'success' ? 9000 : 6000);
+
   const push = useCallback(
     (t: Omit<Toast, 'id'>) => {
       const id = nextId++;
       setToasts((prev) => [...prev, { ...t, id }]);
       // Auto-dismiss terminal toasts; pending ones stay until updated/dismissed.
       if (t.kind !== 'pending') {
-        setTimeout(() => dismiss(id), 6000);
+        setTimeout(() => dismiss(id), lifespan(t.kind));
       }
       return id;
     },
@@ -50,7 +55,7 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     (id: number, patch: Partial<Omit<Toast, 'id'>>) => {
       setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
       if (patch.kind && patch.kind !== 'pending') {
-        setTimeout(() => dismiss(id), 6000);
+        setTimeout(() => dismiss(id), lifespan(patch.kind));
       }
     },
     [dismiss],
@@ -76,40 +81,82 @@ const ICONS: Record<ToastKind, ReactNode> = {
   pending: <Loader2 size={18} className="animate-spin text-primary" />,
 };
 
-const ToastCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) => (
+/**
+ * Prominent success card. A confirmed transaction is the moment that matters, so
+ * it gets a larger, celebratory treatment — an animated check ring, a bold
+ * "Transaction successful" headline, and a full-width "View transaction" button —
+ * rather than the small inline notice used for pending/error states.
+ */
+const SuccessCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) => (
   <div
     className={cn(
-      'dark pointer-events-auto flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-card-foreground shadow-lg',
-      'animate-in slide-in-from-right-4 fade-in duration-200',
+      'dark pointer-events-auto relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-card p-5 text-card-foreground shadow-xl',
+      'animate-in slide-in-from-right-4 fade-in zoom-in-95 duration-300',
     )}
   >
-    <div className="mt-0.5 shrink-0">{ICONS[toast.kind]}</div>
-    <div className="min-w-0 flex-1">
-      <p className="text-sm font-semibold">{toast.title}</p>
+    {/* Soft success glow */}
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-emerald-500/15 to-transparent" />
+
+    <button
+      type="button"
+      onClick={onClose}
+      className="absolute right-3 top-3 text-muted-foreground transition-colors hover:text-foreground"
+      aria-label="Dismiss"
+    >
+      <XCircle size={17} />
+    </button>
+
+    <div className="relative flex flex-col items-center text-center">
+      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 ring-4 ring-emerald-500/10">
+        <CheckCircle2 size={30} className="animate-in zoom-in-50 duration-500 text-emerald-500" />
+      </div>
+      <p className="text-base font-semibold">Transaction successful</p>
+      <p className="mt-0.5 text-sm font-medium text-emerald-500">{toast.title}</p>
       {toast.message && (
-        <p className="mt-0.5 break-words text-xs text-muted-foreground">{toast.message}</p>
+        <p className="mt-1 break-words text-xs text-muted-foreground">{toast.message}</p>
       )}
       {toast.hash && (
         <a
           href={explorerTx(toast.hash)}
           target="_blank"
           rel="noreferrer"
-          className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+          className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-500 transition-colors hover:bg-emerald-500/20"
         >
-          View transaction <ExternalLink size={11} />
+          View transaction <ExternalLink size={13} />
         </a>
       )}
     </div>
-    <button
-      type="button"
-      onClick={onClose}
-      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-      aria-label="Dismiss"
-    >
-      <XCircle size={15} />
-    </button>
   </div>
 );
+
+const ToastCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) => {
+  if (toast.kind === 'success') return <SuccessCard toast={toast} onClose={onClose} />;
+
+  return (
+    <div
+      className={cn(
+        'dark pointer-events-auto flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-card-foreground shadow-lg',
+        'animate-in slide-in-from-right-4 fade-in duration-200',
+      )}
+    >
+      <div className="mt-0.5 shrink-0">{ICONS[toast.kind]}</div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold">{toast.title}</p>
+        {toast.message && (
+          <p className="mt-0.5 break-words text-xs text-muted-foreground">{toast.message}</p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+        aria-label="Dismiss"
+      >
+        <XCircle size={15} />
+      </button>
+    </div>
+  );
+};
 
 export const useToast = (): ToastContextValue => {
   const ctx = useContext(ToastContext);

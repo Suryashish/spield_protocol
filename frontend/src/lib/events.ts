@@ -17,6 +17,20 @@ import { server } from './soroban';
 
 export type ActivityKind = 'Mint' | 'Claim' | 'RedeemPt' | 'Combine' | 'TransferPosition';
 
+/**
+ * The `#[contractevent]` macro publishes topic[0] as the *snake_case* of the event
+ * struct name (e.g. `Mint` → `mint`, `RedeemPt` → `redeem_pt`). Map those wire names
+ * back to our PascalCase `ActivityKind`. Without this every event is dropped and the
+ * feed renders empty — which is exactly the "activity tab loads nothing" bug.
+ */
+const EVENT_NAME_TO_KIND: Record<string, ActivityKind> = {
+  mint: 'Mint',
+  claim: 'Claim',
+  redeem_pt: 'RedeemPt',
+  combine: 'Combine',
+  transfer_position: 'TransferPosition',
+};
+
 export type Activity = {
   id: string;
   kind: ActivityKind;
@@ -29,8 +43,14 @@ export type Activity = {
   ledger: number;
 };
 
-/** ~17,000 ledgers ≈ the recent RPC retention window on testnet. */
-const LOOKBACK_LEDGERS = 16000;
+/**
+ * How far back to scan, in ledgers. The public testnet RPC only retains a bounded
+ * window of event history and *silently returns no events* (rather than erroring)
+ * when `startLedger` predates it — so an over-long lookback yields an empty feed.
+ * We try the largest window first and fall back to shorter ones until events come
+ * back. (Empirically ~16k is already past retention; ~9k works.)
+ */
+const LOOKBACK_TIERS = [9000, 4000, 1000];
 
 const decodeSym = (val: xdr.ScVal): string => {
   try {
@@ -54,35 +74,49 @@ const toBig = (v: unknown): bigint => {
 };
 
 export const getRecentActivity = async (limit = 25): Promise<Activity[]> => {
-  let startLedger: number;
+  let latestSeq: number;
   try {
-    const latest = await server.getLatestLedger();
-    startLedger = Math.max(1, latest.sequence - LOOKBACK_LEDGERS);
+    latestSeq = (await server.getLatestLedger()).sequence;
   } catch {
     return [];
   }
 
-  let raw;
-  try {
-    raw = await server.getEvents({
-      startLedger,
-      filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
-      limit: 100,
-    });
-  } catch {
-    // RPC may reject the start ledger if it's outside retention; degrade gracefully.
-    return [];
+  // Walk the lookback tiers from widest to narrowest, stopping at the first that
+  // returns events. A wider window is preferable (more history), but if it's past
+  // RPC retention it comes back empty, so we step down rather than show nothing.
+  let events: Awaited<ReturnType<typeof server.getEvents>>['events'] = [];
+  for (const lookback of LOOKBACK_TIERS) {
+    const startLedger = Math.max(1, latestSeq - lookback);
+    try {
+      const raw = await server.getEvents({
+        startLedger,
+        filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+        limit: 100,
+      });
+      events = raw.events ?? [];
+      if (events.length > 0) break;
+    } catch {
+      // Start ledger outside retention (or transient RPC error): try a shorter window.
+    }
   }
 
   const out: Activity[] = [];
-  for (const ev of raw.events ?? []) {
+  for (const ev of events) {
     const topics = ev.topic ?? [];
     if (topics.length === 0) continue;
-    const kind = decodeSym(topics[0]) as ActivityKind;
-    if (!['Mint', 'Claim', 'RedeemPt', 'Combine', 'TransferPosition'].includes(kind)) continue;
+    // topic[0] is the event name in snake_case (e.g. "mint", "redeem_pt").
+    const kind = EVENT_NAME_TO_KIND[decodeSym(topics[0])];
+    if (!kind) continue;
 
-    // topic[1] is the #[topic] user/from address (when present).
-    const user = topics[1] ? String(scValToNative(topics[1])) : '';
+    // topic[1] is the #[topic] user (for transfers, the `from` address).
+    let user = '';
+    if (topics[1]) {
+      try {
+        user = String(scValToNative(topics[1]));
+      } catch {
+        user = '';
+      }
+    }
 
     // The event body is a struct map: { position_id, amount/payout, ... }.
     let body: Record<string, unknown>;

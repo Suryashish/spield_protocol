@@ -156,18 +156,34 @@ export const writeContract = async (
   }
 
   // Poll until the network applies (or rejects) the transaction.
+  //
+  // `getTransaction` can transiently throw (a 404 while the tx is still being
+  // ingested) right after submission. If we let that propagate, the whole
+  // tx lifecycle aborts *after* the user already signed — the success toast
+  // never fires and the button stays stuck in its busy/spinner state ("nothing
+  // happens"). So we swallow per-poll errors and keep polling; only a definitive
+  // FAILED status or a real timeout ends the loop.
   const hash = sent.hash;
   for (let i = 0; i < 30; i++) {
-    const result = await server.getTransaction(hash);
-    if (result.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-      return { hash };
-    }
-    if (result.status === rpc.Api.GetTransactionStatus.FAILED) {
-      throw new Error(`Transaction failed on-chain. See ${hash}`);
+    try {
+      const result = await server.getTransaction(hash);
+      if (result.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+        return { hash };
+      }
+      if (result.status === rpc.Api.GetTransactionStatus.FAILED) {
+        throw new Error(`Transaction failed on-chain. See ${hash}`);
+      }
+      // NOT_FOUND → not yet ingested; fall through and retry.
+    } catch (err) {
+      // A definitive on-chain failure should surface; a transient lookup error
+      // (not-yet-ingested) should not — keep polling in that case.
+      if (err instanceof Error && err.message.startsWith('Transaction failed on-chain')) {
+        throw err;
+      }
     }
     await sleep(1000);
   }
-  throw new Error(`Timed out waiting for ${hash} to confirm.`);
+  throw new Error(`Timed out waiting for ${hash} to confirm. Check the explorer for hash ${hash}.`);
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
