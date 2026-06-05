@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 
-import { Reveal, Section, SectionGlow } from './ui/Section';
+import { Reveal, Section, SectionGlow } from '@/components/ui/Section';
 
 const CTA = () => {
   return (

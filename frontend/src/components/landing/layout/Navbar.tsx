@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronRight, Menu, X as Close } from 'lucide-react';
 
-import logo from '../assets/logo.png';
+import logo from '@/assets/logo.png';
 
 const NAV_ITEMS = [
   { label: 'Protocol', href: '#how-it-works' },

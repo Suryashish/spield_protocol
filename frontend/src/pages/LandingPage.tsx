@@ -1,14 +1,14 @@
-import LightRays from '@/components/LightRays';
-import CreaseBg2 from '@/components/ui/CreaseBg2';
-import Navbar from '@/components/Navbar';
-import Hero from '@/components/Hero';
-import Partners from '@/components/Partners';
-import Features from '@/components/Features';
-import HowItWorks from '@/components/HowItWorks';
-import Products from '@/components/Products';
-import FAQ from '@/components/FAQ';
-import CTA from '@/components/CTA';
-import Footer from '@/components/Footer';
+import LightRays from '@/components/landing/effects/LightRays';
+import CreaseBg2 from '@/components/landing/effects/CreaseBg2';
+import Navbar from '@/components/landing/layout/Navbar';
+import Hero from '@/components/landing/sections/Hero';
+import Partners from '@/components/landing/sections/Partners';
+import Features from '@/components/landing/sections/Features';
+import HowItWorks from '@/components/landing/sections/HowItWorks';
+import Products from '@/components/landing/sections/Products';
+import FAQ from '@/components/landing/sections/FAQ';
+import CTA from '@/components/landing/sections/CTA';
+import Footer from '@/components/landing/layout/Footer';
 
 const LandingPage = () => {
   return (

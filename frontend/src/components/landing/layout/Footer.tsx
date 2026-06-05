@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 
-import logo from '../assets/logo.png';
+import logo from '@/assets/logo.png';
 
 const COLUMNS = [
   {

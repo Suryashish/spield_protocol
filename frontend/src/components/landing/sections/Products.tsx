@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, TrendingUp, Wallet, Droplets } from 'lucide-react';
 
-import { Reveal, Section, SectionGlow, SectionHeading } from './ui/Section';
+import { Reveal, Section, SectionGlow, SectionHeading } from '@/components/ui/Section';
 
 const ease = [0.16, 1, 0.3, 1] as const;
 

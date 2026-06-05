@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { ShieldCheck, Layers, Activity, Zap, GitBranch, Repeat, Gauge } from 'lucide-react';
 
-import { Reveal, Section, SectionHeading } from './ui/Section';
+import { Reveal, Section, SectionHeading } from '@/components/ui/Section';
 
 const ease = [0.16, 1, 0.3, 1] as const;
 
