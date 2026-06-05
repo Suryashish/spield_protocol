@@ -7,11 +7,9 @@ import {
   ArrowLeftRight,
   ExternalLink,
   History,
-  RefreshCw,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
@@ -83,16 +81,6 @@ const ActivityFeed = () => {
               </button>
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={load}
-            disabled={loading}
-            className="text-muted-foreground hover:text-foreground"
-            title="Refresh"
-          >
-            <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
-          </Button>
         </div>
       </div>
 

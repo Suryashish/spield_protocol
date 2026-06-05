@@ -10,7 +10,7 @@ import { useProtocol } from '@/context/ProtocolContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { deposit, quote, type Quote } from '@/lib/vault';
-import { fromBaseUnits, formatAmount, formatUsd } from '@/lib/soroban';
+import { fromBaseUnits, formatAmount } from '@/lib/soroban';
 import { NETWORK, VAULT_DEPLOYED } from '@/lib/config';
 
 const bpsToPct = (bps: number) => (bps / 100).toFixed(2);
@@ -122,14 +122,6 @@ const VaultPanel = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
-        {/* Headline rate */}
-        <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/10 px-3 py-2.5">
-          <span className="text-xs font-semibold uppercase text-muted-foreground">Fixed APR</span>
-          <span className="text-xl font-bold tabular-nums text-primary">
-            {VAULT_DEPLOYED ? `${bpsToPct(rateBps)}%` : '—'}
-          </span>
-        </div>
-
         {/* Deposit: USDC */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
@@ -187,18 +179,14 @@ const VaultPanel = () => {
           </div>
         </div>
 
-        {/* Summary */}
+        {/* Summary — just the two facts the hero payout box doesn't already state.
+            The coupon/total payout are shown above; vault-wide stats (APR, maturity,
+            capacity) live in the summary strip at the top of the page. */}
         <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
           <div className="flex justify-between text-xs font-medium">
-            <span className="text-muted-foreground">Fixed coupon</span>
+            <span className="text-muted-foreground">Locked APR</span>
             <span className="text-foreground">
-              {amountValid && liveQuote ? formatUsd(coupon) : '—'}
-            </span>
-          </div>
-          <div className="flex justify-between text-xs font-medium">
-            <span className="text-muted-foreground">Total payout</span>
-            <span className="text-foreground">
-              {amountValid && liveQuote ? formatUsd(payout) : '—'}
+              {amountValid && liveQuote ? `${bpsToPct(rateBps)}%` : '—'}
             </span>
           </div>
           <div className="flex justify-between text-xs font-medium">
@@ -206,10 +194,6 @@ const VaultPanel = () => {
             <span className="text-foreground">
               {vaultStats ? fmtMaturity(vaultStats.maturity) : '—'}
             </span>
-          </div>
-          <div className="flex justify-between text-xs font-medium">
-            <span className="text-muted-foreground">Vault capacity left</span>
-            <span className="text-foreground">{VAULT_DEPLOYED ? formatUsd(capacity) : '—'}</span>
           </div>
         </div>
 

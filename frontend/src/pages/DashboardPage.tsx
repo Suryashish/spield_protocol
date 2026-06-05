@@ -11,7 +11,9 @@ import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
 import YieldChart from '@/components/dashboard/sections/YieldChart';
 import ActivityFeed from '@/components/dashboard/sections/ActivityFeed';
 import DepositPanel from '@/components/dashboard/sections/DepositPanel';
+import DepositStatsStrip from '@/components/dashboard/sections/DepositStatsStrip';
 import VaultPanel from '@/components/dashboard/sections/VaultPanel';
+import VaultStatsStrip from '@/components/dashboard/sections/VaultStatsStrip';
 import ReceiptsPanel from '@/components/dashboard/sections/ReceiptsPanel';
 import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
@@ -69,27 +71,32 @@ const OverviewSection = () => (
 );
 
 const DepositSection = () => (
-  <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
-    <div className="order-2 lg:order-1">
-      <HowItWorks />
+  <div className="space-y-6">
+    <DepositStatsStrip />
+    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+      <div className="lg:col-span-5">
+        <DepositPanel />
+      </div>
+      <div className="lg:col-span-7">
+        <PositionsPanel />
+      </div>
     </div>
-    <div className="order-1 lg:order-2">
-      <DepositPanel />
-    </div>
+    <HowItWorks />
   </div>
 );
 
 const VaultSection = () => (
   <div className="space-y-6">
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
-      <div className="order-2 lg:order-1">
-        <HowVaultWorks />
-      </div>
-      <div className="order-1 lg:order-2">
+    <VaultStatsStrip />
+    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+      <div className="lg:col-span-5">
         <VaultPanel />
       </div>
+      <div className="lg:col-span-7">
+        <ReceiptsPanel />
+      </div>
     </div>
-    <ReceiptsPanel />
+    <HowVaultWorks />
   </div>
 );
 
@@ -118,13 +125,6 @@ const LiquiditySection = () => (
   </div>
 );
 
-const PositionsSection = () => (
-  <>
-    <StatsGrid />
-    <PositionsPanel />
-  </>
-);
-
 const SolvencySection = () => (
   <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
     <SolvencyCard />
@@ -140,7 +140,6 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   deposit: DepositSection,
   markets: MarketsSection,
   liquidity: LiquiditySection,
-  positions: PositionsSection,
   solvency: SolvencySection,
   activity: ActivitySection,
 };
@@ -148,6 +147,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
 /* -------------------------------------------------------- explainer cards */
 
 const HowItWorks = () => {
+  const [open, setOpen] = useState(false);
   const steps = [
     { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC; it is lent into the Blend pool where it earns real, on-chain interest.' },
     { icon: Lock, title: '2 · Get PT + YT', body: 'You receive equal PT (your principal, redeemable 1:1 at maturity) and YT (the yield claim).' },
@@ -155,32 +155,47 @@ const HowItWorks = () => {
     { icon: ShieldCheck, title: '4 · Redeem', body: 'Redeem PT 1:1 at maturity, or combine PT + YT to exit early. The vault stays fully backed.' },
   ];
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="text-base font-semibold">How a deposit works</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token.
-      </p>
-      <div className="mt-4 space-y-3">
-        {steps.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div key={s.title} className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                <Icon size={15} />
+    <div className="rounded-xl border border-border bg-card shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 p-5 text-left"
+      >
+        <div>
+          <h3 className="text-base font-semibold">How a deposit works</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token.
+          </p>
+        </div>
+        <ChevronDown
+          size={18}
+          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && (
+        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
+          {steps.map((s) => {
+            const Icon = s.icon;
+            return (
+              <div key={s.title} className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
+                  <Icon size={15} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{s.title}</p>
+                  <p className="text-xs text-muted-foreground">{s.body}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-semibold">{s.title}</p>
-                <p className="text-xs text-muted-foreground">{s.body}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
 
 const HowVaultWorks = () => {
+  const [open, setOpen] = useState(false);
   const steps = [
     { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC to the Fixed-Rate Vault — no need to understand PT or YT.' },
     { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a guaranteed payout (principal + a fixed coupon) at maturity.' },
@@ -188,28 +203,42 @@ const HowVaultWorks = () => {
     { icon: TrendingUp, title: '4 · Redeem at maturity', body: 'Redeem the receipt for your exact locked payout. The coupon is funded by the vault’s real Blend yield.' },
   ];
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="text-base font-semibold">How the Fixed-Rate Vault works</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT
-        machinery is hidden underneath.
-      </p>
-      <div className="mt-4 space-y-3">
-        {steps.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div key={s.title} className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                <Icon size={15} />
+    <div className="rounded-xl border border-border bg-card shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 p-5 text-left"
+      >
+        <div>
+          <h3 className="text-base font-semibold">How the Fixed-Rate Vault works</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT
+            machinery is hidden underneath.
+          </p>
+        </div>
+        <ChevronDown
+          size={18}
+          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && (
+        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
+          {steps.map((s) => {
+            const Icon = s.icon;
+            return (
+              <div key={s.title} className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
+                  <Icon size={15} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{s.title}</p>
+                  <p className="text-xs text-muted-foreground">{s.body}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-semibold">{s.title}</p>
-                <p className="text-xs text-muted-foreground">{s.body}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

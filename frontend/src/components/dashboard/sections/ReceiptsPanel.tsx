@@ -71,11 +71,11 @@ const ReceiptRow = ({ receipt }: { receipt: Receipt }) => {
  */
 const ReceiptsPanel = () => {
   const { isConnected, address } = useWallet();
-  const { receipts, vaultStats } = useProtocol();
+  const { receipts } = useProtocol();
   const { run, busy } = useTxAction();
 
   return (
-    <Card className="rounded-xl border-border bg-card shadow-sm">
+    <Card className="flex h-full flex-col rounded-xl border-border bg-card shadow-sm">
       <CardHeader className="flex flex-row items-start justify-between p-4 pb-2">
         <div>
           <CardTitle className="text-base font-semibold">Your fixed-rate receipts</CardTitle>
@@ -97,44 +97,21 @@ const ReceiptsPanel = () => {
           </Button>
         )}
       </CardHeader>
-      <CardContent className="space-y-2 p-4">
+      <CardContent className="flex flex-1 flex-col space-y-2 p-4">
         {!VAULT_DEPLOYED ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center py-6 text-center text-sm text-muted-foreground">
             The Fixed-Rate Vault isn&apos;t deployed yet.
           </p>
         ) : !isConnected ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center py-6 text-center text-sm text-muted-foreground">
             Connect your wallet to see your receipts.
           </p>
         ) : receipts.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center py-6 text-center text-sm text-muted-foreground">
             No fixed-rate deposits yet. Lock a fixed rate to get started.
           </p>
         ) : (
           receipts.map((r) => <ReceiptRow key={r.receiptId} receipt={r} />)
-        )}
-
-        {VAULT_DEPLOYED && vaultStats && (
-          <div className="mt-2 flex flex-wrap justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 p-3 text-xs">
-            <span className="text-muted-foreground">
-              Vault PT inventory:{' '}
-              <span className="font-semibold text-foreground">
-                {formatUsd(vaultStats.ptInventory)}
-              </span>
-            </span>
-            <span className="text-muted-foreground">
-              Outstanding payouts:{' '}
-              <span className="font-semibold text-foreground">
-                {formatUsd(vaultStats.totalLiability)}
-              </span>
-            </span>
-            <span className="text-muted-foreground">
-              Spare capacity:{' '}
-              <span className="font-semibold text-emerald-500">
-                {formatUsd(vaultStats.couponCapacity)}
-              </span>
-            </span>
-          </div>
         )}
       </CardContent>
     </Card>

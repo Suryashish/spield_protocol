@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   Coins,
   Lock,
-  Layers,
   ShieldCheck,
   History,
   TrendingUp,
@@ -65,13 +64,6 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'liquidity',
     title: 'Liquidity',
     subtitle: 'Provide PT + USDC to the time-decay pool and earn the swap fee.',
-  },
-  {
-    icon: Layers,
-    label: 'Positions',
-    id: 'positions',
-    title: 'Positions',
-    subtitle: 'Manage your tranches — claim yield, redeem principal, or exit early.',
   },
   {
     icon: ShieldCheck,

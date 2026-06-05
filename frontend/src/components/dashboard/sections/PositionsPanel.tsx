@@ -151,35 +151,40 @@ const PositionsPanel = () => {
   };
 
   return (
-    <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
-      <div className="flex items-center justify-between border-b border-border p-4">
-        <div className="flex items-center gap-2">
-          <h3 className="text-base font-semibold">Your Positions</h3>
-          {positions.length > 0 && (
-            <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-muted-foreground">
-              {positions.length}
-            </span>
-          )}
+    <Card className="flex h-full flex-col overflow-hidden rounded-xl border-border bg-card shadow-sm">
+      <div className="flex items-start justify-between border-b border-border p-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold">Your Positions</h3>
+            {positions.length > 0 && (
+              <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                {positions.length}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Manage your tranches — claim yield, redeem principal, or exit early.
+          </p>
         </div>
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={handleRefresh}
           disabled={refreshing || loading}
-          className="text-muted-foreground hover:text-foreground"
+          className="-mr-1 shrink-0 text-muted-foreground hover:text-foreground"
           title="Refresh"
         >
           <RefreshCw size={14} className={cn((refreshing || manualRefresh) && 'animate-spin')} />
         </Button>
       </div>
 
-      {/* Clarify scope: this tab is the RAW PT/YT door only. Fixed Vault deposits are held by the
+      {/* Clarify scope: this list is the RAW PT/YT door only. Fixed Vault deposits are held by the
           vault contract (not your wallet), so they never appear here — they live under their own
           tab as receipts. Stated up-front so a vault depositor isn't confused by an empty list. */}
       {VAULT_DEPLOYED && (
         <div className="border-b border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
-          This shows your raw <span className="font-semibold text-foreground">PT/YT positions</span>{' '}
-          from the Deposit page. Fixed Vault deposits appear under{' '}
+          These are your raw <span className="font-semibold text-foreground">PT/YT positions</span>{' '}
+          from depositing above. Fixed Vault deposits appear under{' '}
           <button
             type="button"
             onClick={() => navigate('vault')}
@@ -191,7 +196,10 @@ const PositionsPanel = () => {
         </div>
       )}
 
-      <div className="space-y-3 p-4">
+      {/* Scrollable list: `flex-1` fills the card when it's short (matching the Deposit
+          panel's height via the row's items-stretch), while `max-h` caps it so a long list
+          scrolls in place instead of stretching the whole section taller. */}
+      <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto p-4 lg:max-h-128">
         {!isConnected ? (
           <EmptyState
             icon={<Coins size={22} />}
@@ -242,7 +250,7 @@ const EmptyState = ({
   body: string;
   action?: React.ReactNode;
 }) => (
-  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-12 text-center">
+  <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-12 text-center">
     <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
       {icon}
     </div>
