@@ -10,10 +10,7 @@ import {
   Search,
   Bell,
   ChevronDown,
-  TrendingUp,
   ArrowRight,
-  Zap,
-  Info,
   type LucideIcon
 } from 'lucide-react';
 import logo from '../assets/logo.png';
@@ -68,41 +65,37 @@ const chartData = [
 const chartConfig = {
   tvl: {
     label: "TVL",
-    color: "#00ffcc",
+    color: "var(--primary)",
   },
 };
 
 const CustomChart = () => (
-  <ChartContainer config={chartConfig} className="h-full w-full">
+  <ChartContainer config={chartConfig} className="h-[240px] w-full">
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+      <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="colorTvl" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#00ffcc" stopOpacity={0.15}/>
-            <stop offset="95%" stopColor="#00ffcc" stopOpacity={0}/>
+            <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.1}/>
+            <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
           </linearGradient>
         </defs>
-        <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+        <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
         <XAxis 
           dataKey="day" 
           axisLine={false} 
           tickLine={false} 
-          tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 10, fontWeight: 'bold' }}
+          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
           dy={10}
         />
         <YAxis hide />
-        <Tooltip 
-          content={<ChartTooltipContent indicator="dot" />}
-          cursor={{ stroke: 'rgba(255,255,255,0.05)', strokeWidth: 1 }}
-        />
+        <Tooltip content={<ChartTooltipContent indicator="line" />} />
         <Area 
           type="monotone" 
           dataKey="tvl" 
-          stroke="#00ffcc" 
-          strokeWidth={2.5}
+          stroke="hsl(var(--primary))" 
+          strokeWidth={2}
           fillOpacity={1} 
           fill="url(#colorTvl)" 
-          animationDuration={2000}
         />
       </AreaChart>
     </ResponsiveContainer>
@@ -111,126 +104,114 @@ const CustomChart = () => (
 
 const SidebarIcon = ({ icon: Icon, active = false }: { icon: LucideIcon, active?: boolean }) => (
   <button className={cn(
-    "w-12 h-12 flex items-center justify-center rounded-2xl transition-all duration-300 group relative",
-    active ? "bg-brand-primary/10 text-brand-primary shadow-[0_0_20px_rgba(0,255,204,0.1)]" : "text-white/30 hover:text-white hover:bg-white/5"
+    "w-10 h-10 flex items-center justify-center rounded-md transition-colors relative",
+    active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
   )}>
-    <Icon size={22} strokeWidth={active ? 2.5 : 2} />
+    <Icon size={18} />
     {active && (
       <motion.div 
-        layoutId="sidebar-dot"
-        className="absolute -left-1 w-1 h-6 bg-brand-primary rounded-r-full shadow-[0_0_10px_#00ffcc]"
+        layoutId="sidebar-active"
+        className="absolute -left-3 w-1 h-5 bg-primary rounded-r-full"
       />
     )}
-    
-    {/* Tooltip-like effect could be added here if needed */}
   </button>
+);
+
+const StatItem = ({ label, value, change, isPositive = true }: { label: string, value: string, change?: string, isPositive?: boolean }) => (
+  <div className="flex flex-col gap-0.5 px-4 first:pl-0 last:pr-0 border-r border-border last:border-none">
+    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider leading-tight">{label}</span>
+    <div className="flex items-baseline gap-2">
+      <span className="text-xl font-bold tracking-tight leading-none">{value}</span>
+      {change && (
+        <span className={cn(
+          "text-[10px] font-bold leading-none",
+          isPositive ? "text-emerald-500" : "text-red-500"
+        )}>{change}</span>
+      )}
+    </div>
+  </div>
 );
 
 const TradePanel = () => {
   return (
-    <Card className="bg-white/[0.02] border-white/5 backdrop-blur-xl rounded-3xl overflow-hidden h-full flex flex-col">
-      <CardHeader className="pb-2">
-        <div className="flex justify-between items-center">
-          <CardTitle className="text-xl font-display font-medium">Trade Panel</CardTitle>
-          <div className="flex gap-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-white/40 hover:text-white"><Settings size={16} /></Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-white/40 hover:text-white"><Info size={16} /></Button>
-          </div>
-        </div>
-        <CardDescription className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Execute on-chain swaps</CardDescription>
+    <Card className="rounded-xl border-border bg-card shadow-sm h-full">
+      <CardHeader className="p-3 pb-1">
+        <CardTitle className="text-xs font-semibold">Trade</CardTitle>
       </CardHeader>
-      <CardContent className="flex-grow space-y-6 pt-4">
+      <CardContent className="p-3 space-y-3">
         <Tabs defaultValue="buy" className="w-full">
-          <TabsList className="w-full bg-white/5 p-1 rounded-xl flex mb-6">
-            <TabsTrigger value="buy" className="flex-grow py-2 rounded-lg text-xs font-bold transition-all data-[state=active]:bg-brand-primary data-[state=active]:text-black text-white/40">BUY</TabsTrigger>
-            <TabsTrigger value="sell" className="flex-grow py-2 rounded-lg text-xs font-bold transition-all data-[state=active]:bg-red-500 data-[state=active]:text-white text-white/40">SELL</TabsTrigger>
+          <TabsList className="w-full grid grid-cols-2 h-8">
+            <TabsTrigger value="buy" className="text-[10px]">Buy</TabsTrigger>
+            <TabsTrigger value="sell" className="text-[10px]">Sell</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="buy" className="space-y-6 mt-0">
-            {/* Pay Section */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center px-1">
-                <Label className="text-[10px] uppercase tracking-wider font-bold text-white/30">You Pay</Label>
-                <span className="text-[10px] font-bold text-white/20">Balance: 12.42 ETH</span>
+          <TabsContent value="buy" className="space-y-3 pt-3">
+            <div className="space-y-1">
+              <div className="flex justify-between items-center text-[9px] text-muted-foreground uppercase font-bold px-0.5">
+                <Label>Pay</Label>
+                <span>Bal: 12.42</span>
               </div>
-              <div className="relative group">
-                <div className="absolute inset-0 bg-white/5 rounded-2xl group-focus-within:bg-white/[0.08] transition-colors" />
-                <div className="relative flex items-center p-3 gap-3">
-                  <Input 
-                    type="number" 
-                    placeholder="0.0" 
-                    className="bg-transparent border-none text-2xl font-black text-white focus-visible:ring-0 placeholder:text-white/10 p-0 h-auto"
-                  />
-                  <Select defaultValue="eth">
-                    <SelectTrigger className="w-28 bg-white/10 border-white/10 rounded-xl h-10 font-bold text-xs hover:bg-white/20 transition-all">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0a161e] border-white/10 text-white">
-                      <SelectItem value="eth">ETH</SelectItem>
-                      <SelectItem value="usdc">USDC</SelectItem>
-                      <SelectItem value="wbtc">WBTC</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="flex items-center gap-2 bg-muted/50 border border-input rounded-md px-2 py-1.5">
+                <Input 
+                  type="number" 
+                  placeholder="0.0" 
+                  className="bg-transparent border-none p-0 h-auto text-base font-bold focus-visible:ring-0 shadow-none"
+                />
+                <Select defaultValue="eth">
+                  <SelectTrigger className="w-16 h-6 text-[9px] font-bold border-none bg-accent shadow-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="eth">ETH</SelectItem>
+                    <SelectItem value="usdc">USDC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="flex justify-center -my-2 relative z-10">
+              <Button variant="outline" size="icon" className="h-6 w-6 rounded-full bg-background border-border">
+                <ArrowRight size={10} className="rotate-90" />
+              </Button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between items-center text-[9px] text-muted-foreground uppercase font-bold px-0.5">
+                <Label>Receive</Label>
+              </div>
+              <div className="flex items-center gap-2 bg-muted/50 border border-input rounded-md px-2 py-1.5">
+                <div className="flex-grow text-base font-bold text-muted-foreground">0.0</div>
+                <Select defaultValue="spield">
+                  <SelectTrigger className="w-16 h-6 text-[9px] font-bold border-none bg-primary text-primary-foreground shadow-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="spield">SPIELD</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
-            {/* Transition Icon */}
-            <div className="flex justify-center -my-4 relative z-10">
-              <div className="bg-[#020609] p-2 rounded-full border border-white/5 shadow-xl">
-                <div className="bg-white/5 p-2 rounded-full text-brand-primary">
-                  <ArrowRight size={16} className="rotate-90" />
-                </div>
+            <div className="space-y-2 pt-1">
+              <div className="flex justify-between items-center text-[9px] font-bold uppercase text-muted-foreground">
+                <Label>Leverage</Label>
+                <span className="text-primary">2.5x</span>
+              </div>
+              <Slider defaultValue={[2.5]} max={10} step={0.1} />
+            </div>
+
+            <div className="rounded-md bg-muted/30 p-2 space-y-1 border border-border/50">
+              <div className="flex justify-between text-[9px] font-medium">
+                <span className="text-muted-foreground">Impact</span>
+                <span className="text-emerald-500">0.05%</span>
+              </div>
+              <div className="flex justify-between text-[9px] font-medium">
+                <span className="text-muted-foreground">Fee</span>
+                <span className="text-foreground">$4.12</span>
               </div>
             </div>
 
-            {/* Receive Section */}
-            <div className="space-y-3 pt-2">
-              <div className="flex justify-between items-center px-1">
-                <Label className="text-[10px] uppercase tracking-wider font-bold text-white/30">You Receive</Label>
-                <span className="text-[10px] font-bold text-white/20">Est. Amount</span>
-              </div>
-              <div className="relative group">
-                <div className="absolute inset-0 bg-white/5 rounded-2xl transition-colors" />
-                <div className="relative flex items-center p-3 gap-3">
-                  <div className="flex-grow text-2xl font-black text-white/40">0.0</div>
-                  <Select defaultValue="spield">
-                    <SelectTrigger className="w-28 bg-brand-primary/10 border-brand-primary/20 text-brand-primary rounded-xl h-10 font-bold text-xs hover:bg-brand-primary/20 transition-all">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0a161e] border-white/10 text-white">
-                      <SelectItem value="spield">SPIELD</SelectItem>
-                      <SelectItem value="dao">DAO</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {/* Leverage Slider */}
-            <div className="space-y-4 pt-2">
-              <div className="flex justify-between items-center px-1">
-                <Label className="text-[10px] uppercase tracking-wider font-bold text-white/30">Leverage</Label>
-                <span className="text-[10px] font-bold text-brand-primary">2.5x</span>
-              </div>
-              <Slider defaultValue={[2.5]} max={10} step={0.1} className="py-2" />
-            </div>
-
-            {/* Trade Info */}
-            <div className="bg-white/[0.03] rounded-2xl p-4 space-y-3">
-              <div className="flex justify-between text-[10px] font-bold uppercase tracking-tight">
-                <span className="text-white/20">Price Impact</span>
-                <span className="text-green-400">0.05%</span>
-              </div>
-              <div className="flex justify-between text-[10px] font-bold uppercase tracking-tight">
-                <span className="text-white/20">Est. Network Fee</span>
-                <span className="text-white/60">$4.12</span>
-              </div>
-            </div>
-
-            <Button className="w-full h-14 rounded-2xl bg-brand-primary text-black font-black text-xs tracking-[0.2em] shadow-[0_0_30px_rgba(0,255,204,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all flex gap-2">
-              <Zap size={18} fill="currentColor" />
-              EXECUTE TRADE
+            <Button className="w-full h-8 text-[10px] font-bold uppercase tracking-widest shadow-none">
+              Swap
             </Button>
           </TabsContent>
         </Tabs>
@@ -241,20 +222,14 @@ const TradePanel = () => {
 
 const DashboardPage = () => {
   return (
-    <div className="h-screen bg-[#020609] text-white flex overflow-hidden font-body relative">
-      {/* Background Ambience */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-primary/5 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-brand-primary/5 rounded-full blur-[120px]" />
-      </div>
-
-      {/* Slim Sidebar - Inspired by Screenshot */}
-      <aside className="w-20 lg:w-24 flex flex-col items-center border-r border-white/5 py-8 gap-8 relative z-20 bg-white/[0.01] backdrop-blur-xl">
+    <div className="h-screen bg-background text-foreground flex overflow-hidden dark">
+      {/* Sidebar - Compact and Clean */}
+      <aside className="w-16 border-r border-border bg-card flex flex-col items-center py-6 gap-6 shrink-0">
         <div className="mb-4">
-          <img src={logo} alt="Logo" className="w-10 h-10 object-contain drop-shadow-[0_0_10px_#00ffcc40]" />
+          <img src={logo} alt="Logo" className="w-7 h-7 object-contain grayscale" />
         </div>
 
-        <nav className="flex flex-col gap-4">
+        <nav className="flex flex-col gap-4 flex-grow">
           <SidebarIcon icon={LayoutDashboard} active />
           <SidebarIcon icon={BarChart3} />
           <SidebarIcon icon={Wallet2} />
@@ -263,98 +238,114 @@ const DashboardPage = () => {
           <SidebarIcon icon={History} />
         </nav>
 
-        <div className="mt-auto flex flex-col gap-4">
+        <div className="flex flex-col gap-4 mt-auto">
           <SidebarIcon icon={Bell} />
           <SidebarIcon icon={Settings} />
-          <div className="w-10 h-10 rounded-full border-2 border-brand-primary/20 p-0.5 overflow-hidden group cursor-pointer hover:border-brand-primary transition-colors">
-            <div className="w-full h-full rounded-full bg-gradient-to-br from-brand-primary to-blue-500" />
+          <div className="w-8 h-8 rounded-full border border-border bg-accent flex items-center justify-center overflow-hidden hover:border-primary transition-colors cursor-pointer">
+            <div className="w-full h-full bg-gradient-to-br from-zinc-500 to-zinc-800" />
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-grow flex flex-col relative z-10">
-        {/* Top Header */}
-        <header className="h-20 flex items-center justify-between px-10">
-          <div className="relative w-80">
-            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
-            <input 
-              type="text" 
-              placeholder="Quick search..." 
-              className="w-full bg-white/5 border border-white/5 rounded-2xl py-2.5 pl-12 pr-4 text-xs font-medium focus:outline-none focus:bg-white/[0.08] transition-all"
-            />
+      <main className="flex-grow flex flex-col min-w-0">
+        <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-card/50 backdrop-blur-sm sticky top-0 z-20">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <span className="text-muted-foreground">Dashboard</span>
+            <span className="text-muted-foreground">/</span>
+            <span>Portfolio</span>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] uppercase tracking-widest font-black text-brand-primary leading-none mb-1">Mainnet</span>
-              <span className="text-xs font-bold text-white/60">Connected</span>
+          <div className="flex items-center gap-4">
+            <div className="relative w-64 hidden sm:block">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input 
+                placeholder="Search..." 
+                className="h-8 pl-9 text-xs bg-muted/50 border-input shadow-none focus-visible:ring-1"
+              />
             </div>
-            <button className="flex items-center gap-3 px-5 py-2.5 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/[0.08] transition-all group">
-              <div className="w-1.5 h-1.5 rounded-full bg-brand-primary shadow-[0_0_10px_#00ffcc]" />
-              <span className="text-xs font-black tracking-widest text-white/80">0x4F...3a92</span>
-              <ChevronDown size={14} className="text-white/20 group-hover:text-white/60 transition-all" />
-            </button>
+            <div className="h-4 w-px bg-border mx-1" />
+            <Button variant="outline" size="sm" className="h-8 gap-2 px-3 text-xs font-bold border-input bg-card shadow-none hover:bg-accent transition-all">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              0x4F...3a92
+              <ChevronDown size={12} className="text-muted-foreground" />
+            </Button>
           </div>
         </header>
 
-        {/* Scrollable Dashboard Content */}
-        <div className="flex-grow overflow-y-auto px-10 pb-10">
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-            
-            {/* Left Column: Analytics & Overview */}
-            <div className="xl:col-span-8 space-y-8">
-              <header className="py-4">
-                <h1 className="text-5xl font-display font-medium tracking-tight mb-2">Portfolio</h1>
-                <p className="text-white/40 text-sm tracking-wide font-light">Aggregated data from your connected sub-DAOs.</p>
-              </header>
-
-              {/* Metric Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                {[
-                  { label: 'Total Balance', val: '$124,502', change: '+2.4%' },
-                  { label: 'Yield Earned', val: '$12,482', change: '+14.2%' },
-                  { label: 'Active Stakes', val: '12', change: 'Stable' }
-                ].map((m) => (
-                  <div key={m.label} className="bg-white/[0.03] border border-white/5 p-6 rounded-3xl group hover:bg-white/[0.05] transition-all">
-                    <p className="text-[10px] uppercase tracking-widest font-black text-white/20 mb-3 group-hover:text-brand-primary transition-colors">{m.label}</p>
-                    <div className="flex items-end justify-between">
-                      <h2 className="text-3xl font-black tracking-tight">{m.val}</h2>
-                      <span className="text-xs font-bold text-green-400 mb-1">{m.change}</span>
-                    </div>
+        <div className="flex-grow overflow-y-auto p-4 lg:p-6">
+          <div className="max-w-7xl mx-auto space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              
+              {/* Analytics */}
+              <div className="lg:col-span-8 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-3 px-5 rounded-xl shadow-sm mb-2">
+                  <div className="space-y-0.5">
+                    <h1 className="text-xl font-display font-medium tracking-tight leading-none">Portfolio</h1>
+                    <p className="text-muted-foreground text-[9px] tracking-wide uppercase font-bold">Protocol Metrics</p>
                   </div>
-                ))}
-              </div>
-
-              {/* Large Chart Area */}
-              <div className="bg-white/[0.02] border border-white/5 rounded-[40px] p-8 min-h-[400px] flex flex-col relative overflow-hidden">
-                <div className="flex justify-between items-center relative z-10 mb-10">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 flex items-center justify-center text-brand-primary">
-                      <TrendingUp size={24} />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold font-display">Performance</h3>
-                      <p className="text-[10px] uppercase tracking-widest font-bold text-white/30">Growth over time</p>
-                    </div>
+                  <div className="flex items-center">
+                    <StatItem label="Balance" value="$124,502" change="+2.4%" />
+                    <StatItem label="Yield" value="$12,482" change="+14.2%" />
+                    <StatItem label="Active" value="12" />
                   </div>
                 </div>
 
-                <div className="flex-grow relative z-10">
-                  <CustomChart />
-                </div>
-                
-                <div className="absolute top-1/2 left-0 w-full h-px bg-white/5" />
-                <div className="absolute top-1/4 left-0 w-full h-px bg-white/[0.02]" />
-                <div className="absolute top-3/4 left-0 w-full h-px bg-white/[0.02]" />
+                <Card className="rounded-xl border-border bg-card shadow-sm overflow-hidden">
+                  <CardHeader className="p-4 pb-0">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-0.5">
+                        <CardTitle className="text-sm font-semibold">Portfolio Performance</CardTitle>
+                        <CardDescription className="text-[10px]">TVL growth over the last 30 days</CardDescription>
+                      </div>
+                      <div className="flex items-center border border-border rounded-md p-0.5 bg-muted/50">
+                        {['7D', '30D', 'ALL'].map((p, i) => (
+                          <button key={p} className={cn(
+                            "px-2 py-0.5 rounded-[3px] text-[9px] font-bold transition-all",
+                            i === 1 ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                          )}>{p}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4 pt-2">
+                    <CustomChart />
+                  </CardContent>
+                </Card>
+
+                {/* Recent Activity Mini Table */}
+                <Card className="rounded-xl border-border bg-card shadow-sm overflow-hidden">
+                   <div className="p-3 border-b border-border flex items-center justify-between">
+                      <h3 className="text-xs font-semibold">Recent Transactions</h3>
+                      <Button variant="link" size="sm" className="h-auto p-0 text-[9px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground">View All</Button>
+                   </div>
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <tbody className="divide-y divide-border">
+                          {[
+                            { id: '0x81...9f21', type: 'Stake SPIELD', amount: '+42,000 SPIELD', status: 'Done', time: '2m ago' },
+                            { id: '0xa4...1d42', type: 'Swap ASSET', amount: '-1,240 USDT', status: 'Done', time: '1h ago' },
+                          ].map((row, i) => (
+                            <tr key={i} className="hover:bg-muted/50 transition-colors">
+                              <td className="px-4 py-2 text-[9px] font-mono text-muted-foreground">{row.id}</td>
+                              <td className="px-4 py-2 text-[10px] font-semibold">{row.type}</td>
+                              <td className="px-4 py-2 text-[10px] font-bold text-foreground">{row.amount}</td>
+                              <td className="px-4 py-2 text-[9px] uppercase font-bold text-emerald-500">{row.status}</td>
+                              <td className="px-4 py-2 text-[10px] text-right text-muted-foreground">{row.time}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                   </div>
+                </Card>
               </div>
-            </div>
 
-            {/* Right Column: Trade Panel */}
-            <div className="xl:col-span-4 h-full pt-4 sticky top-0">
-              <TradePanel />
-            </div>
+              {/* Sidebar Panel */}
+              <div className="lg:col-span-4 h-full">
+                <TradePanel />
+              </div>
 
+            </div>
           </div>
         </div>
       </main>
