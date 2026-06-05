@@ -1,0 +1,175 @@
+import { CONTRACTS, VAULT_DEPLOYED } from './config';
+import { addr, i128, readContract, toBaseUnits, u64, writeContract } from './soroban';
+
+/**
+ * Typed client for the Fixed-Rate Vault — the flagship "lock X% fixed" product.
+ *
+ * The vault sits on top of the wrapper (PT-passthrough): a user deposits USDC and
+ * receives a `FixedReceipt` worth a known `payout` (principal + a fixed coupon) at
+ * maturity, backed 1:1 by PT the vault holds. Reads (`quote`, `stats`, receipts) are
+ * free simulations; writes (`deposit`, `redeem`, `harvest`) need the connected wallet.
+ *
+ * Every entry point is a no-op when the vault isn't deployed yet (`VAULT_DEPLOYED`
+ * is false), so the dashboard can render a "coming soon" state without throwing.
+ */
+
+/** A single fixed-rate receipt (mirrors the contract's `FixedReceipt`). */
+export type Receipt = {
+  receiptId: number;
+  /** USDC principal deposited, base units. */
+  principal: bigint;
+  /** USDC guaranteed at maturity (principal + fixed coupon), base units. */
+  payout: bigint;
+  /** The fixed APR locked in, basis points. */
+  rateBps: number;
+  /** Maturity, unix seconds. */
+  maturity: number;
+  open: boolean;
+};
+
+/** The vault's health snapshot (mirrors the contract's `VaultStats`). */
+export type VaultStats = {
+  /** PT the vault holds (its bond inventory), base units. */
+  ptInventory: bigint;
+  /** YT the vault holds (the variable leg), base units. */
+  ytInventory: bigint;
+  /** Sum of payouts across open receipts, base units. */
+  totalLiability: bigint;
+  /** Spare PT available to back new coupons (`ptInventory - totalLiability`), base units. */
+  couponCapacity: bigint;
+  /** Current quoted fixed APR, basis points. */
+  rateBps: number;
+  /** Maturity, unix seconds. */
+  maturity: number;
+};
+
+/** A live deposit quote (mirrors the contract's `quote` tuple). */
+export type Quote = {
+  /** USDC the deposit would lock in at maturity, base units. */
+  payout: bigint;
+  /** The fixed coupon portion, base units. */
+  coupon: bigint;
+  /** The fixed APR, basis points. */
+  rateBps: number;
+};
+
+const toBig = (v: unknown): bigint => {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(Math.trunc(v));
+  if (typeof v === 'string') return BigInt(v);
+  return 0n;
+};
+
+const toNum = (v: unknown): number => Number(toBig(v));
+
+// ---------------------------------------------------------------- reads
+
+/** Quote the payout a deposit of `amount` (human string) would lock in right now. */
+export const quote = async (amount: string): Promise<Quote | null> => {
+  if (!VAULT_DEPLOYED) return null;
+  try {
+    const tuple = await readContract<unknown[]>(CONTRACTS.vault, 'quote', [
+      i128(toBaseUnits(amount)),
+    ]);
+    const [payout, coupon, rateBps] = tuple ?? [];
+    return { payout: toBig(payout), coupon: toBig(coupon), rateBps: toNum(rateBps) };
+  } catch {
+    return null;
+  }
+};
+
+/** Read the vault's health snapshot. */
+export const getVaultStats = async (): Promise<VaultStats | null> => {
+  if (!VAULT_DEPLOYED) return null;
+  try {
+    const raw = await readContract<Record<string, unknown>>(CONTRACTS.vault, 'stats');
+    if (!raw) return null;
+    return {
+      ptInventory: toBig(raw.pt_inventory),
+      ytInventory: toBig(raw.yt_inventory),
+      totalLiability: toBig(raw.total_liability),
+      couponCapacity: toBig(raw.coupon_capacity),
+      rateBps: toNum(raw.rate_bps),
+      maturity: toNum(raw.maturity),
+    };
+  } catch {
+    return null;
+  }
+};
+
+/** The current fixed APR quoted (basis points). */
+export const getVaultRateBps = async (): Promise<number> => {
+  if (!VAULT_DEPLOYED) return 0;
+  try {
+    return toNum(await readContract<unknown>(CONTRACTS.vault, 'rate_bps'));
+  } catch {
+    return 0;
+  }
+};
+
+/** Read a single receipt by id. Returns `null` if it doesn't exist. */
+export const getReceipt = async (receiptId: number): Promise<Receipt | null> => {
+  if (!VAULT_DEPLOYED) return null;
+  try {
+    const raw = await readContract<Record<string, unknown>>(CONTRACTS.vault, 'get_receipt', [
+      u64(receiptId),
+    ]);
+    if (!raw) return null;
+    return {
+      receiptId,
+      principal: toBig(raw.principal),
+      payout: toBig(raw.payout),
+      rateBps: toNum(raw.rate_bps),
+      maturity: toNum(raw.maturity),
+      open: Boolean(raw.open),
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Scan receipt ids from 0 upward, returning the open ones owned by `owner`. Like the
+ * wrapper's position scan, the contract intentionally doesn't keep an owner→receipts
+ * index on-chain (unbounded iteration), so the dashboard scans — fine for a testnet demo.
+ */
+export const getOwnerReceipts = async (owner: string, maxScan = 64): Promise<Receipt[]> => {
+  if (!VAULT_DEPLOYED) return [];
+  const receipts: Receipt[] = [];
+  let misses = 0;
+  for (let id = 0; id < maxScan && misses < 5; id++) {
+    let raw: Record<string, unknown> | null;
+    try {
+      raw = await readContract<Record<string, unknown>>(CONTRACTS.vault, 'get_receipt', [u64(id)]);
+    } catch {
+      misses += 1;
+      continue;
+    }
+    misses = 0;
+    if (!raw || String(raw.owner) !== owner) continue;
+    if (!raw.open) continue;
+    receipts.push({
+      receiptId: id,
+      principal: toBig(raw.principal),
+      payout: toBig(raw.payout),
+      rateBps: toNum(raw.rate_bps),
+      maturity: toNum(raw.maturity),
+      open: true,
+    });
+  }
+  return receipts;
+};
+
+// ---------------------------------------------------------------- writes
+
+/** Deposit `amount` USDC (human string) and lock the current fixed rate. */
+export const deposit = (wallet: string, amount: string) =>
+  writeContract(wallet, CONTRACTS.vault, 'deposit', [addr(wallet), i128(toBaseUnits(amount))]);
+
+/** Redeem a matured receipt for its full fixed payout. */
+export const redeem = (wallet: string, receiptId: number) =>
+  writeContract(wallet, CONTRACTS.vault, 'redeem', [u64(receiptId)]);
+
+/** Harvest the vault's accrued YT yield into fresh PT capacity (permissionless). */
+export const harvest = (wallet: string) =>
+  writeContract(wallet, CONTRACTS.vault, 'harvest', []);

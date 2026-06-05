@@ -68,6 +68,36 @@ pub fn yield_amount(
     mul_div_floor(env, shares, delta, SCALAR_12)
 }
 
+/// Seconds in a (non-leap) year, used to pro-rate an annual fixed rate over a deposit's term.
+pub const SECONDS_PER_YEAR: i128 = 365 * 24 * 60 * 60;
+
+/// The fixed coupon the Fixed-Rate Vault owes on `principal` for a deposit held `term_secs` at a
+/// fixed annual `rate_bps` (basis points), using simple (non-compounding) interest:
+///
+/// ```text
+/// coupon = principal * rate_bps * term_secs / (10_000 * SECONDS_PER_YEAR)
+/// ```
+///
+/// Floored, and computed via `mul_div_floor` (i256 intermediate) so the product can never
+/// overflow. A zero rate or zero term yields a zero coupon (defence-in-depth — the vault rejects
+/// past-maturity deposits separately).
+pub fn coupon_amount(
+    env: &Env,
+    principal: i128,
+    rate_bps: u32,
+    term_secs: u64,
+) -> Result<i128, Error> {
+    if principal < 0 {
+        return Err(Error::InvalidAmount);
+    }
+    if rate_bps == 0 || term_secs == 0 {
+        return Ok(0);
+    }
+    // Two floored mul_divs: scale by the annual rate, then pro-rate by the term fraction.
+    let annual = mul_div_floor(env, principal, rate_bps as i128, 10_000)?;
+    mul_div_floor(env, annual, term_secs as i128, SECONDS_PER_YEAR)
+}
+
 /// Defence-in-depth sanity bound on a freshly-read `b_rate`. Blend's state is trusted, but a
 /// catastrophically wrong read (oracle/host bug, or a malicious strategy address) should not
 /// be allowed to mint phantom value. We require:

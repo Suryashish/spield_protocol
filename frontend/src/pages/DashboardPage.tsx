@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck, Coins, TrendingUp, Lock } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -10,12 +10,15 @@ import StatsGrid from '@/components/dashboard/sections/StatsGrid';
 import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
 import ActivityFeed from '@/components/dashboard/sections/ActivityFeed';
 import DepositPanel from '@/components/dashboard/sections/DepositPanel';
+import VaultPanel from '@/components/dashboard/sections/VaultPanel';
+import ReceiptsPanel from '@/components/dashboard/sections/ReceiptsPanel';
 import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
 import { navById } from '@/components/dashboard/data';
 
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
+import { NavProvider } from '@/context/NavContext';
 import { NETWORK } from '@/lib/config';
 
 const NetworkBanner = () => {
@@ -71,6 +74,20 @@ const DepositSection = () => (
   </div>
 );
 
+const VaultSection = () => (
+  <div className="space-y-6">
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+      <div className="order-2 lg:order-1">
+        <HowVaultWorks />
+      </div>
+      <div className="order-1 lg:order-2">
+        <VaultPanel />
+      </div>
+    </div>
+    <ReceiptsPanel />
+  </div>
+);
+
 const PositionsSection = () => (
   <>
     <StatsGrid />
@@ -89,6 +106,7 @@ const ActivitySection = () => <ActivityFeed />;
 
 const SECTIONS: Record<string, () => React.ReactNode> = {
   overview: OverviewSection,
+  vault: VaultSection,
   deposit: DepositSection,
   positions: PositionsSection,
   solvency: SolvencySection,
@@ -109,6 +127,40 @@ const HowItWorks = () => {
       <h3 className="text-base font-semibold">How a deposit works</h3>
       <p className="mt-1 text-sm text-muted-foreground">
         Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token.
+      </p>
+      <div className="mt-4 space-y-3">
+        {steps.map((s) => {
+          const Icon = s.icon;
+          return (
+            <div key={s.title} className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
+                <Icon size={15} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{s.title}</p>
+                <p className="text-xs text-muted-foreground">{s.body}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const HowVaultWorks = () => {
+  const steps = [
+    { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC to the Fixed-Rate Vault — no need to understand PT or YT.' },
+    { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a guaranteed payout (principal + a fixed coupon) at maturity.' },
+    { icon: ShieldCheck, title: '3 · Backed by PT', body: 'The vault holds PT 1:1 against every payout, so your fixed return is solvent by construction.' },
+    { icon: TrendingUp, title: '4 · Redeem at maturity', body: 'Redeem the receipt for your exact locked payout. The coupon is funded by the vault’s real Blend yield.' },
+  ];
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <h3 className="text-base font-semibold">How the Fixed-Rate Vault works</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT
+        machinery is hidden underneath.
       </p>
       <div className="mt-4 space-y-3">
         {steps.map((s) => {
@@ -168,46 +220,53 @@ const DashboardPage = () => {
   const nav = navById(activeNav);
   const Section = SECTIONS[nav.id] ?? OverviewSection;
 
+  const navValue = useMemo(
+    () => ({ active: activeNav, navigate: setActiveNav }),
+    [activeNav],
+  );
+
   return (
-    <div className="dark flex h-screen overflow-hidden bg-background text-foreground">
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={setCollapsed}
-        activeNav={activeNav}
-        onNavChange={setActiveNav}
-      />
+    <NavProvider value={navValue}>
+      <div className="dark flex h-screen overflow-hidden bg-background text-foreground">
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={setCollapsed}
+          activeNav={activeNav}
+          onNavChange={setActiveNav}
+        />
 
-      <main className="flex min-w-0 grow flex-col">
-        <Header section={nav.label} />
+        <main className="flex min-w-0 grow flex-col">
+          <Header section={nav.label} />
 
-        <div className="grow overflow-y-auto p-4 lg:p-6">
-          <div className="mx-auto max-w-7xl space-y-6">
-            {/* Page title */}
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div className="space-y-1">
-                <h1 className="font-display text-2xl font-medium tracking-tight">{nav.title}</h1>
-                <p className="text-sm text-muted-foreground">{nav.subtitle}</p>
+          <div className="grow overflow-y-auto p-4 lg:p-6">
+            <div className="mx-auto max-w-7xl space-y-6">
+              {/* Page title */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div className="space-y-1">
+                  <h1 className="font-display text-2xl font-medium tracking-tight">{nav.title}</h1>
+                  <p className="text-sm text-muted-foreground">{nav.subtitle}</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refresh()}
+                  disabled={refreshing}
+                  className="h-9 gap-2 self-start text-sm font-semibold sm:self-auto"
+                >
+                  <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
+                  Refresh
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refresh()}
-                disabled={refreshing}
-                className="h-9 gap-2 self-start text-sm font-semibold sm:self-auto"
-              >
-                <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
-                Refresh
-              </Button>
+
+              <NetworkBanner />
+              <PausedBanner />
+
+              <Section />
             </div>
-
-            <NetworkBanner />
-            <PausedBanner />
-
-            <Section />
           </div>
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </NavProvider>
   );
 };
 

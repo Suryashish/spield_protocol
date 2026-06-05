@@ -22,10 +22,18 @@ export const NETWORK = {
 
 /** Deployed Spield contract + asset addresses (testnet). */
 export const CONTRACTS = {
-  /** The tokenization engine — the only contract the dashboard calls directly. */
+  /** The tokenization engine — the wrapper the dashboard calls for raw PT/YT flows. */
   wrapper: 'CB32IGGJ4PKLUBMXJD2VSS3U55XX2U4AQCSKA6QPFGGWZDQBJXMIYZU5',
   /** Blend strategy adapter (read indirectly via the wrapper). */
   strategy: 'CBYFCJVZFGX7BIUQMWQ4WXOYC6HZYF7RLC3ZENY5GG6TL37QY5K5KMNA',
+  /**
+   * Fixed-Rate Vault — the flagship "deposit USDC, lock a fixed %" product (PT-passthrough).
+   * Sits on top of the wrapper. Deployed + initialized + seeded + exercised on testnet 2026-06-05
+   * (5% fixed APR, 20% ceiling), inheriting the wrapper's PT/YT and maturity. It holds real PT
+   * coupon capacity, so `deposit` works end-to-end (proven on-chain — receipt #0 for a 10.0408 USDC
+   * fixed payout). See `contract/spield/TESTNET.md`.
+   */
+  vault: 'CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZPSFZFK',
   /** Principal Token SAC — the fixed-rate bond leg. */
   pt: 'CAIC4Z6SUN4QGLIQ3CFS4447GMTBV3WJHWZLIDDAZFMUYWZXOIBPV4G2',
   /** Yield Token SAC — the variable yield leg. */
@@ -33,6 +41,9 @@ export const CONTRACTS = {
   /** The underlying deposit asset: Blend testnet USDC (SAC). */
   usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
 } as const;
+
+/** Whether the Fixed-Rate Vault has been deployed + wired (gates the vault UI). */
+export const VAULT_DEPLOYED = CONTRACTS.vault.length > 0;
 
 /** USDC, PT and YT all use 7 decimals (Stellar standard / Blend testnet USDC). */
 export const DECIMALS = 7;

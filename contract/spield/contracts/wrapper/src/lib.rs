@@ -339,6 +339,12 @@ impl Wrapper {
         storage::get_yt(&env)
     }
 
+    /// The underlying deposit/settlement asset (USDC SAC), cached from the strategy at init.
+    /// Lets contracts built on top of the wrapper (e.g. the Fixed-Rate Vault) discover it.
+    pub fn underlying(env: Env) -> Address {
+        storage::get_underlying(&env)
+    }
+
     // ---------- admin / circuit breaker ----------
 
     pub fn pause(env: Env) {

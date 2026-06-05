@@ -58,3 +58,50 @@ pub struct RateBound {
     /// Max allowed per-read increase, in basis points of `last_rate`.
     pub max_jump_bps: u32,
 }
+
+/// A single Fixed-Rate Vault deposit (plan §11.2 / §7.5 — the flagship "lock X% fixed" product).
+///
+/// PT-passthrough model: the user deposits `principal` USDC and is promised exactly `payout`
+/// USDC at maturity (`payout = principal + coupon`, the coupon being the fixed return). The
+/// vault backs every receipt with **PT it actually holds** (each PT redeems 1:1 at maturity),
+/// so the fixed rate is solvent by construction — the same rigor as the wrapper's invariant.
+/// There is no per-user yield accounting here: the user's outcome is fixed and known at deposit.
+#[derive(Clone)]
+#[contracttype]
+pub struct FixedReceipt {
+    /// Owner of this receipt (the only account that may redeem it).
+    pub owner: Address,
+    /// USDC principal the user deposited.
+    pub principal: i128,
+    /// USDC the user is guaranteed at maturity = principal + fixed coupon. Backed by PT the
+    /// vault holds 1:1, so it is always redeemable.
+    pub payout: i128,
+    /// The fixed APR quoted for this receipt, in basis points (for display / events only — the
+    /// economically binding figure is `payout`).
+    pub rate_bps: u32,
+    /// Unix seconds at which `payout` becomes redeemable (the vault's maturity).
+    pub maturity: u64,
+    /// False once redeemed.
+    pub open: bool,
+}
+
+/// Read-only snapshot of the Fixed-Rate Vault's health, for the frontend / solvency dashboard.
+/// The vault is solvent iff `pt_inventory >= total_liability` (it holds enough PT to honor every
+/// outstanding receipt at par).
+#[derive(Clone)]
+#[contracttype]
+pub struct VaultStats {
+    /// PT the vault currently holds (its bond inventory). Each unit redeems 1:1 at maturity.
+    pub pt_inventory: i128,
+    /// YT the vault currently holds (the variable leg whose yield funds future coupons).
+    pub yt_inventory: i128,
+    /// Sum of `payout` across all open receipts — the vault's total obligation at maturity.
+    pub total_liability: i128,
+    /// `pt_inventory - total_liability`: spare PT available to back new coupons (the headroom
+    /// that lets the vault quote a fixed rate). Negative would mean insolvency (never allowed).
+    pub coupon_capacity: i128,
+    /// The current fixed APR the vault quotes, in basis points.
+    pub rate_bps: u32,
+    /// The vault's maturity (unix seconds).
+    pub maturity: u64,
+}

@@ -3,10 +3,12 @@ import {
   Coins,
   Layers,
   Loader2,
+  Lock,
   RefreshCw,
   Sparkles,
   Unlock,
   Combine,
+  ArrowRight,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -14,9 +16,11 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
+import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { claimYield, combineAndRedeem, redeemPt, type PositionValue } from '@/lib/spield';
 import { formatAmount, formatUsd, fromBaseUnits } from '@/lib/soroban';
+import { VAULT_DEPLOYED } from '@/lib/config';
 
 /** Whether the protocol-wide maturity has passed (PT redeemable 1:1). */
 const isMatured = (maturity: number | null) =>
@@ -135,6 +139,7 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
 
 const PositionsPanel = () => {
   const { isConnected } = useWallet();
+  const { navigate } = useNav();
   const { positions, maturity, loading, refreshing, refresh } = useProtocol();
   const [manualRefresh, setManualRefresh] = useState(false);
   const matured = isMatured(maturity);
@@ -168,6 +173,24 @@ const PositionsPanel = () => {
         </Button>
       </div>
 
+      {/* Clarify scope: this tab is the RAW PT/YT door only. Fixed Vault deposits are held by the
+          vault contract (not your wallet), so they never appear here — they live under their own
+          tab as receipts. Stated up-front so a vault depositor isn't confused by an empty list. */}
+      {VAULT_DEPLOYED && (
+        <div className="border-b border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+          This shows your raw <span className="font-semibold text-foreground">PT/YT positions</span>{' '}
+          from the Deposit page. Fixed Vault deposits appear under{' '}
+          <button
+            type="button"
+            onClick={() => navigate('vault')}
+            className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+          >
+            Fixed Vault <ArrowRight size={11} />
+          </button>{' '}
+          as receipts.
+        </div>
+      )}
+
       <div className="space-y-3 p-4">
         {!isConnected ? (
           <EmptyState
@@ -186,6 +209,19 @@ const PositionsPanel = () => {
             icon={<Layers size={22} />}
             title="No open positions"
             body="Deposit USDC to mint your first PT + YT position."
+            action={
+              VAULT_DEPLOYED ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('vault')}
+                  className="mt-1 inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
+                >
+                  <Lock size={12} className="text-primary" />
+                  Deposited in the Fixed Vault? See it under Fixed Vault
+                  <ArrowRight size={12} />
+                </button>
+              ) : undefined
+            }
           />
         ) : (
           positions.map((pos) => <PositionRow key={pos.positionId} pos={pos} matured={matured} />)
@@ -199,10 +235,12 @@ const EmptyState = ({
   icon,
   title,
   body,
+  action,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
+  action?: React.ReactNode;
 }) => (
   <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-12 text-center">
     <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
@@ -210,6 +248,7 @@ const EmptyState = ({
     </div>
     <p className="text-sm font-semibold">{title}</p>
     <p className="max-w-xs text-xs text-muted-foreground">{body}</p>
+    {action}
   </div>
 );
 

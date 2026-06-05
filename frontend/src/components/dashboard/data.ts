@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Coins,
+  Lock,
   Layers,
   ShieldCheck,
   History,
@@ -34,6 +35,13 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'overview',
     title: 'Overview',
     subtitle: 'Your portfolio at a glance — balances, performance and solvency.',
+  },
+  {
+    icon: Lock,
+    label: 'Fixed Vault',
+    id: 'vault',
+    title: 'Fixed-Rate Vault',
+    subtitle: 'Deposit USDC and lock a guaranteed fixed return until maturity.',
   },
   {
     icon: Coins,

@@ -42,4 +42,23 @@ pub enum Error {
     NoStrategyPosition = 41,
     /// Withdrawal from Blend returned less underlying than required (liquidity edge case).
     WithdrawShortfall = 42,
+
+    // --- Fixed-Rate Vault (60–79) ---
+    /// The referenced fixed-rate receipt id does not exist.
+    ReceiptNotFound = 60,
+    /// Caller does not own the referenced receipt.
+    NotReceiptOwner = 61,
+    /// `redeem` called before the vault's maturity.
+    VaultNotMatured = 62,
+    /// The receipt has already been redeemed.
+    ReceiptClosed = 63,
+    /// The vault lacks enough spare PT (coupon capacity) to back the coupon for this deposit.
+    /// Refusing keeps the vault solvent by construction (the SCF #3 bar): a fixed coupon is only
+    /// ever promised when the vault already holds the PT to honor it.
+    InsufficientCapacity = 64,
+    /// The quoted fixed rate is out of the allowed range (e.g. above the admin-set ceiling).
+    RateNotAllowed = 65,
+    /// Deposit rejected because the market has already matured (no time left to earn the coupon,
+    /// and PT can no longer be accumulated). Vault maturity is inherited from the wrapper.
+    VaultExpired = 66,
 }

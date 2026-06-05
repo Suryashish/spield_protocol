@@ -18,13 +18,15 @@ pub mod errors;
 pub mod math;
 pub mod strategy;
 pub mod types;
+pub mod wrapper;
 
 #[cfg(test)]
 mod test;
 
 pub use errors::Error;
 pub use strategy::YieldStrategyClient;
-pub use types::{Position, RateBound};
+pub use types::{FixedReceipt, Position, RateBound, VaultStats};
+pub use wrapper::WrapperContractClient;
 
 /// Fixed-point scalar for exchange rates — **12 decimals**, identical to Blend v2's
 /// `b_rate`/`d_rate` scale (`SCALAR_12` in `blend-contracts-v2/pool/src/constants.rs`).
