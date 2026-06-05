@@ -43,6 +43,21 @@ VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"
 # (you can seed later via `vault.seed`). Default 5 USDC of capacity for the demo.
 VAULT_SEED_AMOUNT="${VAULT_SEED_AMOUNT:-50000000}"
 
+# --- Market (PT/USDC time-decay AMM) config ---
+# Swap fee in basis points (30 = 0.30%) and the hard ceiling the admin may ever set.
+MARKET_FEE_BPS="${MARKET_FEE_BPS:-30}"
+MARKET_MAX_FEE_BPS="${MARKET_MAX_FEE_BPS:-100}"
+# Curve params (SCALAR_12 = 1e12 fixed point). The anchor is PT's price at a balanced (50/50) pool;
+# we anchor at PAR (1.0 = 1e12) so PT price converges to par at maturity. The scalar root sets curve
+# steepness (rateScalar = scalarRoot / yearsToMaturity); 40·SCALAR_12 gives bounded price impact.
+MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-40000000000000}"  # 40 * 1e12
+MARKET_RATE_ANCHOR="${MARKET_RATE_ANCHOR:-1000000000000}"   # 1.0 * 1e12 (par)
+# Initial liquidity to seed the pool (USDC base units, 7 decimals), supplied to BOTH sides. The
+# deployer mints this much PT via the wrapper, then adds (PT_in = USDC_in = this) as liquidity, so
+# it needs ~2x this in USDC (one part minted into PT, one part as the pool's USDC). 0 = skip seeding
+# (add liquidity later via market.add_liquidity). Default 5 USDC per side.
+MARKET_SEED_AMOUNT="${MARKET_SEED_AMOUNT:-50000000}"
+
 ADMIN_ADDR=$(stellar keys address "$SOURCE")
 echo "==> Deployer ($SOURCE): $ADMIN_ADDR"
 echo "==> Blend pool:  $BLEND_POOL"
@@ -50,18 +65,19 @@ echo "==> USDC SAC:    $USDC_SAC"
 echo "==> Maturity:    $MATURITY ($(date -d @"$MATURITY" 2>/dev/null || echo "+30d"))"
 echo
 
-echo "==> [1/7] Building WASMs..."
+echo "==> [1/8] Building WASMs..."
 stellar contract build >/dev/null
 WASM_DIR="target/wasm32v1-none/release"
 STRAT_WASM="$WASM_DIR/spield_strategy.wasm"
 WRAP_WASM="$WASM_DIR/spield_wrapper.wasm"
 VAULT_WASM="$WASM_DIR/spield_vault.wasm"
+MARKET_WASM="$WASM_DIR/spield_market.wasm"
 
-echo "==> [2/7] Deploying the wrapper contract (need its address to admin PT/YT)..."
+echo "==> [2/8] Deploying the wrapper contract (need its address to admin PT/YT)..."
 WRAPPER=$(stellar contract deploy --wasm "$WRAP_WASM" --source-account "$SOURCE" --network "$NETWORK")
 echo "    wrapper = $WRAPPER"
 
-echo "==> [3/7] Creating PT and YT assets + SACs (issued by $ISSUER), handing admin to the wrapper..."
+echo "==> [3/8] Creating PT and YT assets + SACs (issued by $ISSUER), handing admin to the wrapper..."
 # PT/YT are classic assets issued by a DEDICATED issuer (not a user), wrapped as SACs; we then
 # transfer SAC admin to the wrapper so only the wrapper mints/burns. Issuing from a separate
 # account is required so that users (incl. the deployer) can actually hold PT/YT.
@@ -90,7 +106,7 @@ stellar tx new change-trust --source-account "$SOURCE" --network "$NETWORK" --li
 stellar tx new change-trust --source-account "$SOURCE" --network "$NETWORK" --line "$YT_ASSET" >/dev/null 2>&1 || true
 echo "    trustlines set"
 
-echo "==> [4/7] Deploying + initializing the Blend strategy adapter..."
+echo "==> [4/8] Deploying + initializing the Blend strategy adapter..."
 STRATEGY=$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" --network "$NETWORK")
 echo "    strategy = $STRATEGY"
 stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" --network "$NETWORK" \
@@ -102,7 +118,7 @@ stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" --network "$
      --max_jump_bps "$MAX_JUMP_BPS" >/dev/null
 echo "    strategy initialized"
 
-echo "==> [5/7] Initializing the wrapper..."
+echo "==> [5/8] Initializing the wrapper..."
 stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" --network "$NETWORK" \
   -- initialize \
      --admin "$ADMIN_ADDR" \
@@ -112,7 +128,7 @@ stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" --network "$N
      --maturity "$MATURITY" >/dev/null
 echo "    wrapper initialized"
 
-echo "==> [6/7] Deploying + initializing the Fixed-Rate Vault..."
+echo "==> [6/8] Deploying + initializing the Fixed-Rate Vault..."
 # The vault sits on top of the wrapper: it inherits PT/YT/underlying/maturity from it on init,
 # so we only pass the wrapper address + the fixed-rate config.
 VAULT=$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" --network "$NETWORK")
@@ -139,13 +155,49 @@ else
   echo "==> [6b] Skipping vault seed (VAULT_SEED_AMOUNT=0); seed later via vault.seed."
 fi
 
-echo "==> [7/7] Done. Summary:"
+echo "==> [7/8] Deploying + initializing the Market (PT/USDC time-decay AMM)..."
+# The market trades the wrapper's PT against USDC on the Pendle-style log curve. It's told the PT
+# SAC, USDC SAC and maturity explicitly (they must match the wrapper market it sits on), plus the
+# fee + curve params. Like the vault, it's a contract holder of the PT/USDC SACs (no trustline).
+MARKET=$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" --network "$NETWORK")
+echo "    market = $MARKET"
+stellar contract invoke --id "$MARKET" --source-account "$SOURCE" --network "$NETWORK" \
+  -- initialize \
+     --admin "$ADMIN_ADDR" \
+     --pt "$PT_SAC" \
+     --usdc "$USDC_SAC" \
+     --maturity "$MATURITY" \
+     --fee_bps "$MARKET_FEE_BPS" \
+     --max_fee_bps "$MARKET_MAX_FEE_BPS" \
+     --scalar_root "$MARKET_SCALAR_ROOT" \
+     --rate_anchor "$MARKET_RATE_ANCHOR" >/dev/null
+echo "    market initialized (fee=${MARKET_FEE_BPS}bps, anchor=par, root=${MARKET_SCALAR_ROOT})"
+
+# Seed initial liquidity: mint MARKET_SEED_AMOUNT PT via the wrapper to the deployer, then add it
+# (PT side) together with an equal USDC amount (the other side) as the first liquidity. This opens
+# the pool at proportion 0.5 (PT price = anchor = par). Needs ~2x the seed in deployer USDC.
+if [ "$MARKET_SEED_AMOUNT" -gt 0 ]; then
+  echo "==> [7b] Seeding the market with $MARKET_SEED_AMOUNT USDC base units of liquidity per side..."
+  # 1) Mint PT (+YT) to the deployer so they hold the PT to add. (Deployer already has PT/YT
+  #    trustlines from step [3b].)
+  stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" --network "$NETWORK" \
+    -- mint --user "$ADMIN_ADDR" --amount "$MARKET_SEED_AMOUNT" >/dev/null
+  # 2) Add liquidity: equal PT + USDC at the par anchor → opens a balanced pool.
+  stellar contract invoke --id "$MARKET" --source-account "$SOURCE" --network "$NETWORK" \
+    -- add_liquidity --lp "$ADMIN_ADDR" --pt_in "$MARKET_SEED_AMOUNT" --usdc_in "$MARKET_SEED_AMOUNT" >/dev/null
+  echo "    market seeded (balanced PT/USDC pool opened at par)"
+else
+  echo "==> [7b] Skipping market seed (MARKET_SEED_AMOUNT=0); add liquidity later via market.add_liquidity."
+fi
+
+echo "==> [8/8] Done. Summary:"
 cat <<EOF
 
   ┌─ Spield v2 deployed on $NETWORK ────────────────────────────────
   │ wrapper   = $WRAPPER
   │ strategy  = $STRATEGY
   │ vault     = $VAULT
+  │ market    = $MARKET
   │ PT (SAC)  = $PT_SAC
   │ YT (SAC)  = $YT_SAC
   │ Blend pool= $BLEND_POOL
@@ -156,6 +208,7 @@ Frontend: paste these into frontend/src/lib/config.ts (CONTRACTS):
   wrapper: '$WRAPPER',
   strategy: '$STRATEGY',
   vault: '$VAULT',
+  market: '$MARKET',
   pt: '$PT_SAC',
   yt: '$YT_SAC',
   usdc: '$USDC_SAC',
@@ -195,4 +248,28 @@ stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK 
 # After maturity ($MATURITY), redeem the receipt for principal + the fixed coupon:
 stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\
   -- redeem --receipt_id 0
+
+Exercise the Market (PT/USDC time-decay AMM):
+
+# Pool reserves (pt, usdc) and the current PT price + implied APY (the headline number):
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- reserves
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- pt_price
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- implied_apy
+
+# Quote buying PT with 1 USDC (the "Earn Fixed" flow) / selling 1 PT for USDC:
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- quote_usdc_for_pt --usdc_in 10000000
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- quote_pt_for_usdc --pt_in 10000000
+
+# Buy PT with 1 USDC (min_pt_out=0 to skip slippage guard in the demo):
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- swap_exact_usdc_for_pt --trader $ADMIN_ADDR --usdc_in 10000000 --min_pt_out 0
+
+# Add more liquidity (needs PT in your wallet first; mint via the wrapper):
+stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
+  -- add_liquidity --lp $ADMIN_ADDR --pt_in 10000000 --usdc_in 10000000
 EOF

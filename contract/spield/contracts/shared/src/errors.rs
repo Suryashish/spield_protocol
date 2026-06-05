@@ -61,4 +61,19 @@ pub enum Error {
     /// Deposit rejected because the market has already matured (no time left to earn the coupon,
     /// and PT can no longer be accumulated). Vault maturity is inherited from the wrapper.
     VaultExpired = 66,
+
+    // --- Market / Yield AMM (80–99) ---
+    /// A swap/liquidity op would empty a pool reserve (proportion must stay strictly in (0,1)).
+    InsufficientLiquidity = 80,
+    /// The realized output was below the caller's `min_out` slippage guard — reverted.
+    SlippageExceeded = 81,
+    /// Trading attempted at/after the market's maturity (after maturity PT just redeems 1:1).
+    MarketExpired = 82,
+    /// `remove_liquidity` for more LP shares than the caller holds (or than exist).
+    InsufficientShares = 83,
+    /// `add_liquidity` deposit ratio doesn't match the pool's current reserves (would mis-price
+    /// existing LPs). The caller must supply PT and USDC in the pool's current proportion.
+    ImbalancedLiquidity = 84,
+    /// The swap fee (bps) exceeds the on-chain ceiling set at init (a guardrail).
+    FeeNotAllowed = 85,
 }

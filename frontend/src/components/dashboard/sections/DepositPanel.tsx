@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, ArrowRight } from 'lucide-react';
+import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, ArrowRight, TrendingUp } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,7 @@ import { useTxAction } from '@/lib/useTxAction';
 import { mint } from '@/lib/spield';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
 import { setupTrustlines } from '@/lib/horizon';
-import { NETWORK, VAULT_DEPLOYED } from '@/lib/config';
+import { NETWORK, VAULT_DEPLOYED, MARKET_DEPLOYED } from '@/lib/config';
 
 /**
  * Deposit panel — the protocol's primary action.
@@ -202,6 +202,24 @@ const DepositPanel = () => {
             </span>
             <span className="flex shrink-0 items-center gap-1 font-semibold text-primary">
               Fixed Vault <ArrowRight size={13} />
+            </span>
+          </button>
+        )}
+
+        {/* Cross-link: already hold PT/YT? Trade them or LP on the Markets AMM. */}
+        {MARKET_DEPLOYED && (
+          <button
+            type="button"
+            onClick={() => navigate('markets')}
+            className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-primary/5"
+          >
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <TrendingUp size={13} className="shrink-0 text-emerald-500" />
+              Already hold PT? <span className="font-semibold text-foreground">Trade it</span> or earn
+              fees by providing liquidity.
+            </span>
+            <span className="flex shrink-0 items-center gap-1 font-semibold text-primary">
+              Markets <ArrowRight size={13} />
             </span>
           </button>
         )}

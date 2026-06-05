@@ -14,6 +14,7 @@
 //! * **The `YieldStrategy` trait** — the wrapper never hard-codes Blend; it talks to whatever
 //!   address implements this interface (Blend day 1; DeFindex / tokenized-RWA later).
 
+pub mod amm_math;
 pub mod errors;
 pub mod math;
 pub mod strategy;
@@ -22,6 +23,9 @@ pub mod wrapper;
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod amm_math_test;
 
 pub use errors::Error;
 pub use strategy::YieldStrategyClient;

@@ -14,6 +14,7 @@ Deployed and exercised on testnet against the real Blend TestnetV2 pool:
 | **wrapper** | `CB32IGGJ4PKLUBMXJD2VSS3U55XX2U4AQCSKA6QPFGGWZDQBJXMIYZU5` |
 | strategy (Blend adapter) | `CBYFCJVZFGX7BIUQMWQ4WXOYC6HZYF7RLC3ZENY5GG6TL37QY5K5KMNA` |
 | **vault (Fixed-Rate Vault)** | `CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZPSFZFK` |
+| **market (PT/USDC AMM)** | `CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2` |
 | PT (SAC) | `CAIC4Z6SUN4QGLIQ3CFS4447GMTBV3WJHWZLIDDAZFMUYWZXOIBPV4G2` |
 | YT (SAC) | `CDMEEJDXMKR7OH2JLX5OPXLRAGB3UBVEEH6NPTZOBYUPAINNH665V2H3` |
 | PT/YT issuer | `GAG6EBUM6ERD5OIAJA53GEFRGS6UYUXHQBTPFTJDAY732Z5ERRRFNU24` (`spield_issuer`) |
@@ -86,6 +87,59 @@ stellar contract invoke --id CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZP
 
 > All commands run through WSL — see [howtoaccesswsl.md](../../howtoaccesswsl.md). Prefix with
 > `wsl -e bash -lic "cd '/mnt/f/.../contract/spield' && <cmd>"`.
+
+### Market — PT/USDC time-decay AMM (deployed + seeded + exercised 2026-06-06)
+
+The **Market** (`CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2`) — the Phase-3 trading
+venue — is deployed on top of the live wrapper above and initialized with the **Pendle-style
+time-decay log curve**: a **0.30% swap fee** (`fee_bps = 30`, `max_fee_bps = 100`), the curve anchored
+at **par** (`rate_anchor = 1e12`), and a steepness root of `40·SCALAR_12` (`scalar_root =
+40000000000000`). Its PT/USDC SACs and **maturity (`1783248439`, 2026-07-05)** match the wrapper's
+market exactly, so the curve converges PT → par at the same maturity.
+
+**✅ Seeded + exercised on-chain (2026-06-06)** against the live wrapper:
+
+1. **Minted 2 PT** to `alice` via the wrapper (position #8), then **`add_liquidity` 2 PT + 2 USDC** →
+   `AddLiquidity` event, `shares_minted = 20000000`. Pool opened **balanced (50/50)**.
+2. **Reads verified:** `reserves` → `["20000000","20000000"]`; `pt_price` → `1000000000000` (= **1.0
+   par** exactly, since the logit is 0 at proportion 0.5 so price = anchor); `implied_apy` → `0` (no
+   discount at par ⇒ no implied yield); `quote_usdc_for_pt --usdc_in 10000000` → `9947941` (1 USDC
+   buys ~0.995 PT — par minus the 0.3% fee + price impact).
+3. **Live swap (the "Earn Fixed" flow):** `swap_exact_usdc_for_pt --usdc_in 10000000` → `Swap` event,
+   bought `9947942` PT. Reserves moved to `["10052058","30000000"]` (PT down, USDC up), and
+   **`pt_price` rose to `1002219316492`** (≈1.0022) — buying PT pushed its price up, confirming the
+   curve's price discovery works on-chain. (Quote matched the executed amount to the stroop.)
+
+The Market is **live and fully usable** — the curve prices, trades, and reports `implied_apy`
+on-chain. Reproduce / extend with (USDC has 7 decimals; 1 USDC = 10000000):
+
+```bash
+# Pool state + the headline numbers:
+stellar contract invoke --id CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2 \
+  --source-account alice --network testnet -- reserves
+stellar contract invoke --id CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2 \
+  --source-account alice --network testnet -- pt_price
+stellar contract invoke --id CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2 \
+  --source-account alice --network testnet -- implied_apy
+
+# Buy PT with 1 USDC (the "Earn Fixed" flow; min_pt_out=0 skips the slippage guard):
+stellar contract invoke --id CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2 \
+  --source-account alice --network testnet --send=yes \
+  -- swap_exact_usdc_for_pt --trader GBNK7ZOQIZL3HM2LPY7WWJJL3C5YCOEUIJAF4UBSPIEWCEIC2HFSBVVI \
+     --usdc_in 10000000 --min_pt_out 0
+
+# Add liquidity (needs PT in your wallet first — mint via the wrapper):
+stellar contract invoke --id CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2 \
+  --source-account alice --network testnet --send=yes \
+  -- add_liquidity --lp GBNK7ZOQIZL3HM2LPY7WWJJL3C5YCOEUIJAF4UBSPIEWCEIC2HFSBVVI \
+     --pt_in 10000000 --usdc_in 10000000
+```
+
+> ⚠️ A PT/USDC pool seed needs the deployer to hold both PT (mint it via the wrapper first) **and**
+> spare USDC for the other side — roughly **2× the per-side seed** in USDC. The full
+> `deploy_testnet.sh` now does this automatically as step **[7/8]** (deploy → init → mint PT →
+> `add_liquidity`); the live market above was deployed **standalone** onto the existing wrapper (a
+> full re-run would redeploy everything).
 
 ---
 

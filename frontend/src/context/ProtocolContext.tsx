@@ -25,6 +25,12 @@ import {
   type Receipt,
   type VaultStats,
 } from '@/lib/vault';
+import {
+  getLpPosition,
+  getMarketStats,
+  type LpPosition,
+  type MarketStats,
+} from '@/lib/market';
 import { getTrustlines, type TrustlineStatus } from '@/lib/horizon';
 
 type Balances = { usdc: bigint; pt: bigint; yt: bigint };
@@ -46,6 +52,10 @@ type ProtocolContextValue = {
   vaultStats: VaultStats | null;
   /** The connected wallet's open fixed-rate receipts. */
   receipts: Receipt[];
+  /** The Market (PT/USDC AMM) pool + curve snapshot (null until deployed / on read failure). */
+  marketStats: MarketStats | null;
+  /** The connected wallet's LP position in the market pool. */
+  lpPosition: LpPosition | null;
   /** True while the first load is in flight. */
   loading: boolean;
   /** True while a background refresh is running. */
@@ -75,6 +85,8 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   const [paused, setPaused] = useState(false);
   const [vaultStats, setVaultStats] = useState<VaultStats | null>(null);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [marketStats, setMarketStats] = useState<MarketStats | null>(null);
+  const [lpPosition, setLpPosition] = useState<LpPosition | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,23 +102,26 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
       setError(null);
       try {
         // Protocol-wide reads always run; wallet-specific reads only when connected.
-        const [solv, mat, isPaused, vStats] = await Promise.all([
+        const [solv, mat, isPaused, vStats, mStats] = await Promise.all([
           getSolvency().catch(() => null),
           getMaturity().catch(() => null),
           getPaused().catch(() => false),
           getVaultStats().catch(() => null),
+          getMarketStats().catch(() => null),
         ]);
 
         let nextPositions: PositionValue[] = [];
         let nextBalances: Balances = EMPTY_BALANCES;
         let nextTrustlines: TrustlineStatus = EMPTY_TRUSTLINES;
         let nextReceipts: Receipt[] = [];
+        let nextLp: LpPosition | null = null;
         if (isConnected && address) {
-          [nextPositions, nextBalances, nextTrustlines, nextReceipts] = await Promise.all([
+          [nextPositions, nextBalances, nextTrustlines, nextReceipts, nextLp] = await Promise.all([
             getOwnerPositions(address).catch(() => []),
             getWalletBalances(address).catch(() => EMPTY_BALANCES),
             getTrustlines(address).catch(() => EMPTY_TRUSTLINES),
             getOwnerReceipts(address).catch(() => []),
+            getLpPosition(address).catch(() => null),
           ]);
         }
 
@@ -115,10 +130,12 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
         setMaturity(mat);
         setPaused(isPaused);
         setVaultStats(vStats);
+        setMarketStats(mStats);
         setPositions(nextPositions);
         setBalances(nextBalances);
         setTrustlines(nextTrustlines);
         setReceipts(nextReceipts);
+        setLpPosition(nextLp);
       } catch (err) {
         if (id === reqId.current) {
           setError(err instanceof Error ? err.message : 'Failed to read protocol state.');
@@ -162,6 +179,8 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
       paused,
       vaultStats,
       receipts,
+      marketStats,
+      lpPosition,
       loading,
       refreshing,
       error,
@@ -178,6 +197,8 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
       paused,
       vaultStats,
       receipts,
+      marketStats,
+      lpPosition,
       loading,
       refreshing,
       error,

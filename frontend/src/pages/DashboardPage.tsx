@@ -15,6 +15,9 @@ import VaultPanel from '@/components/dashboard/sections/VaultPanel';
 import ReceiptsPanel from '@/components/dashboard/sections/ReceiptsPanel';
 import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
+import MarketHeader from '@/components/dashboard/sections/MarketHeader';
+import TradePanel from '@/components/dashboard/sections/TradePanel';
+import LpPanel from '@/components/dashboard/sections/LpPanel';
 import { navById } from '@/components/dashboard/data';
 
 import { useWallet } from '@/context/WalletContext';
@@ -90,6 +93,17 @@ const VaultSection = () => (
   </div>
 );
 
+const MarketsSection = () => (
+  <div className="space-y-6">
+    <MarketHeader />
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+      <TradePanel />
+      <LpPanel />
+    </div>
+    <HowMarketWorks />
+  </div>
+);
+
 const PositionsSection = () => (
   <>
     <StatsGrid />
@@ -110,6 +124,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   overview: OverviewSection,
   vault: VaultSection,
   deposit: DepositSection,
+  markets: MarketsSection,
   positions: PositionsSection,
   solvency: SolvencySection,
   activity: ActivitySection,
@@ -165,6 +180,40 @@ const HowVaultWorks = () => {
         machinery is hidden underneath.
       </p>
       <div className="mt-4 space-y-3">
+        {steps.map((s) => {
+          const Icon = s.icon;
+          return (
+            <div key={s.title} className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
+                <Icon size={15} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{s.title}</p>
+                <p className="text-xs text-muted-foreground">{s.body}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const HowMarketWorks = () => {
+  const steps = [
+    { icon: TrendingUp, title: 'Time-decay curve', body: 'PT trades below par and drifts to 1.0 as maturity nears — the discount is the yield. The curve makes that march automatic.' },
+    { icon: Coins, title: 'Earn Fixed', body: 'Buy PT now with USDC and hold to maturity to lock the implied APY. The cheaper you buy, the higher your fixed return.' },
+    { icon: Lock, title: 'Sell anytime', body: 'Need to exit early? Sell PT back to USDC at the live market price — no waiting for maturity.' },
+    { icon: ShieldCheck, title: 'LP with low IL', body: 'Provide PT + USDC to earn the swap fee. Because the curve tracks PT to par, LPs who hold to maturity see ~no impermanent loss.' },
+  ];
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <h3 className="text-base font-semibold">How the Market works</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        A real yield AMM: PT/YT prices are market-discovered, an implied APY falls out of the curve,
+        and liquidity providers earn fees.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {steps.map((s) => {
           const Icon = s.icon;
           return (

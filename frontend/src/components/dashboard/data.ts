@@ -5,6 +5,7 @@ import {
   Layers,
   ShieldCheck,
   History,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -49,6 +50,13 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'deposit',
     title: 'Deposit',
     subtitle: 'Supply USDC to mint a fixed-rate bond (PT) and a yield token (YT).',
+  },
+  {
+    icon: TrendingUp,
+    label: 'Markets',
+    id: 'markets',
+    title: 'Markets',
+    subtitle: 'Trade PT & YT on the time-decay AMM, or provide liquidity to earn fees.',
   },
   {
     icon: Layers,

@@ -34,6 +34,14 @@ export const CONTRACTS = {
    * fixed payout). See `contract/spield/TESTNET.md`.
    */
   vault: 'CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZPSFZFK',
+  /**
+   * Market — the Phase-3 PT/USDC time-decay AMM (the trading venue). Sits on top of the wrapper.
+   * Deployed + initialized + seeded + exercised on testnet 2026-06-06 (Pendle-style log curve,
+   * 0.30% fee, anchored at par, same maturity as the wrapper). A balanced 2 PT / 2 USDC pool is
+   * live; a real `swap_exact_usdc_for_pt` moved `pt_price` 1.0000 → 1.0022 on-chain (price discovery
+   * proven). See `contract/spield/TESTNET.md`.
+   */
+  market: 'CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2',
   /** Principal Token SAC — the fixed-rate bond leg. */
   pt: 'CAIC4Z6SUN4QGLIQ3CFS4447GMTBV3WJHWZLIDDAZFMUYWZXOIBPV4G2',
   /** Yield Token SAC — the variable yield leg. */
@@ -44,6 +52,9 @@ export const CONTRACTS = {
 
 /** Whether the Fixed-Rate Vault has been deployed + wired (gates the vault UI). */
 export const VAULT_DEPLOYED = CONTRACTS.vault.length > 0;
+
+/** Whether the Market (PT/USDC AMM) has been deployed + wired (gates the Markets/Trade/LP UI). */
+export const MARKET_DEPLOYED = CONTRACTS.market.length > 0;
 
 /** USDC, PT and YT all use 7 decimals (Stellar standard / Blend testnet USDC). */
 export const DECIMALS = 7;

@@ -5,6 +5,7 @@ members = [
   "contracts/strategy",
   "contracts/wrapper",
   "contracts/vault",
+  "contracts/market",
 ]
 
 [workspace.dependencies]
