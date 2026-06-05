@@ -20,6 +20,8 @@ import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
 import MarketChart from '@/components/dashboard/sections/MarketChart';
 import TradePanel from '@/components/dashboard/sections/TradePanel';
 import LpPanel from '@/components/dashboard/sections/LpPanel';
+import LpStatsStrip from '@/components/dashboard/sections/LpStatsStrip';
+import LpPositionPanel from '@/components/dashboard/sections/LpPositionPanel';
 import { navById } from '@/components/dashboard/data';
 
 import { useWallet } from '@/context/WalletContext';
@@ -115,13 +117,17 @@ const MarketsSection = () => (
 );
 
 const LiquiditySection = () => (
-  <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
-    <div className="order-2 lg:order-1">
-      <HowLiquidityWorks />
+  <div className="space-y-6">
+    <LpStatsStrip />
+    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+      <div className="lg:col-span-5">
+        <LpPanel />
+      </div>
+      <div className="lg:col-span-7">
+        <LpPositionPanel />
+      </div>
     </div>
-    <div className="order-1 lg:order-2">
-      <LpPanel />
-    </div>
+    <HowLiquidityWorks />
   </div>
 );
 
@@ -292,6 +298,7 @@ const HowMarketWorks = () => {
 };
 
 const HowLiquidityWorks = () => {
+  const [open, setOpen] = useState(false);
   const steps = [
     { icon: Droplets, title: '1 · Supply PT + USDC', body: 'Add liquidity in the pool’s current ratio. The panel auto-matches the USDC side for you.' },
     { icon: Coins, title: '2 · Earn the swap fee', body: 'Every trade pays a 0.30% fee that accrues to the pool — your LP shares grow in value as volume flows.' },
@@ -299,27 +306,41 @@ const HowLiquidityWorks = () => {
     { icon: Lock, title: '4 · Withdraw anytime', body: 'Burn your LP shares to take back a proportional slice of PT + USDC — including any fees earned — whenever you like.' },
   ];
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <h3 className="text-base font-semibold">How liquidity works</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Provide the two sides of the pool, earn fees on every PT trade, and exit on your terms.
-      </p>
-      <div className="mt-4 space-y-3">
-        {steps.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div key={s.title} className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                <Icon size={15} />
+    <div className="rounded-xl border border-border bg-card shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 p-5 text-left"
+      >
+        <div>
+          <h3 className="text-base font-semibold">How liquidity works</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Provide the two sides of the pool, earn fees on every PT trade, and exit on your terms.
+          </p>
+        </div>
+        <ChevronDown
+          size={18}
+          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && (
+        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
+          {steps.map((s) => {
+            const Icon = s.icon;
+            return (
+              <div key={s.title} className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
+                  <Icon size={15} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{s.title}</p>
+                  <p className="text-xs text-muted-foreground">{s.body}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-semibold">{s.title}</p>
-                <p className="text-xs text-muted-foreground">{s.body}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

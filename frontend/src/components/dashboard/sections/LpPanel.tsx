@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Loader2, Wallet, AlertTriangle, Droplets, Plus, Minus, ShieldCheck } from 'lucide-react';
+import { Loader2, Wallet, AlertTriangle, Droplets, Plus, Minus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -107,7 +107,7 @@ const LpPanel = () => {
   const setMaxPt = () => setPtAmount(ptBalHuman > 0 ? String(ptBalHuman) : '');
 
   return (
-    <Card className="rounded-xl border-border bg-card shadow-sm">
+    <Card className="h-full rounded-xl border-border bg-card shadow-sm">
       <CardHeader className="p-4 pb-2">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Droplets size={16} className="text-sky-400" />
@@ -118,26 +118,6 @@ const LpPanel = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
-        {/* Your position */}
-        {hasShares && (
-          <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/50 bg-muted/30 p-3 text-center">
-            <div>
-              <p className="text-xs text-muted-foreground">Your shares</p>
-              <p className="mt-0.5 text-sm font-bold tabular-nums">{formatAmount(lpPosition!.shares, 2)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">PT</p>
-              <p className="mt-0.5 text-sm font-bold tabular-nums text-primary">
-                {formatAmount(lpPosition!.ptClaim, 2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">USDC</p>
-              <p className="mt-0.5 text-sm font-bold tabular-nums">{formatUsd(lpPosition!.usdcClaim)}</p>
-            </div>
-          </div>
-        )}
-
         {/* Mode toggle */}
         <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
           <button
@@ -211,14 +191,6 @@ const LpPanel = () => {
               <p className="px-0.5 text-xs text-muted-foreground">
                 Auto-matched to the pool ratio ({ratio.toFixed(4)} USDC / PT).
               </p>
-            </div>
-
-            <div className="flex items-start gap-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-2.5 text-xs text-muted-foreground">
-              <ShieldCheck size={14} className="mt-0.5 shrink-0 text-sky-400" />
-              <span>
-                The time-decay curve tracks PT&apos;s march to par, so an LP who holds to maturity
-                gets principal + fees back with ~no impermanent loss.
-              </span>
             </div>
           </>
         ) : (
