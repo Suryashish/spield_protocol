@@ -205,6 +205,32 @@ export const previewBuyYt = async (usdcIn: string): Promise<YtRoutePreview | nul
 };
 
 /**
+ * Build the two-step "buy YT" route as ordered tx steps for `useTxAction.runSteps`:
+ *   1. `wrapper.mint(usdcIn)` → user gets `usdcIn` PT + `usdcIn` YT.
+ *   2. `market.sell_pt(usdcIn)` → sell exactly the minted PT back for USDC.
+ * The user keeps the YT; their net cost is `usdcIn − (PT sale proceeds)`. `slippage` (fraction,
+ * e.g. 0.01) bounds the min USDC out on the sell leg, derived from the live quote.
+ *
+ * Returns `null` if the route can't be priced (e.g. insufficient pool liquidity for the PT sale).
+ * Imported lazily-typed via the wrapper's `mint` to avoid a hard dep cycle (callers pass it in).
+ */
+export const buildBuyYtSteps = async (
+  wallet: string,
+  usdcIn: string,
+  slippage: number,
+  mintFn: (wallet: string, amount: string) => Promise<WriteResult>,
+): Promise<Array<{ label: string; fn: () => Promise<WriteResult> }> | null> => {
+  const recovered = await quoteSwap('sellPt', usdcIn);
+  if (recovered == null || recovered === 0n) return null;
+  const keep = BigInt(Math.round((1 - slippage) * 10_000));
+  const minUsdcOut = String(fromBaseUnits((recovered * keep) / 10_000n));
+  return [
+    { label: 'Mint PT + YT', fn: () => mintFn(wallet, usdcIn) },
+    { label: 'Sell PT for USDC', fn: () => sellPt(wallet, usdcIn, minUsdcOut) },
+  ];
+};
+
+/**
  * The number of decimals the underlying / PT / YT use, surfaced for the router's display math
  * (kept in sync with the contract's `DECIMALS`).
  */

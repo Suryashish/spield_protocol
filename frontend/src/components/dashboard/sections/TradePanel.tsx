@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, TrendingUp } from 'lucide-react';
+import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, TrendingUp, Zap } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
-import { buyPt, sellPt, quoteSwap, type TradeSide } from '@/lib/market';
+import { buyPt, sellPt, quoteSwap, buildBuyYtSteps } from '@/lib/market';
+import { mint } from '@/lib/spield';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
 import { setupTrustlines } from '@/lib/horizon';
 import { NETWORK, MARKET_DEPLOYED } from '@/lib/config';
@@ -23,38 +24,49 @@ const applySlippage = (out: bigint, tolerance: number): string => {
 
 const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02]; // 0.5% / 1% / 2%
 
+type Mode = 'buyPt' | 'sellPt' | 'longYt';
+
+const fmtTok = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+
 /**
- * Trade panel — buy or sell PT against USDC on the time-decay curve.
+ * Trade panel — three flows over the time-decay curve, all through the shared tx lifecycle.
  *
- * **Earn Fixed** (buy PT): pay USDC now, hold PT to maturity, redeem 1:1 → a fixed return locked at
- * today's implied APY. **Sell PT**: exit a PT holding back to USDC at the market price. Both are
- * direct on-chain swaps with a live quote and a slippage guard, run through the shared tx lifecycle.
+ * **Earn Fixed** (buy PT): pay USDC, hold PT to maturity, redeem 1:1 → a fixed return locked at the
+ * implied APY. **Sell PT**: exit a PT holding back to USDC at the market price. **Long Yield** (YT):
+ * a *routed* trade with no YT pool — mint PT+YT via the wrapper, then sell the PT back into the
+ * market; the user keeps the YT for a net cost of `usdcIn − (PT sale proceeds)`, a leveraged bet
+ * that real Blend yield beats the implied rate.
  */
 const TradePanel = () => {
   const { address, isConnected, connect, connecting, onCorrectNetwork } = useWallet();
   const { balances, trustlines, marketStats } = useProtocol();
-  const { run, busy } = useTxAction();
+  const { run, runSteps, busy } = useTxAction();
 
-  const [side, setSide] = useState<TradeSide>('buyPt');
+  const [mode, setMode] = useState<Mode>('buyPt');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState(0.01);
+  // For buyPt/sellPt: the swap output. For longYt: the PT-sale proceeds (USDC recovered).
   const [quote, setQuote] = useState<bigint | null>(null);
   const [quoting, setQuoting] = useState(false);
 
-  const inToken = side === 'buyPt' ? 'USDC' : 'PT';
-  const outToken = side === 'buyPt' ? 'PT' : 'USDC';
-  const inBalance = side === 'buyPt' ? balances.usdc : balances.pt;
+  // The input token + balance differ per mode. longYt and buyPt both spend USDC.
+  const inToken = mode === 'sellPt' ? 'PT' : 'USDC';
+  const outToken = mode === 'buyPt' ? 'PT' : mode === 'sellPt' ? 'USDC' : 'YT';
+  const inBalance = mode === 'sellPt' ? balances.pt : balances.usdc;
   const inBalanceHuman = fromBaseUnits(inBalance);
 
   const parsed = Number(amount);
   const amountValid = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
   const overBalance = amountValid && parsed > inBalanceHuman;
 
-  // Selling PT needs a PT trustline to receive nothing new, but buying PT requires the wallet to
-  // already trust PT to receive it.
-  const needsTrustlines = side === 'buyPt' && isConnected && onCorrectNetwork && !trustlines.ready;
+  // Receiving PT or YT requires the PT/YT trustlines; selling PT does not.
+  const needsTrustlines = mode !== 'sellPt' && isConnected && onCorrectNetwork && !trustlines.ready;
 
-  // Debounced live quote whenever amount/side changes.
+  // The quote side: longYt prices the PT it will sell (== amount of USDC minted into PT), so it uses
+  // the sell-PT quote on `amount`. buyPt/sellPt quote directly.
+  const quoteSide = mode === 'sellPt' ? 'sellPt' : mode === 'buyPt' ? 'buyPt' : 'sellPt';
+
+  // Debounced live quote whenever amount/mode changes.
   useEffect(() => {
     let cancelled = false;
     const t = setTimeout(async () => {
@@ -65,7 +77,7 @@ const TradePanel = () => {
         return;
       }
       setQuoting(true);
-      const q = await quoteSwap(side, amount);
+      const q = await quoteSwap(quoteSide, amount);
       if (!cancelled) {
         setQuote(q);
         setQuoting(false);
@@ -75,13 +87,18 @@ const TradePanel = () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [amount, side, amountValid]);
+  }, [amount, quoteSide, amountValid]);
 
-  // A null quote (when not actively quoting) on a valid amount + a funded pool means the trade
-  // exceeds the pool's available liquidity — surfaced as an actionable message.
   const poolHasLiquidity = !!marketStats && marketStats.ptReserve > 0n && marketStats.usdcReserve > 0n;
   const exceedsLiquidity =
     amountValid && !quoting && !overBalance && poolHasLiquidity && (quote === null || quote === 0n);
+
+  // longYt derived figures: YT received == amount (1 USDC mints 1 PT + 1 YT); net cost = usdcIn − proceeds.
+  const ytReceived = parsed; // 1:1 mint
+  const usdcRecovered = quote != null ? fromBaseUnits(quote) : 0;
+  const ytNetCost = amountValid && quote != null ? Math.max(0, parsed - usdcRecovered) : 0;
+  // Implied "leverage": how much YT face you control per USDC actually spent.
+  const ytLeverage = ytNetCost > 0 ? ytReceived / ytNetCost : 0;
 
   const cta = useMemo(() => {
     if (!MARKET_DEPLOYED) return 'Market not deployed';
@@ -92,7 +109,7 @@ const TradePanel = () => {
     if (overBalance) return `Insufficient ${inToken}`;
     if (!poolHasLiquidity) return 'No liquidity';
     if (exceedsLiquidity) return 'Amount exceeds liquidity';
-    return side === 'buyPt' ? 'Buy PT' : 'Sell PT';
+    return mode === 'buyPt' ? 'Buy PT' : mode === 'sellPt' ? 'Sell PT' : 'Long Yield (Buy YT)';
   }, [
     isConnected,
     onCorrectNetwork,
@@ -101,7 +118,7 @@ const TradePanel = () => {
     overBalance,
     poolHasLiquidity,
     exceedsLiquidity,
-    side,
+    mode,
     inToken,
   ]);
 
@@ -111,7 +128,12 @@ const TradePanel = () => {
     connecting ||
     (isConnected &&
       !needsTrustlines &&
-      (!onCorrectNetwork || !amountValid || overBalance || !poolHasLiquidity || exceedsLiquidity || !quote));
+      (!onCorrectNetwork ||
+        !amountValid ||
+        overBalance ||
+        !poolHasLiquidity ||
+        exceedsLiquidity ||
+        !quote));
 
   const handleClick = async () => {
     if (!isConnected || !address) {
@@ -126,10 +148,20 @@ const TradePanel = () => {
       return;
     }
     if (!quote) return;
+
+    if (mode === 'longYt') {
+      // Routed: mint PT+YT, then sell the PT. Built from the live quote so the sell leg is bounded.
+      const steps = await buildBuyYtSteps(address, amount, slippage, mint);
+      if (!steps) return;
+      const ok = await runSteps('Long Yield', steps);
+      if (ok) setAmount('');
+      return;
+    }
+
     const minOut = applySlippage(quote, slippage);
-    const label = side === 'buyPt' ? 'Buy PT' : 'Sell PT';
+    const label = mode === 'buyPt' ? 'Buy PT' : 'Sell PT';
     const ok = await run(label, () =>
-      side === 'buyPt' ? buyPt(address, amount, minOut) : sellPt(address, amount, minOut),
+      mode === 'buyPt' ? buyPt(address, amount, minOut) : sellPt(address, amount, minOut),
     );
     if (ok) setAmount('');
   };
@@ -137,13 +169,19 @@ const TradePanel = () => {
   const setMax = () => setAmount(inBalanceHuman > 0 ? String(inBalanceHuman) : '');
 
   const outHuman = quote != null ? fromBaseUnits(quote) : 0;
-  // Effective price the trade executes at (USDC per PT), for the user's reference.
+  // Effective PT price for the simple swaps.
   const effPrice =
-    quote && amountValid
-      ? side === 'buyPt'
+    quote && amountValid && mode !== 'longYt'
+      ? mode === 'buyPt'
         ? parsed / outHuman // USDC paid per PT received
         : outHuman / parsed // USDC received per PT sold
       : 0;
+
+  const TABS: { id: Mode; label: string }[] = [
+    { id: 'buyPt', label: 'Earn Fixed' },
+    { id: 'sellPt', label: 'Sell PT' },
+    { id: 'longYt', label: 'Long Yield' },
+  ];
 
   return (
     <Card className="h-full rounded-xl border-border bg-card shadow-sm">
@@ -153,48 +191,37 @@ const TradePanel = () => {
           Trade
         </CardTitle>
         <CardDescription className="text-xs">
-          Buy PT to lock a fixed return, or sell PT back to USDC at the market price.
+          Buy PT for a fixed return, sell PT to exit, or long YT to bet on yield.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
-        {/* Side toggle */}
-        <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setSide('buyPt');
-              setAmount('');
-            }}
-            className={cn(
-              'rounded-md px-3 py-1.5 text-xs font-semibold transition-all',
-              side === 'buyPt'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            Earn Fixed (Buy PT)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSide('sellPt');
-              setAmount('');
-            }}
-            className={cn(
-              'rounded-md px-3 py-1.5 text-xs font-semibold transition-all',
-              side === 'sellPt'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            Sell PT
-          </button>
+        {/* Mode toggle */}
+        <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/40 p-1">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setMode(t.id);
+                setAmount('');
+                setQuote(null);
+              }}
+              className={cn(
+                'rounded-md px-2 py-1.5 text-xs font-semibold transition-all',
+                mode === t.id
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {/* Pay */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>You pay</Label>
+            <Label>{mode === 'longYt' ? 'You spend (upfront)' : 'You pay'}</Label>
             <button
               type="button"
               onClick={setMax}
@@ -230,12 +257,14 @@ const TradePanel = () => {
         {/* Receive */}
         <div className="space-y-1.5">
           <div className="px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>You receive (est.)</Label>
+            <Label>{mode === 'longYt' ? 'You receive (YT)' : 'You receive (est.)'}</Label>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/50 px-3 py-2.5">
             <div className="flex flex-1 items-baseline gap-2">
               <span className="text-lg font-bold tabular-nums">
-                {amountValid && quote != null ? outHuman.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0.0'}
+                {amountValid && quote != null
+                  ? fmtTok(mode === 'longYt' ? ytReceived : outHuman)
+                  : '0.0'}
               </span>
               {quoting && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
             </div>
@@ -247,20 +276,45 @@ const TradePanel = () => {
 
         {/* Summary */}
         <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
-          <div className="flex justify-between text-xs font-medium">
-            <span className="text-muted-foreground">Price</span>
-            <span className="text-foreground">
-              {effPrice > 0 ? `${effPrice.toFixed(4)} USDC / PT` : '—'}
-            </span>
-          </div>
-          <div className="flex justify-between text-xs font-medium">
-            <span className="text-muted-foreground">Min received</span>
-            <span className="text-foreground">
-              {quote && amountValid
-                ? `${Number(applySlippage(quote, slippage)).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${outToken}`
-                : '—'}
-            </span>
-          </div>
+          {mode === 'longYt' ? (
+            <>
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-muted-foreground">USDC recovered (PT sale)</span>
+                <span className="text-foreground">
+                  {amountValid && quote != null ? `${fmtTok(usdcRecovered)} USDC` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-muted-foreground">Net YT cost</span>
+                <span className="font-semibold text-amber-500">
+                  {amountValid && quote != null ? `${fmtTok(ytNetCost)} USDC` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-muted-foreground">Effective exposure</span>
+                <span className="text-foreground">
+                  {ytLeverage > 1 ? `~${ytLeverage.toFixed(1)}× YT per USDC` : '—'}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-muted-foreground">Price</span>
+                <span className="text-foreground">
+                  {effPrice > 0 ? `${effPrice.toFixed(4)} USDC / PT` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-muted-foreground">Min received</span>
+                <span className="text-foreground">
+                  {quote && amountValid
+                    ? `${fmtTok(Number(applySlippage(quote, slippage)))} ${outToken}`
+                    : '—'}
+                </span>
+              </div>
+            </>
+          )}
           <div className="flex items-center justify-between text-xs font-medium">
             <span className="text-muted-foreground">Max slippage</span>
             <div className="flex items-center gap-1">
@@ -283,12 +337,23 @@ const TradePanel = () => {
           </div>
         </div>
 
-        {side === 'buyPt' && (
+        {mode === 'buyPt' && (
           <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground">
             <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
             <span>
               PT redeems 1:1 for USDC at maturity. Buying below par locks a fixed return — the
               discount is your yield.
+            </span>
+          </div>
+        )}
+
+        {mode === 'longYt' && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-xs text-muted-foreground">
+            <Zap size={14} className="mt-0.5 shrink-0 text-amber-500" />
+            <span>
+              <span className="font-semibold text-foreground">2 transactions:</span> mint PT + YT,
+              then sell the PT back. You keep the YT — a leveraged bet that real Blend yield beats the
+              implied rate. Profit if it does; the net cost is your max loss.
             </span>
           </div>
         )}

@@ -8,11 +8,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { TrendingUp, Activity, Info } from 'lucide-react';
+import { TrendingUp, Activity, Info, LineChart } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useProtocol } from '@/context/ProtocolContext';
 import { getYieldHistory, sampleYield, type YieldHistory } from '@/lib/yield';
+import { impliedApyPct } from '@/lib/market';
+import { MARKET_DEPLOYED } from '@/lib/config';
 
 const fmtPct = (frac: number | null, digits = 2): string =>
   frac == null ? '—' : `${(frac * 100).toFixed(digits)}%`;
@@ -54,7 +56,7 @@ const fmtTime = (unix: number): string =>
  */
 const YieldChart = () => {
   // Re-pull whenever the protocol refreshes (e.g. after a deposit/claim).
-  const { refreshing } = useProtocol();
+  const { refreshing, marketStats } = useProtocol();
   const [history, setHistory] = useState<YieldHistory | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -108,24 +110,51 @@ const YieldChart = () => {
 
   // Headline: a trustworthy annualized APY once the window is long enough; until
   // then, the honest cumulative figure rather than a noisy extrapolation.
-  const headlineLabel = apyReliable ? 'Realized APY' : 'Yield so far';
-  const headlineValue = apyReliable ? fmtPct(apy) : fmtAdaptivePct(cumulative);
+  const realizedLabel = apyReliable ? 'Realized APY' : 'Yield so far';
+  const realizedValue = apyReliable ? fmtPct(apy) : fmtAdaptivePct(cumulative);
+
+  // The market's forward-looking number (from the AMM curve), shown beside the backward-looking
+  // realized figure so the two views sit together: what it earned vs what the market prices in.
+  const impliedPct = impliedApyPct(marketStats);
+  const showImplied = MARKET_DEPLOYED && !!marketStats;
 
   return (
     <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between p-5 pb-0">
+      <CardHeader className="flex flex-col gap-3 p-5 pb-0 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle className="text-base font-semibold">Realized Yield</CardTitle>
+          <CardTitle className="text-base font-semibold">Yield — Realized vs Implied</CardTitle>
           <CardDescription className="text-sm">
-            Real on-chain return from Blend, observed over time
+            What Blend has actually paid, next to what the market prices in
           </CardDescription>
         </div>
-        <div className="text-right">
-          <div className="flex items-center justify-end gap-1.5 text-xs font-semibold uppercase text-muted-foreground">
-            <TrendingUp size={13} className="text-emerald-500" />
-            {headlineLabel}
+        <div className="flex items-stretch gap-3">
+          {/* Realized — backward-looking, from observed b_rate growth */}
+          <div className="text-right">
+            <div className="flex items-center justify-end gap-1.5 text-xs font-semibold uppercase text-muted-foreground">
+              <TrendingUp size={13} className="text-emerald-500" />
+              {realizedLabel}
+            </div>
+            <div className="text-2xl font-bold tabular-nums text-emerald-500">{realizedValue}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">realized</div>
           </div>
-          <div className="text-2xl font-bold tabular-nums text-emerald-500">{headlineValue}</div>
+          {showImplied && (
+            <>
+              <div className="w-px self-stretch bg-border" />
+              {/* Implied — forward-looking, from the AMM curve */}
+              <div className="text-right">
+                <div className="flex items-center justify-end gap-1.5 text-xs font-semibold uppercase text-muted-foreground">
+                  <LineChart size={13} className="text-primary" />
+                  Implied APY
+                </div>
+                <div className="text-2xl font-bold tabular-nums text-primary">
+                  {impliedPct > 0 ? `${impliedPct.toFixed(2)}%` : '—'}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  market · forward
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </CardHeader>
 
@@ -208,19 +237,18 @@ const YieldChart = () => {
             <div className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
               <Info size={13} className="mt-0.5 shrink-0" />
               <span>
-                Cumulative yield since the first observation ({spanLabel} of history).{' '}
-                {apyReliable ? (
+                The line is cumulative yield since the first observation ({spanLabel} of history).{' '}
+                <span className="font-medium text-emerald-500">Realized</span> is the annualized growth
+                of Blend&apos;s exchange rate over this window — what actually happened.{' '}
+                {showImplied ? (
                   <>
-                    APY is the annualized growth of Blend&apos;s exchange rate over this window — the{' '}
-                    <span className="font-medium text-foreground">realized</span> return.
+                    <span className="font-medium text-primary">Implied</span> is forward-looking: the
+                    return the AMM prices in right now, derived from the PT price + time to maturity.
+                    A gap between them is the market&apos;s view on where yield is heading.
                   </>
                 ) : (
-                  <>
-                    We need at least a day of observations before annualizing into an APY, so a short
-                    window can&apos;t mislead.
-                  </>
-                )}{' '}
-                Market-derived implied APY arrives with the trading AMM.
+                  <>The market-derived implied APY appears here once the AMM pool has liquidity.</>
+                )}
               </span>
             </div>
           </>
