@@ -5,6 +5,10 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-const User = mongoose.model('Spield-Waitlist-User', userSchema);
+// Reuse an already-compiled model on warm serverless invocations to avoid
+// OverwriteModelError when this module is required more than once.
+const User =
+  mongoose.models['Spield-Waitlist-User'] ||
+  mongoose.model('Spield-Waitlist-User', userSchema);
 
 module.exports = User;

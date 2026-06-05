@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   History,
   TrendingUp,
+  Droplets,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -56,7 +57,14 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Markets',
     id: 'markets',
     title: 'Markets',
-    subtitle: 'Trade PT & YT on the time-decay AMM, or provide liquidity to earn fees.',
+    subtitle: 'Trade PT on the time-decay AMM — buy for a fixed return, sell to exit, or long yield.',
+  },
+  {
+    icon: Droplets,
+    label: 'Liquidity',
+    id: 'liquidity',
+    title: 'Liquidity',
+    subtitle: 'Provide PT + USDC to the time-decay pool and earn the swap fee.',
   },
   {
     icon: Layers,
