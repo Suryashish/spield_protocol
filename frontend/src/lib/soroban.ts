@@ -175,13 +175,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Map raw simulation errors to friendlier messages for the most common cases. */
 const parseContractError = (raw: string, method: string): string => {
   const text = raw || '';
-  if (text.includes('NotMatured') || /Error\(Contract, #\d*7\b/.test(text)) {
+  const lower = text.toLowerCase();
+
+  if (text.includes('NotMatured')) {
     return 'PT can only be redeemed after maturity. Use “Combine & Redeem” to exit early.';
   }
-  if (text.toLowerCase().includes('balance') || text.includes('trustline')) {
-    return 'Insufficient balance or missing trustline for this asset.';
+  // Missing PT/YT trustline: minting a SAC to an account with no trustline panics
+  // with the token contract's error #13 ("balance entry / trustline missing"). This
+  // is the most common first-deposit failure, so map it to an actionable message.
+  if (
+    lower.includes('trustline') ||
+    lower.includes('no trust') ||
+    lower.includes('not authorized') ||
+    /Error\(Contract, #1[13]\)/.test(text)
+  ) {
+    return 'Your wallet needs PT & YT trustlines first. Click “Enable PT & YT”, approve it, then deposit.';
   }
-  if (text.includes('Paused')) {
+  // Underlying balance too low for the requested amount (SAC error #10).
+  if (lower.includes('insufficient') || lower.includes('balance') || /Error\(Contract, #10\)/.test(text)) {
+    return 'Insufficient USDC balance for this deposit.';
+  }
+  if (lower.includes('paused')) {
     return 'The protocol is currently paused.';
   }
   return `${method} simulation failed: ${text.slice(0, 200)}`;

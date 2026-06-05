@@ -19,6 +19,7 @@ import {
   type PositionValue,
   type Solvency,
 } from '@/lib/spield';
+import { getTrustlines, type TrustlineStatus } from '@/lib/horizon';
 
 type Balances = { usdc: bigint; pt: bigint; yt: bigint };
 
@@ -27,6 +28,8 @@ type ProtocolContextValue = {
   positions: PositionValue[];
   /** USDC / PT / YT balances for the connected wallet. */
   balances: Balances;
+  /** Whether the connected wallet has the PT/YT trustlines needed to deposit. */
+  trustlines: TrustlineStatus;
   /** Protocol-wide solvency snapshot. */
   solvency: Solvency | null;
   /** PT maturity, unix seconds (protocol-wide). */
@@ -47,6 +50,7 @@ type ProtocolContextValue = {
 };
 
 const EMPTY_BALANCES: Balances = { usdc: 0n, pt: 0n, yt: 0n };
+const EMPTY_TRUSTLINES: TrustlineStatus = { pt: false, yt: false, ready: false };
 
 const ProtocolContext = createContext<ProtocolContextValue | undefined>(undefined);
 
@@ -55,6 +59,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
 
   const [positions, setPositions] = useState<PositionValue[]>([]);
   const [balances, setBalances] = useState<Balances>(EMPTY_BALANCES);
+  const [trustlines, setTrustlines] = useState<TrustlineStatus>(EMPTY_TRUSTLINES);
   const [solvency, setSolvency] = useState<Solvency | null>(null);
   const [maturity, setMaturity] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
@@ -81,10 +86,12 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
 
         let nextPositions: PositionValue[] = [];
         let nextBalances: Balances = EMPTY_BALANCES;
+        let nextTrustlines: TrustlineStatus = EMPTY_TRUSTLINES;
         if (isConnected && address) {
-          [nextPositions, nextBalances] = await Promise.all([
+          [nextPositions, nextBalances, nextTrustlines] = await Promise.all([
             getOwnerPositions(address).catch(() => []),
             getWalletBalances(address).catch(() => EMPTY_BALANCES),
+            getTrustlines(address).catch(() => EMPTY_TRUSTLINES),
           ]);
         }
 
@@ -94,6 +101,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
         setPaused(isPaused);
         setPositions(nextPositions);
         setBalances(nextBalances);
+        setTrustlines(nextTrustlines);
       } catch (err) {
         if (id === reqId.current) {
           setError(err instanceof Error ? err.message : 'Failed to read protocol state.');
@@ -131,6 +139,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
     () => ({
       positions,
       balances,
+      trustlines,
       solvency,
       maturity,
       paused,
@@ -144,6 +153,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
     [
       positions,
       balances,
+      trustlines,
       solvency,
       maturity,
       paused,

@@ -37,6 +37,18 @@ export const CONTRACTS = {
 /** USDC, PT and YT all use 7 decimals (Stellar standard / Blend testnet USDC). */
 export const DECIMALS = 7;
 
+/**
+ * PT and YT are classic Stellar assets (wrapped as the SACs above). A holder must
+ * establish a trustline to each before the wrapper can mint them — otherwise the
+ * first `mint` fails. The dashboard offers a one-click trustline setup using these.
+ */
+export const PT_YT_ISSUER = 'GAG6EBUM6ERD5OIAJA53GEFRGS6UYUXHQBTPFTJDAY732Z5ERRRFNU24';
+
+export const ASSETS = {
+  pt: { code: 'SPLDPT', issuer: PT_YT_ISSUER },
+  yt: { code: 'SPLDYT', issuer: PT_YT_ISSUER },
+} as const;
+
 /** Token display metadata, keyed by contract address. */
 export const TOKEN_META: Record<string, { symbol: string; label: string }> = {
   [CONTRACTS.usdc]: { symbol: 'USDC', label: 'USD Coin' },

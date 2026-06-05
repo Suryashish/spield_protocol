@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, Loader2, Wallet, AlertTriangle } from 'lucide-react';
+import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +10,7 @@ import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { mint } from '@/lib/spield';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
+import { setupTrustlines } from '@/lib/horizon';
 import { NETWORK } from '@/lib/config';
 
 /**
@@ -21,7 +22,7 @@ import { NETWORK } from '@/lib/config';
  */
 const DepositPanel = () => {
   const { address, isConnected, connect, connecting, onCorrectNetwork } = useWallet();
-  const { balances, paused } = useProtocol();
+  const { balances, paused, trustlines } = useProtocol();
   const { run, busy } = useTxAction();
   const [amount, setAmount] = useState('');
 
@@ -30,23 +31,37 @@ const DepositPanel = () => {
   const amountValid = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
   const overBalance = amountValid && parsed > usdcBalance;
 
+  // A connected wallet must trust PT + YT before the wrapper can mint to it.
+  const needsTrustlines = isConnected && onCorrectNetwork && !trustlines.ready;
+
   const cta = useMemo(() => {
     if (!isConnected) return 'Connect Wallet';
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
+    if (needsTrustlines) return 'Enable PT & YT';
     if (paused) return 'Protocol Paused';
     if (!amountValid) return 'Enter an amount';
     if (overBalance) return 'Insufficient USDC';
     return 'Deposit & Mint';
-  }, [isConnected, onCorrectNetwork, paused, amountValid, overBalance]);
+  }, [isConnected, onCorrectNetwork, needsTrustlines, paused, amountValid, overBalance]);
 
   const disabled =
     busy ||
     connecting ||
-    (isConnected && (!onCorrectNetwork || paused || !amountValid || overBalance));
+    (isConnected &&
+      !needsTrustlines &&
+      (!onCorrectNetwork || paused || !amountValid || overBalance));
 
   const handleClick = async () => {
     if (!isConnected || !address) {
       await connect();
+      return;
+    }
+    if (needsTrustlines) {
+      // One tx adds the missing PT/YT trustlines; `run` refreshes state after.
+      await run('Enable PT & YT', async () => {
+        const res = await setupTrustlines(address);
+        return res ?? { hash: '' };
+      });
       return;
     }
     const ok = await run('Deposit', () => mint(address, amount));
@@ -145,6 +160,16 @@ const DepositPanel = () => {
           </div>
         )}
 
+        {needsTrustlines && (
+          <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2.5 text-xs text-foreground">
+            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
+            <span>
+              One-time setup: your wallet needs trustlines to receive PT &amp; YT. This is a single,
+              free transaction — approve it, then deposit.
+            </span>
+          </div>
+        )}
+
         <Button
           onClick={handleClick}
           disabled={disabled}
@@ -154,6 +179,8 @@ const DepositPanel = () => {
             <Loader2 size={15} className="animate-spin" />
           ) : !isConnected ? (
             <Wallet size={15} />
+          ) : needsTrustlines ? (
+            <ShieldCheck size={15} />
           ) : null}
           {cta}
         </Button>
