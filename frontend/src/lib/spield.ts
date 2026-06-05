@@ -114,6 +114,21 @@ export const getMaturity = async (): Promise<number> => {
   return Number(toBig(m));
 };
 
+/**
+ * Live Blend exchange rate (`b_rate`) from the strategy adapter, as raw SCALAR_12
+ * (12-decimal fixed point — e.g. `1055750028382` = 1.05575…). This is the monotonic
+ * rate whose growth over time *is* the protocol's realized yield. Returns null on
+ * read failure so callers can degrade gracefully.
+ */
+export const getCurrentRate = async (): Promise<bigint | null> => {
+  try {
+    const r = await readContract<unknown>(CONTRACTS.strategy, 'current_rate');
+    return toBig(r);
+  } catch {
+    return null;
+  }
+};
+
 /** Whether the protocol is paused. */
 export const getPaused = async (): Promise<boolean> =>
   readContract<boolean>(CONTRACTS.wrapper, 'is_paused');

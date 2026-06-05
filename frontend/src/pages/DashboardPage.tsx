@@ -8,6 +8,7 @@ import Sidebar from '@/components/dashboard/layout/Sidebar';
 import Header from '@/components/dashboard/layout/Header';
 import StatsGrid from '@/components/dashboard/sections/StatsGrid';
 import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
+import YieldChart from '@/components/dashboard/sections/YieldChart';
 import ActivityFeed from '@/components/dashboard/sections/ActivityFeed';
 import DepositPanel from '@/components/dashboard/sections/DepositPanel';
 import VaultPanel from '@/components/dashboard/sections/VaultPanel';
@@ -51,6 +52,7 @@ const PausedBanner = () => {
 const OverviewSection = () => (
   <>
     <StatsGrid />
+    <YieldChart />
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
       <div className="lg:col-span-8">
         <PortfolioChart />
