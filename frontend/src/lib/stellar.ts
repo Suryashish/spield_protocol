@@ -1,5 +1,6 @@
 import {
   getAddress,
+  getNetwork,
   isAllowed,
   isConnected,
   requestAccess,
@@ -87,6 +88,21 @@ export const disconnectWallet = async (): Promise<void> => {
   // No-op against the wallet itself — access is revoked by the user inside
   // the Freighter extension. Kept async so the contract stays stable if a
   // future Freighter version adds a real disconnect call.
+};
+
+/**
+ * Read the network Freighter is currently pointed at (e.g. `TESTNET`).
+ * Returns `null` if it can't be determined. Used to warn the user when their
+ * wallet is on the wrong network for the deployed contracts.
+ */
+export const getWalletNetwork = async (): Promise<string | null> => {
+  try {
+    const { network, error } = await getNetwork();
+    if (error || !network) return null;
+    return network;
+  } catch {
+    return null;
+  }
 };
 
 export type WalletChange = {

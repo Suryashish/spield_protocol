@@ -1,7 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { connectWallet, disconnectWallet, restoreConnection, watchWallet } from '@/lib/stellar';
+import {
+  connectWallet,
+  disconnectWallet,
+  getWalletNetwork,
+  restoreConnection,
+  watchWallet,
+} from '@/lib/stellar';
+import { NETWORK } from '@/lib/config';
 
 type WalletContextValue = {
   /** Connected Stellar public key, or `null` when disconnected. */
@@ -11,6 +18,10 @@ type WalletContextValue = {
   /** Last connection error message, if any. */
   error: string | null;
   isConnected: boolean;
+  /** Network the wallet is on (e.g. `TESTNET`), or `null` if unknown. */
+  network: string | null;
+  /** True when the wallet is on the same network as the deployed contracts. */
+  onCorrectNetwork: boolean;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
 };
@@ -21,15 +32,17 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [address, setAddress] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [network, setNetwork] = useState<string | null>(null);
 
   // Keep the watcher's teardown so we can stop it on disconnect/unmount.
   const stopWatchRef = useRef<(() => void) | null>(null);
 
   const startWatching = useCallback(() => {
     if (stopWatchRef.current) return;
-    stopWatchRef.current = watchWallet(({ address: next }) => {
+    stopWatchRef.current = watchWallet(({ address: next, network: nextNetwork }) => {
       // Empty address means the wallet was locked or access revoked.
       setAddress(next || null);
+      setNetwork(nextNetwork || null);
       if (!next && stopWatchRef.current) {
         stopWatchRef.current();
         stopWatchRef.current = null;
@@ -40,9 +53,10 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   // Restore a previously authorized session on first load.
   useEffect(() => {
     let active = true;
-    restoreConnection().then((restored) => {
+    restoreConnection().then(async (restored) => {
       if (!active || !restored) return;
       setAddress(restored);
+      setNetwork(await getWalletNetwork());
       startWatching();
     });
     return () => {
@@ -58,6 +72,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
     try {
       const next = await connectWallet();
       setAddress(next);
+      setNetwork(await getWalletNetwork());
       startWatching();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect wallet.');
@@ -72,6 +87,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
     stopWatchRef.current?.();
     stopWatchRef.current = null;
     setAddress(null);
+    setNetwork(null);
     setError(null);
   }, []);
 
@@ -81,10 +97,12 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
       connecting,
       error,
       isConnected: Boolean(address),
+      network,
+      onCorrectNetwork: !network || network === NETWORK.name,
       connect,
       disconnect,
     }),
-    [address, connecting, error, connect, disconnect],
+    [address, connecting, error, network, connect, disconnect],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
