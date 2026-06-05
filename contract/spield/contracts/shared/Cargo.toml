@@ -1,11 +1,11 @@
 [package]
-name = "hello-world"
-version = "0.0.0"
+name = "spield-shared"
+version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib"]
 doctest = false
 
 [dependencies]

@@ -1,11 +1,21 @@
 [workspace]
 resolver = "2"
 members = [
-  "contracts/*",
+  "contracts/shared",
+  "contracts/strategy",
+  "contracts/wrapper",
 ]
 
 [workspace.dependencies]
-soroban-sdk = "26"
+# Pinned to 25.0.1 to match blend-contract-sdk 2.25.0 exactly (it pins soroban-sdk 25.0.1).
+# Mixing soroban-sdk majors across the cross-contract boundary causes host-fn/type
+# incompatibilities, so the whole workspace tracks Blend's SDK version. The CLI (26.1.0)
+# still builds & deploys SDK-25 contracts to testnet fine (protocol-compatible).
+soroban-sdk = "=25.3.1"
+blend-contract-sdk = "=2.25.0"
+
+# Internal crates
+spield-shared = { path = "contracts/shared" }
 
 [profile.release]
 opt-level = "z"
@@ -17,7 +27,6 @@ panic = "abort"
 codegen-units = 1
 lto = true
 
-# For more information about this profile see https://developers.stellar.org/docs/build/smart-contracts/example-contracts/logging#cargotoml-profile
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
