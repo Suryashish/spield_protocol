@@ -4,8 +4,9 @@ import { ChevronsLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';
+import { NETWORK } from '@/lib/config';
 
-import { NAV_ITEMS, FOOTER_NAV_ITEMS, type NavItem } from '../data';
+import { NAV_ITEMS, type NavItem } from '../data';
 
 type SidebarItemProps = {
   item: NavItem;
@@ -57,7 +58,7 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
       {/* Brand + collapse toggle */}
       <div
         className={cn(
-          'flex h-14 items-center border-b border-border',
+          'flex h-16 items-center border-b border-border',
           collapsed ? 'justify-center px-2' : 'justify-between px-4'
         )}
       >
@@ -112,22 +113,30 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
         ))}
       </nav>
 
-      {/* Footer nav */}
+      {/* Footer: live network badge */}
       <div
         className={cn(
           'flex flex-col gap-1 border-t border-border py-4',
           collapsed ? 'items-center px-2' : 'px-3'
         )}
       >
-        {FOOTER_NAV_ITEMS.map((item) => (
-          <SidebarItem
-            key={item.id}
-            item={item}
-            active={activeNav === item.id}
-            collapsed={collapsed}
-            onClick={() => onNavChange(item.id)}
-          />
-        ))}
+        <div
+          title={`Connected to Stellar ${NETWORK.name}`}
+          className={cn(
+            'flex items-center rounded-lg bg-accent/40 text-xs font-medium text-muted-foreground',
+            collapsed ? 'h-9 w-9 justify-center' : 'gap-2 px-3 py-2'
+          )}
+        >
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          {!collapsed && (
+            <span className="truncate">
+              Stellar <span className="font-semibold text-foreground">{NETWORK.name}</span>
+            </span>
+          )}
+        </div>
       </div>
     </motion.aside>
   );

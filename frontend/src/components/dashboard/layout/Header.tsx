@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Search, ChevronDown, Wallet, Copy, Check, LogOut, Loader2 } from 'lucide-react';
+import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useWallet } from '@/context/WalletContext';
 import { shortenAddress } from '@/lib/stellar';
 
@@ -109,24 +108,21 @@ const WalletMenu = () => {
   );
 };
 
-const Header = () => {
+type HeaderProps = {
+  /** Current section label, shown in the breadcrumb (e.g. "Positions"). */
+  section?: string;
+};
+
+const Header = ({ section = 'Overview' }: HeaderProps) => {
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-card/50 px-6 backdrop-blur-sm">
+    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-card/50 px-6 backdrop-blur-sm">
       <div className="flex items-center gap-2 text-sm font-medium">
         <span className="text-muted-foreground">Dashboard</span>
         <span className="text-muted-foreground">/</span>
-        <span className="font-semibold">Portfolio</span>
+        <span className="font-semibold">{section}</span>
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="relative hidden w-64 sm:block">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search..."
-            className="h-9 border-input bg-muted/50 pl-9 text-sm shadow-none focus-visible:ring-1"
-          />
-        </div>
-        <div className="mx-1 h-5 w-px bg-border" />
         <WalletMenu />
       </div>
     </header>
