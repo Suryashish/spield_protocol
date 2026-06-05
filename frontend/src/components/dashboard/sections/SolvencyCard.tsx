@@ -59,21 +59,9 @@ const SolvencyCard = () => {
               {healthy ? <ShieldCheck size={28} /> : <ShieldAlert size={28} />}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xl font-bold tracking-tight">
-                  {healthy ? 'Solvent' : 'Under-backed'}
-                </h3>
-                <span
-                  className={cn(
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-                    healthy
-                      ? 'bg-emerald-500/10 text-emerald-500'
-                      : 'bg-red-500/10 text-red-500',
-                  )}
-                >
-                  {healthy ? 'Backing ≥ Principal' : 'Backing < Principal'}
-                </span>
-              </div>
+              <h3 className="text-xl font-bold tracking-tight">
+                {healthy ? 'Solvent' : 'Under-backed'}
+              </h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 Live Blend-backed value vs. outstanding principal, read on-chain.
               </p>
@@ -95,43 +83,31 @@ const SolvencyCard = () => {
           </div>
         </div>
 
-        {/* Backing vs principal bar: full track = backing, solid = principal, rest = surplus. */}
-        <div className="space-y-2">
-          <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn('h-full', healthy ? 'bg-emerald-500' : 'bg-red-500')}
-              style={{ width: `${principalShare}%` }}
-            />
-            <div className="h-full bg-emerald-500/30" style={{ width: `${surplusShare}%` }} />
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className={cn('h-2 w-2 rounded-sm', healthy ? 'bg-emerald-500' : 'bg-red-500')} />
-              Principal covered
-            </span>
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="h-2 w-2 rounded-sm bg-emerald-500/30" />
-              Surplus yield buffer
-            </span>
-          </div>
+        {/* Backing vs principal bar: full track = backing, solid = principal, rest = surplus.
+            The bar's two colors are explained by the matching dots on the metrics below. */}
+        <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn('h-full', healthy ? 'bg-emerald-500' : 'bg-red-500')}
+            style={{ width: `${principalShare}%` }}
+          />
+          <div className="h-full bg-emerald-500/30" style={{ width: `${surplusShare}%` }} />
         </div>
 
-        {/* Figures */}
+        {/* Figures — also serve as the bar legend via the colored dots. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Metric label="Backing (Blend)" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
-          <Metric label="Principal" value={formatUsd(solvency?.principal ?? 0n)} />
+          <Metric
+            label="Principal"
+            value={formatUsd(solvency?.principal ?? 0n)}
+            dot={healthy ? 'bg-emerald-500' : 'bg-red-500'}
+          />
           <Metric
             label="Surplus buffer"
             value={`+${formatUsd(solvency?.unclaimed ?? 0n, 6)}`}
             accent="positive"
+            dot="bg-emerald-500/30"
           />
         </div>
-
-        <p className="text-xs text-muted-foreground">
-          The escrowed asset grows on-chain with Blend&apos;s rising{' '}
-          <span className="font-semibold text-foreground">bRate</span>, so the buffer widens over
-          time — the first claimant can never drain the vault.
-        </p>
 
         {/* On-chain proof */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-4">
@@ -160,13 +136,19 @@ const Metric = ({
   label,
   value,
   accent = 'default',
+  dot,
 }: {
   label: string;
   value: string;
   accent?: 'default' | 'positive';
+  /** Optional Tailwind bg-class for a small legend swatch beside the label. */
+  dot?: string;
 }) => (
   <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
+      {label}
+    </p>
     <p className={cn('mt-1 text-lg font-bold tabular-nums', accent === 'positive' && 'text-emerald-500')}>
       {value}
     </p>
