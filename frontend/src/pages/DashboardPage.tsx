@@ -132,7 +132,7 @@ const LiquiditySection = () => (
 );
 
 const SolvencySection = () => (
-  <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+  <div className="space-y-6">
     <SolvencyCard />
     <WhySolvency />
   </div>
@@ -345,33 +345,53 @@ const HowLiquidityWorks = () => {
   );
 };
 
-const WhySolvency = () => (
-  <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-    <h3 className="flex items-center gap-2 text-base font-semibold">
-      <ShieldCheck size={17} className="text-emerald-500" />
-      Solvent by construction
-    </h3>
-    <div className="mt-3 space-y-3 text-sm text-muted-foreground">
-      <p>
-        Every deposit is supplied to <span className="font-medium text-foreground">Blend</span>,
-        Stellar&apos;s lending protocol. The escrowed asset grows on-chain via Blend&apos;s rising{' '}
-        <span className="font-medium text-foreground">bRate</span> — so yield is real, not an
-        IOU.
-      </p>
-      <p>
-        The wrapper asserts the invariant{' '}
-        <span className="font-mono text-xs text-foreground">backing ≥ principal</span> after every
-        mutation. The number on the left is read live from the contract&apos;s{' '}
-        <span className="font-mono text-xs text-foreground">solvency()</span> view — anyone can
-        verify it.
-      </p>
-      <p>
-        This is the core difference from the earlier design: there is no off-chain yield index and
-        no trusted relayer. The first claimant can never drain the vault.
-      </p>
+const WhySolvency = () => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-border bg-card shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 p-5 text-left"
+      >
+        <div>
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            <ShieldCheck size={17} className="text-emerald-500" />
+            Solvent by construction
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Why backing can never fall below principal — and how anyone can verify it.
+          </p>
+        </div>
+        <ChevronDown
+          size={18}
+          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && (
+        <div className="space-y-3 px-5 pb-5 text-sm text-muted-foreground">
+          <p>
+            Every deposit is supplied to <span className="font-medium text-foreground">Blend</span>,
+            Stellar&apos;s lending protocol. The escrowed asset grows on-chain via Blend&apos;s rising{' '}
+            <span className="font-medium text-foreground">bRate</span> — so yield is real, not an
+            IOU.
+          </p>
+          <p>
+            The wrapper asserts the invariant{' '}
+            <span className="font-mono text-xs text-foreground">backing ≥ principal</span> after every
+            mutation. The figures above are read live from the contract&apos;s{' '}
+            <span className="font-mono text-xs text-foreground">solvency()</span> view — anyone can
+            verify them.
+          </p>
+          <p>
+            This is the core difference from the earlier design: there is no off-chain yield index and
+            no trusted relayer. The first claimant can never drain the vault.
+          </p>
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 /* ----------------------------------------------------------------- page */
 
