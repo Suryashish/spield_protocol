@@ -71,8 +71,19 @@ const ReceiptRow = ({ receipt }: { receipt: Receipt }) => {
  */
 const ReceiptsPanel = () => {
   const { isConnected, address } = useWallet();
-  const { receipts } = useProtocol();
+  const { receipts, vaultStats } = useProtocol();
   const { run, busy } = useTxAction();
+
+  // Harvest realizes the vault's accrued YT yield into fresh PT capacity. The vault can only
+  // have yield to harvest if it actually holds YT — so when its YT inventory is zero there is
+  // definitively nothing to harvest, and we disable the button instead of letting it no-op.
+  const hasYieldToHarvest = !!vaultStats && vaultStats.ytInventory > 0n;
+  const harvestDisabled = busy || !address || !hasYieldToHarvest;
+  const harvestTitle = !address
+    ? 'Connect your wallet to harvest'
+    : !hasYieldToHarvest
+      ? 'No vault yield to harvest yet'
+      : "Reinvest the vault's accrued YT yield into PT capacity";
 
   return (
     <Card className="flex h-full flex-col rounded-xl border-border bg-card shadow-sm">
@@ -87,10 +98,10 @@ const ReceiptsPanel = () => {
           <Button
             variant="outline"
             size="sm"
-            disabled={busy || !address}
+            disabled={harvestDisabled}
             onClick={() => address && run('Harvest', () => harvest(address))}
             className="h-8 gap-1.5 text-xs font-semibold"
-            title="Reinvest the vault's accrued YT yield into PT capacity"
+            title={harvestTitle}
           >
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Sprout size={13} />}
             Harvest

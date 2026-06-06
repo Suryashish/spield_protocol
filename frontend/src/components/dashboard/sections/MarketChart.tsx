@@ -132,7 +132,7 @@ const MarketChart = () => {
 
   return (
     <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
-      <CardHeader className="p-5 pb-2">
+      <CardHeader className="p-4 pb-2 sm:p-5">
         <CardTitle className="text-base font-semibold">Market — PT Price &amp; Rate</CardTitle>
         <CardDescription className="text-sm">
           Live price discovery on the time-decay curve
@@ -167,7 +167,7 @@ const MarketChart = () => {
         </div>
       </CardHeader>
 
-      <CardContent className="p-5 pt-1">
+      <CardContent className="p-4 pt-1 sm:p-5">
         {/* Series toggle */}
         <div className="mb-3 grid w-fit grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1 text-xs font-semibold">
           {(['price', 'apy'] as Series[]).map((s) => (

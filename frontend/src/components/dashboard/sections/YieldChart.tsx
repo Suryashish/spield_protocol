@@ -120,7 +120,7 @@ const YieldChart = () => {
 
   return (
     <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
-      <CardHeader className="flex flex-col gap-3 p-5 pb-0 sm:flex-row sm:items-start sm:justify-between">
+      <CardHeader className="flex flex-col gap-3 p-4 pb-0 sm:flex-row sm:items-start sm:justify-between sm:p-5">
         <div>
           <CardTitle className="text-base font-semibold">Yield — Realized vs Implied</CardTitle>
           <CardDescription className="text-sm">
@@ -134,7 +134,7 @@ const YieldChart = () => {
               <TrendingUp size={13} className="text-emerald-500" />
               {realizedLabel}
             </div>
-            <div className="text-2xl font-bold tabular-nums text-emerald-500">{realizedValue}</div>
+            <div className="text-xl font-bold tabular-nums text-emerald-500 sm:text-2xl">{realizedValue}</div>
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">realized</div>
           </div>
           {showImplied && (
@@ -146,7 +146,7 @@ const YieldChart = () => {
                   <LineChart size={13} className="text-primary" />
                   Implied APY
                 </div>
-                <div className="text-2xl font-bold tabular-nums text-primary">
+                <div className="text-xl font-bold tabular-nums text-primary sm:text-2xl">
                   {impliedPct > 0 ? `${impliedPct.toFixed(2)}%` : '—'}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -158,7 +158,7 @@ const YieldChart = () => {
         </div>
       </CardHeader>
 
-      <CardContent className="p-5 pt-3">
+      <CardContent className="p-4 pt-3 sm:p-5">
         {loading ? (
           <div className="h-64 animate-pulse rounded-lg bg-muted/40" />
         ) : !hasEnough ? (

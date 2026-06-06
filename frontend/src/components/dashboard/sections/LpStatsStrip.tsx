@@ -22,14 +22,14 @@ type TileProps = {
 
 const Tile = ({ label, value, sub, accent = 'default', icon: Icon, loading }: TileProps) => (
   <Card className="rounded-xl border-border bg-card shadow-sm">
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <CardContent className="p-3 sm:p-4">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
           {label}
         </span>
         <div
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-lg',
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:h-8 sm:w-8',
             accent === 'primary'
               ? 'bg-primary/10 text-primary'
               : accent === 'sky'
@@ -40,13 +40,13 @@ const Tile = ({ label, value, sub, accent = 'default', icon: Icon, loading }: Ti
           <Icon size={15} />
         </div>
       </div>
-      <div className="mt-3 flex items-baseline gap-2">
+      <div className="mt-2 flex items-baseline gap-2 sm:mt-3">
         {loading ? (
           <span className="h-7 w-20 animate-pulse rounded bg-muted" />
         ) : (
           <span
             className={cn(
-              'text-2xl font-bold tracking-tight',
+              'text-xl font-bold tracking-tight sm:text-2xl',
               accent === 'primary' && 'text-primary',
               accent === 'sky' && 'text-sky-400',
               accent === 'positive' && 'text-emerald-500',

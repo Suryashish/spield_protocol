@@ -17,22 +17,22 @@ type StatCardProps = {
 
 const StatCard = ({ label, value, sub, accent = 'default', icon: Icon, loading }: StatCardProps) => (
   <Card className="rounded-xl border-border bg-card shadow-sm">
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <CardContent className="p-3 sm:p-4">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
           {label}
         </span>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/50 text-muted-foreground">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/50 text-muted-foreground sm:h-8 sm:w-8">
           <Icon size={15} />
         </div>
       </div>
-      <div className="mt-3 flex items-baseline gap-2">
+      <div className="mt-2 flex items-baseline gap-2 sm:mt-3">
         {loading ? (
           <span className="h-7 w-24 animate-pulse rounded bg-muted" />
         ) : (
           <span
             className={cn(
-              'text-2xl font-bold tracking-tight',
+              'break-all text-lg font-bold leading-tight tracking-tight sm:break-normal sm:text-2xl',
               accent === 'positive' && 'text-emerald-500',
             )}
           >
@@ -40,7 +40,7 @@ const StatCard = ({ label, value, sub, accent = 'default', icon: Icon, loading }
           </span>
         )}
       </div>
-      {sub && !loading && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
+      {sub && !loading && <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{sub}</p>}
     </CardContent>
   </Card>
 );
@@ -65,7 +65,7 @@ const StatsGrid = () => {
   const mat = maturityLabel(maturity);
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
       <StatCard
         label="USDC Balance"
         value={isConnected ? formatUsd(balances.usdc) : '—'}

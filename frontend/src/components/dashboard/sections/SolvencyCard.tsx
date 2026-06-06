@@ -32,7 +32,7 @@ const SolvencyCard = () => {
   if (loading) {
     return (
       <Card className="rounded-xl border-border bg-card shadow-sm">
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <div className="h-44 animate-pulse rounded-lg bg-muted/40" />
         </CardContent>
       </Card>
@@ -46,35 +46,37 @@ const SolvencyCard = () => {
         healthy ? 'ring-1 ring-emerald-500/20' : 'ring-1 ring-red-500/30',
       )}
     >
-      <CardContent className="space-y-6 p-6">
-        {/* Hero: status + headline ratio */}
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
+      <CardContent className="space-y-5 p-4 sm:space-y-6 sm:p-6">
+        {/* Hero: status + headline ratio. On mobile they sit on one compact row
+            (badge + label on the left, ratio on the right); from sm up it's the
+            original stacked-then-spread layout. */}
+        <div className="flex flex-row items-center justify-between gap-4 sm:items-center">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <div
               className={cn(
-                'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl',
+                'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-14 sm:w-14 sm:rounded-2xl',
                 healthy ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500',
               )}
             >
-              {healthy ? <ShieldCheck size={28} /> : <ShieldAlert size={28} />}
+              {healthy ? <ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7" /> : <ShieldAlert className="h-6 w-6 sm:h-7 sm:w-7" />}
             </div>
-            <div>
-              <h3 className="text-xl font-bold tracking-tight">
+            <div className="min-w-0">
+              <h3 className="text-lg font-bold tracking-tight sm:text-xl">
                 {healthy ? 'Solvent' : 'Under-backed'}
               </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
                 Live Blend-backed value vs. outstanding principal, read on-chain.
               </p>
             </div>
           </div>
 
-          <div className="shrink-0 sm:text-right">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="shrink-0 text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
               Collateralization
             </p>
             <p
               className={cn(
-                'text-3xl font-bold tabular-nums',
+                'text-2xl font-bold tabular-nums sm:text-3xl',
                 healthy ? 'text-emerald-500' : 'text-red-500',
               )}
             >
@@ -94,7 +96,7 @@ const SolvencyCard = () => {
         </div>
 
         {/* Figures — also serve as the bar legend via the colored dots. */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <Metric label="Backing (Blend)" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
           <Metric
             label="Principal"
@@ -144,12 +146,17 @@ const Metric = ({
   /** Optional Tailwind bg-class for a small legend swatch beside the label. */
   dot?: string;
 }) => (
-  <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  <div className="rounded-lg border border-border/50 bg-muted/30 p-2.5 sm:p-3">
+    <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:gap-1.5 sm:text-xs sm:tracking-wider">
       {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
-      {label}
+      <span className="truncate">{label}</span>
     </p>
-    <p className={cn('mt-1 text-lg font-bold tabular-nums', accent === 'positive' && 'text-emerald-500')}>
+    <p
+      className={cn(
+        'mt-0.5 break-all text-sm font-bold leading-tight tabular-nums sm:mt-1 sm:break-normal sm:text-lg',
+        accent === 'positive' && 'text-emerald-500',
+      )}
+    >
       {value}
     </p>
   </div>

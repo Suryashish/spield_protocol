@@ -1,19 +1,29 @@
 import { X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import logo from '@/assets/logo.png';
 
-const COLUMNS = [
+/** Footer link. `to` → react-router route, `href` → same-page anchor / external. */
+type FooterLink = { label: string; to?: string; href?: string };
+
+const COLUMNS: { title: string; links: FooterLink[] }[] = [
   {
     title: 'Protocol',
-    links: ['How it works', 'PT / YT tokens', 'Yield AMM', 'Implied APY'],
+    links: [
+      { label: 'Why Spield', href: '#features' },
+      { label: 'How it works', href: '#how-it-works' },
+      { label: 'Products', href: '#products' },
+      { label: 'FAQ', href: '#faq' },
+    ],
   },
   {
-    title: 'Build',
-    links: ['Documentation', 'Contracts', 'Strategy adapters', 'Audits'],
-  },
-  {
-    title: 'Community',
-    links: ['Discord', 'X / Twitter', 'GitHub', 'Governance'],
+    title: 'App',
+    links: [
+      { label: 'Launch app', to: '/dashboard' },
+      { label: 'Fixed Vault', to: '/dashboard' },
+      { label: 'Markets', to: '/dashboard' },
+      { label: 'Solvency', to: '/dashboard' },
+    ],
   },
 ];
 
@@ -23,7 +33,7 @@ const Footer = () => {
       <div className="mx-auto max-w-6xl">
         <div className="hairline mb-12" />
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           {/* brand */}
           <div className="col-span-2">
             <div className="flex items-center gap-2.5">
@@ -60,10 +70,22 @@ const Footer = () => {
               </div>
               <ul className="mt-4 space-y-2.5">
                 {col.links.map((l) => (
-                  <li key={l}>
-                    <a href="#" className="text-sm text-white/40 hover:text-white transition-colors">
-                      {l}
-                    </a>
+                  <li key={l.label}>
+                    {l.to ? (
+                      <Link
+                        to={l.to}
+                        className="text-sm text-white/40 hover:text-white transition-colors"
+                      >
+                        {l.label}
+                      </Link>
+                    ) : (
+                      <a
+                        href={l.href}
+                        className="text-sm text-white/40 hover:text-white transition-colors"
+                      >
+                        {l.label}
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -101,7 +101,7 @@ const Hero = () => {
                 onSubmit={handleSubmit}
                 initial={{ opacity: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
-                className="group flex items-center gap-1.5 liquid-glass rounded-xl p-1.5 focus-within:border-brand-primary/40 transition-colors"
+                className="group flex flex-col items-stretch gap-1.5 liquid-glass rounded-xl p-1.5 transition-colors focus-within:border-brand-primary/40 sm:flex-row sm:items-center"
               >
                 <input
                   type="email"
@@ -109,13 +109,13 @@ const Hero = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email"
                   aria-label="Email address"
-                  className="flex-1 bg-transparent px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none"
+                  className="w-full flex-1 bg-transparent px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none"
                   disabled={loading}
                 />
                 <button
                   type="submit"
                   disabled={!valid || loading}
-                  className="flex shrink-0 items-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed min-w-[140px] justify-center"
+                  className="flex w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:gap-2.5 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-35"
                 >
                   {loading ? (
                     <Loader2 size={14} className="animate-spin" />

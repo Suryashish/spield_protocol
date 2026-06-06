@@ -115,11 +115,11 @@ type HeaderProps = {
 
 const Header = ({ section = 'Overview' }: HeaderProps) => {
   return (
-    <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <span className="text-muted-foreground">Dashboard</span>
-        <span className="text-muted-foreground">/</span>
-        <span className="font-semibold">{section}</span>
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 lg:h-16 lg:px-6">
+      <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+        <span className="hidden text-muted-foreground sm:inline">Dashboard</span>
+        <span className="hidden text-muted-foreground sm:inline">/</span>
+        <span className="truncate font-semibold">{section}</span>
       </div>
 
       <div className="flex items-center gap-4">

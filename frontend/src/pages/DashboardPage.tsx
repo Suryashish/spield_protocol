@@ -422,11 +422,11 @@ const DashboardPage = () => {
           <Header section={nav.label} />
 
           <div className="grow overflow-y-auto p-4 lg:p-6">
-            <div className="mx-auto max-w-7xl space-y-6">
+            <div className="mx-auto max-w-7xl space-y-5 lg:space-y-6">
               {/* Page title */}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div className="space-y-1">
-                  <h1 className="font-display text-2xl font-medium tracking-tight">{nav.title}</h1>
+                  <h1 className="font-display text-xl font-medium tracking-tight sm:text-2xl">{nav.title}</h1>
                   <p className="text-sm text-muted-foreground">{nav.subtitle}</p>
                 </div>
                 <Button

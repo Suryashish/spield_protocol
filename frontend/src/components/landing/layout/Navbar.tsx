@@ -6,9 +6,9 @@ import { Link } from 'react-router-dom';
 import logo from '@/assets/logo.png';
 
 const NAV_ITEMS = [
+  { label: 'Why Spield', href: '#features' },
   { label: 'Protocol', href: '#how-it-works' },
   { label: 'Products', href: '#products' },
-  { label: 'Security', href: '#security' },
   { label: 'FAQ', href: '#faq' },
 ];
 
