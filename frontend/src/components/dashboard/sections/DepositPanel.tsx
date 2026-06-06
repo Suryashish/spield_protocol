@@ -22,7 +22,7 @@ import { NETWORK, VAULT_DEPLOYED, MARKET_DEPLOYED } from '@/lib/config';
  * a new position. 1 USDC → 1 PT + 1 YT.
  */
 const DepositPanel = () => {
-  const { address, isConnected, connect, connecting, onCorrectNetwork } = useWallet();
+  const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, paused, trustlines } = useProtocol();
   const { navigate } = useNav();
   const { run, busy } = useTxAction();
@@ -55,7 +55,7 @@ const DepositPanel = () => {
 
   const handleClick = async () => {
     if (!isConnected || !address) {
-      await connect();
+      openWalletPicker();
       return;
     }
     if (needsTrustlines) {

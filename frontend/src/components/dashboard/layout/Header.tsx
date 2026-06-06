@@ -6,7 +6,7 @@ import { useWallet } from '@/context/WalletContext';
 import { shortenAddress } from '@/lib/stellar';
 
 const WalletMenu = () => {
-  const { address, isConnected, connecting, error, connect, disconnect } = useWallet();
+  const { address, isConnected, connecting, error, disconnect, openWalletPicker } = useWallet();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -45,7 +45,7 @@ const WalletMenu = () => {
         <Button
           variant="outline"
           size="sm"
-          onClick={connect}
+          onClick={openWalletPicker}
           disabled={connecting}
           className="h-9 gap-2 border-input bg-card px-3 text-sm font-semibold shadow-none transition-all hover:bg-accent disabled:opacity-70"
         >

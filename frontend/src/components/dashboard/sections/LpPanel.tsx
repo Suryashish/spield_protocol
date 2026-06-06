@@ -25,7 +25,7 @@ type Mode = 'add' | 'remove';
  * main selling point into UX: hold to maturity and PT marches to par along the curve, ~no IL.
  */
 const LpPanel = () => {
-  const { address, isConnected, connect, connecting, onCorrectNetwork } = useWallet();
+  const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, marketStats: m, lpPosition, trustlines } = useProtocol();
   const { run, busy } = useTxAction();
 
@@ -80,7 +80,7 @@ const LpPanel = () => {
 
   const handleClick = async () => {
     if (!isConnected || !address) {
-      await connect();
+      openWalletPicker();
       return;
     }
     if (needsTrustlines) {

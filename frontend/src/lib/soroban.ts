@@ -9,18 +9,17 @@ import {
   rpc,
   xdr,
 } from '@stellar/stellar-sdk';
-import { signTransaction } from '@stellar/freighter-api';
-
 import { DECIMALS, NETWORK } from './config';
+import { signWithWallet } from './stellar';
 
 /**
  * Low-level Soroban helpers shared by the contract clients.
  *
  * Reads are done by *simulating* a transaction (no signature, no fee) and decoding
  * the return value. Writes build a real transaction, simulate it to attach the
- * Soroban footprint/auth, hand it to Freighter to sign, then submit and poll for
- * the result. All amounts cross the boundary as `i128` in the underlying's smallest
- * unit (7 decimals).
+ * Soroban footprint/auth, hand it to the connected wallet to sign, then submit and
+ * poll for the result. All amounts cross the boundary as `i128` in the underlying's
+ * smallest unit (7 decimals).
  */
 
 export const server = new rpc.Server(NETWORK.rpcUrl, { allowHttp: false });
@@ -110,11 +109,12 @@ export type WriteResult = {
 
 /**
  * Invoke a state-changing contract method: build → simulate (to attach footprint &
- * auth) → sign with Freighter → submit → poll until applied. Returns the tx hash.
+ * auth) → sign with the connected wallet → submit → poll until applied. Returns the
+ * tx hash.
  *
- * `walletAddress` is the connected Freighter account; it both sources the tx and
- * signs it. The Soroban auth entries required by `user.require_auth()` are produced
- * during simulation and signed as part of the envelope by Freighter.
+ * `walletAddress` is the connected account; it both sources the tx and signs it. The
+ * Soroban auth entries required by `user.require_auth()` are produced during
+ * simulation and signed as part of the envelope by the wallet.
  */
 export const writeContract = async (
   walletAddress: string,
@@ -141,7 +141,7 @@ export const writeContract = async (
   }
   const prepared = rpc.assembleTransaction(built, sim).build();
 
-  const { signedTxXdr, error } = await signTransaction(prepared.toXDR(), {
+  const { signedTxXdr, error } = await signWithWallet(prepared.toXDR(), {
     networkPassphrase: NETWORK.passphrase,
     address: walletAddress,
   });

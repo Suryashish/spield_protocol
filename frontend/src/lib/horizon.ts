@@ -5,9 +5,9 @@ import {
   Operation,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
-import { signTransaction } from '@stellar/freighter-api';
 
 import { ASSETS, NETWORK } from './config';
+import { signWithWallet } from './stellar';
 
 /**
  * Classic (non-Soroban) Stellar operations: trustline checks and `change_trust`.
@@ -52,8 +52,8 @@ export const getTrustlines = async (address: string): Promise<TrustlineStatus> =
 
 /**
  * Establish the PT and YT trustlines for `address` in a single transaction.
- * Only adds the trustlines that are missing. Signs with Freighter and submits
- * via Horizon. Returns the tx hash. No-op (returns null) if both already exist.
+ * Only adds the trustlines that are missing. Signs with the connected wallet and
+ * submits via Horizon. Returns the tx hash. No-op (returns null) if both already exist.
  */
 export const setupTrustlines = async (address: string): Promise<{ hash: string } | null> => {
   const status = await getTrustlines(address);
@@ -78,7 +78,7 @@ export const setupTrustlines = async (address: string): Promise<{ hash: string }
 
   const tx = builder.setTimeout(120).build();
 
-  const { signedTxXdr, error } = await signTransaction(tx.toXDR(), {
+  const { signedTxXdr, error } = await signWithWallet(tx.toXDR(), {
     networkPassphrase: NETWORK.passphrase,
     address,
   });

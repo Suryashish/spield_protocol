@@ -31,7 +31,7 @@ const fmtMaturity = (unix: number): string =>
  * — the vault holds them under the hood and backs the payout 1:1 with its PT inventory.
  */
 const VaultPanel = () => {
-  const { address, isConnected, connect, connecting, onCorrectNetwork } = useWallet();
+  const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, paused, vaultStats } = useProtocol();
   const { navigate } = useNav();
   const { run, busy } = useTxAction();
@@ -98,7 +98,7 @@ const VaultPanel = () => {
 
   const handleClick = async () => {
     if (!isConnected || !address) {
-      await connect();
+      openWalletPicker();
       return;
     }
     const ok = await run('Lock fixed rate', () => deposit(address, amount));

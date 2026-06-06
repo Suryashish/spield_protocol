@@ -38,7 +38,7 @@ const fmtTok = (n: number) => n.toLocaleString(undefined, { maximumFractionDigit
  * that real Blend yield beats the implied rate.
  */
 const TradePanel = () => {
-  const { address, isConnected, connect, connecting, onCorrectNetwork } = useWallet();
+  const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, trustlines, marketStats } = useProtocol();
   const { run, runSteps, busy } = useTxAction();
 
@@ -137,7 +137,7 @@ const TradePanel = () => {
 
   const handleClick = async () => {
     if (!isConnected || !address) {
-      await connect();
+      openWalletPicker();
       return;
     }
     if (needsTrustlines) {
