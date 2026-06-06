@@ -11,6 +11,7 @@ import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { deposit, quote, type Quote } from '@/lib/vault';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
+import { setupTrustlines } from '@/lib/horizon';
 import { NETWORK, VAULT_DEPLOYED } from '@/lib/config';
 
 const bpsToPct = (bps: number) => (bps / 100).toFixed(2);
@@ -32,7 +33,7 @@ const fmtMaturity = (unix: number): string =>
  */
 const VaultPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
-  const { balances, paused, vaultStats } = useProtocol();
+  const { balances, paused, vaultStats, trustlines } = useProtocol();
   const { navigate } = useNav();
   const { run, busy } = useTxAction();
   const [amount, setAmount] = useState('');
@@ -52,6 +53,12 @@ const VaultPanel = () => {
     !!liveQuote && amountValid && liveQuote.payout - toBigSafe(amount) > capacity;
 
   const rateBps = liveQuote?.rateBps ?? vaultStats?.rateBps ?? 0;
+
+  // The vault mints PT + YT to the user under the hood, so — exactly like the raw Deposit door —
+  // the wallet must trust PT + YT first or the mint panics on-chain. Detect it up front and turn
+  // the CTA into a one-time "Enable PT & YT" step instead of letting the user deposit and only
+  // discover the missing trustline after they've signed.
+  const needsTrustlines = isConnected && onCorrectNetwork && !trustlines.ready;
 
   // Re-quote (debounced) whenever the amount changes and the vault is live. All setState calls
   // happen inside the timeout callback (never synchronously in the effect body) so we don't
@@ -83,22 +90,36 @@ const VaultPanel = () => {
     if (!VAULT_DEPLOYED) return 'Vault not deployed';
     if (!isConnected) return 'Connect Wallet';
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
+    if (needsTrustlines) return 'Enable PT & YT';
     if (paused) return 'Protocol Paused';
     if (!amountValid) return 'Enter an amount';
     if (overBalance) return 'Insufficient USDC';
     if (overCapacity) return 'Exceeds vault capacity';
     return 'Lock Fixed Rate';
-  }, [isConnected, onCorrectNetwork, paused, amountValid, overBalance, overCapacity]);
+  }, [isConnected, onCorrectNetwork, needsTrustlines, paused, amountValid, overBalance, overCapacity]);
 
+  // The trustline step needs no amount, so it stays enabled regardless of amount/capacity;
+  // every other deposit precondition only applies once trustlines are in place.
   const disabled =
     !VAULT_DEPLOYED ||
     busy ||
     connecting ||
-    (isConnected && (!onCorrectNetwork || paused || !amountValid || overBalance || overCapacity));
+    (isConnected &&
+      !needsTrustlines &&
+      (!onCorrectNetwork || paused || !amountValid || overBalance || overCapacity));
 
   const handleClick = async () => {
     if (!isConnected || !address) {
       openWalletPicker();
+      return;
+    }
+    if (needsTrustlines) {
+      // One tx adds the missing PT/YT trustlines; `run` refreshes state after, which flips
+      // `needsTrustlines` off and reveals the normal "Lock Fixed Rate" flow.
+      await run('Enable PT & YT', async () => {
+        const res = await setupTrustlines(address);
+        return res ?? { hash: '' };
+      });
       return;
     }
     const ok = await run('Lock fixed rate', () => deposit(address, amount));
@@ -222,6 +243,17 @@ const VaultPanel = () => {
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-500">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>Your wallet is on the wrong network. Switch Freighter to {NETWORK.name}.</span>
+          </div>
+        )}
+
+        {needsTrustlines && (
+          <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2.5 text-xs text-foreground">
+            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
+            <span>
+              One-time setup: the vault hands you PT &amp; YT under the hood, so your wallet needs
+              their trustlines first. This is a single, free transaction — approve it, then lock
+              your rate.
+            </span>
           </div>
         )}
 

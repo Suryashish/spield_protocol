@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Lock, ShieldCheck, Sprout, Clock } from 'lucide-react';
+import { Loader2, Lock, ShieldCheck, Sprout, Clock, CheckCircle2 } from 'lucide-react';
+
+import { cn } from '@/lib/utils';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -60,6 +62,21 @@ const ReceiptRow = ({
   const matured = now >= receipt.maturity;
   const coupon = receipt.payout - receipt.principal;
 
+  // Optimistic redeem lifecycle so the row visibly transitions instead of abruptly vanishing
+  // when the post-redeem refresh drops it: idle → redeeming (during the tx) → redeemed (on
+  // success, until refresh removes the row). On failure we fall back to idle and the toast
+  // (from useTxAction) carries the error.
+  const [phase, setPhase] = useState<'idle' | 'redeeming' | 'redeemed'>('idle');
+
+  const handleRedeem = async () => {
+    if (!address) return;
+    setPhase('redeeming');
+    const ok = await run('Redeem', () => redeem(address, receipt.receiptId));
+    // On success keep the "Redeemed" state visible until the parent refresh removes this row;
+    // on failure return the row to its normal, retryable state.
+    setPhase(ok ? 'redeemed' : 'idle');
+  };
+
   const redeemTitle = !address
     ? 'Connect your wallet to redeem'
     : !matured
@@ -67,7 +84,12 @@ const ReceiptRow = ({
       : 'Redeem this matured receipt for its full fixed payout';
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className={cn(
+        'flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 transition-opacity sm:flex-row sm:items-center sm:justify-between',
+        phase === 'redeemed' && 'opacity-50',
+      )}
+    >
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Lock size={16} />
@@ -88,17 +110,23 @@ const ReceiptRow = ({
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock size={12} />
-          {matured ? 'Matured' : fmtRelative(receipt.maturity, now)}
+          {phase === 'redeemed' ? 'Redeemed' : matured ? 'Matured' : fmtRelative(receipt.maturity, now)}
         </span>
         <Button
           size="sm"
-          disabled={busy || !matured || !address}
-          onClick={() => address && run('Redeem', () => redeem(address, receipt.receiptId))}
+          disabled={busy || !matured || !address || phase !== 'idle'}
+          onClick={handleRedeem}
           className="h-8 gap-1.5 text-xs font-semibold"
           title={redeemTitle}
         >
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-          Redeem
+          {phase === 'redeeming' ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : phase === 'redeemed' ? (
+            <CheckCircle2 size={13} />
+          ) : (
+            <ShieldCheck size={13} />
+          )}
+          {phase === 'redeeming' ? 'Redeeming…' : phase === 'redeemed' ? 'Redeemed' : 'Redeem'}
         </Button>
       </div>
     </div>

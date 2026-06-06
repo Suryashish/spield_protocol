@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck, Coins, TrendingUp, Lock, Droplets, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -54,10 +54,80 @@ const PausedBanner = () => {
   );
 };
 
+// Surface a failed chain read instead of silently showing zeros — for a funds app, a blank
+// dashboard reads as "my money is gone" when the real cause is an RPC hiccup. We keep showing
+// whatever data we have and offer a one-click retry.
+const ErrorBanner = () => {
+  const { error, refresh, refreshing } = useProtocol();
+  if (!error) return null;
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500 sm:flex-row sm:items-center sm:justify-between">
+      <span className="flex items-center gap-2">
+        <AlertTriangle size={16} className="shrink-0" />
+        Couldn&apos;t reach the network — showing the last data we have. {error}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => refresh()}
+        disabled={refreshing}
+        className="h-8 shrink-0 gap-2 self-start border-red-500/40 text-xs font-semibold text-red-500 hover:bg-red-500/10 sm:self-auto"
+      >
+        <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+        Retry
+      </Button>
+    </div>
+  );
+};
+
+/** Human "Ns/m/h ago" for a unix-ms timestamp relative to `now` (also unix ms). */
+const fmtAgo = (ts: number, now: number): string => {
+  const secs = Math.max(0, Math.floor((now - ts) / 1000));
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ago`;
+};
+
+/**
+ * "Updated Ns ago" freshness pill next to Refresh. Self-ticks every second so the relative
+ * time stays honest, and turns amber while data is stale (last read failed) so users can
+ * trust at a glance whether the numbers on screen are current.
+ */
+const LastUpdated = () => {
+  const { lastUpdated, stale } = useProtocol();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!lastUpdated) return null;
+  return (
+    <span
+      className={cn(
+        'flex items-center gap-1.5 text-xs font-medium',
+        stale ? 'text-amber-500' : 'text-muted-foreground',
+      )}
+      title={stale ? 'The latest refresh failed — showing the last good data.' : undefined}
+    >
+      <span
+        className={cn(
+          'h-1.5 w-1.5 rounded-full',
+          stale ? 'bg-amber-500' : 'bg-emerald-500',
+        )}
+      />
+      {stale ? 'Stale · ' : 'Updated '}
+      {fmtAgo(lastUpdated, now)}
+    </span>
+  );
+};
+
 /* ------------------------------------------------------------------ sections */
 
 const OverviewSection = () => (
-  <>
+  <div className="space-y-6">
     <StatsGrid />
     <YieldChart />
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
@@ -69,7 +139,7 @@ const OverviewSection = () => (
       </div>
     </div>
     <ActivityFeed />
-  </>
+  </div>
 );
 
 const DepositSection = () => (
@@ -398,7 +468,7 @@ const WhySolvency = () => {
 const DashboardPage = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [activeNav, setActiveNav] = useState('overview');
-  const { refresh, refreshing } = useProtocol();
+  const { refresh, refreshing, stale } = useProtocol();
 
   const nav = navById(activeNav);
   const Section = SECTIONS[nav.id] ?? OverviewSection;
@@ -429,22 +499,30 @@ const DashboardPage = () => {
                   <h1 className="font-display text-xl font-medium tracking-tight sm:text-2xl">{nav.title}</h1>
                   <p className="text-sm text-muted-foreground">{nav.subtitle}</p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => refresh()}
-                  disabled={refreshing}
-                  className="h-9 gap-2 self-start text-sm font-semibold sm:self-auto"
-                >
-                  <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
-                  Refresh
-                </Button>
+                <div className="flex items-center gap-3 self-start sm:self-auto">
+                  <LastUpdated />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refresh()}
+                    disabled={refreshing}
+                    className="h-9 gap-2 text-sm font-semibold"
+                  >
+                    <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
+                    Refresh
+                  </Button>
+                </div>
               </div>
 
               <NetworkBanner />
               <PausedBanner />
+              <ErrorBanner />
 
-              <Section />
+              {/* Dim the live data while it's stale so the numbers visibly read as "not current"
+                  until a refresh succeeds — the dot/pill says why, the dim says "don't trust me". */}
+              <div className={cn('transition-opacity', stale && 'opacity-60')}>
+                <Section />
+              </div>
             </div>
           </div>
         </main>

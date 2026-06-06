@@ -62,6 +62,10 @@ type ProtocolContextValue = {
   refreshing: boolean;
   /** Last load error, if any. */
   error: string | null;
+  /** Unix ms of the last *successful* full read, or null if none has succeeded yet. */
+  lastUpdated: number | null;
+  /** True when the most recent read failed — the displayed numbers may be out of date. */
+  stale: boolean;
   /** Re-read everything from chain (call after a successful write). */
   refresh: () => Promise<void>;
   // Aggregates across the wallet's positions, base units.
@@ -90,6 +94,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
   // Track the latest request so a slow stale fetch can't clobber a newer one.
   const reqId = useRef(0);
@@ -136,6 +141,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
         setTrustlines(nextTrustlines);
         setReceipts(nextReceipts);
         setLpPosition(nextLp);
+        setLastUpdated(Date.now());
       } catch (err) {
         if (id === reqId.current) {
           setError(err instanceof Error ? err.message : 'Failed to read protocol state.');
@@ -158,6 +164,27 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   }, [load]);
 
   const refresh = useCallback(() => load(false), [load]);
+
+  // Poll chain state in the background so yield, solvency, pool, and receipt numbers stay
+  // live without the user clicking Refresh or doing a transaction. We skip the tick while the
+  // tab is hidden (no point hammering the RPC for a screen nobody's looking at) and fire an
+  // immediate catch-up refresh when it becomes visible again so a returning user sees fresh
+  // data right away rather than waiting out the next interval.
+  useEffect(() => {
+    const POLL_MS = 30_000;
+    const tick = () => {
+      if (document.visibilityState === 'visible') void load(false);
+    };
+    const timer = setInterval(tick, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load(false);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [load]);
 
   const { totalPrincipal, totalClaimable } = useMemo(() => {
     return positions.reduce(
@@ -184,6 +211,8 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
       loading,
       refreshing,
       error,
+      lastUpdated,
+      stale: error !== null,
       refresh,
       totalPrincipal,
       totalClaimable,
@@ -202,6 +231,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
       loading,
       refreshing,
       error,
+      lastUpdated,
       refresh,
       totalPrincipal,
       totalClaimable,
