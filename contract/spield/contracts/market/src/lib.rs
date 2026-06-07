@@ -32,6 +32,9 @@ mod storage;
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod curve_test;
+
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String,
 };
@@ -292,58 +295,80 @@ impl Market {
     // ---------- read-only views (frontend Markets/Trade/LP) ----------
 
     /// Quote USDC out for a PT-in swap (matches `swap_exact_pt_for_usdc` exactly).
+    ///
+    /// **Read-only and panic-free by contract**: returns `0` ("no quote") for any state the swap
+    /// itself would reject — a thin/imbalanced pool, output exceeding reserves, or at/after maturity —
+    /// instead of reverting, so frontends can render "amount exceeds liquidity" from a `0`.
     pub fn quote_pt_for_usdc(env: Env, pt_in: i128) -> i128 {
-        let params = Self::curve_params(&env);
-        curve::swap_pt_for_usdc(
-            &env,
-            pt_in,
-            storage::pt_reserve(&env),
-            storage::usdc_reserve(&env),
-            storage::get_fee_bps(&env),
-            &params,
-        )
-        .amount_out
+        Self::try_curve_params(&env)
+            .and_then(|params| {
+                curve::try_swap_pt_for_usdc(
+                    &env,
+                    pt_in,
+                    storage::pt_reserve(&env),
+                    storage::usdc_reserve(&env),
+                    storage::get_fee_bps(&env),
+                    &params,
+                )
+            })
+            .map(|r| r.amount_out)
+            .unwrap_or(0)
     }
 
-    /// Quote PT out for a USDC-in swap (matches `swap_exact_usdc_for_pt` exactly).
+    /// Quote PT out for a USDC-in swap (matches `swap_exact_usdc_for_pt` exactly). Panic-free; `0`
+    /// means "no quote" (thin/imbalanced pool, exceeds reserves, or matured).
     pub fn quote_usdc_for_pt(env: Env, usdc_in: i128) -> i128 {
-        let params = Self::curve_params(&env);
-        curve::swap_usdc_for_pt(
-            &env,
-            usdc_in,
-            storage::pt_reserve(&env),
-            storage::usdc_reserve(&env),
-            storage::get_fee_bps(&env),
-            &params,
-        )
-        .amount_out
+        Self::try_curve_params(&env)
+            .and_then(|params| {
+                curve::try_swap_usdc_for_pt(
+                    &env,
+                    usdc_in,
+                    storage::pt_reserve(&env),
+                    storage::usdc_reserve(&env),
+                    storage::get_fee_bps(&env),
+                    &params,
+                )
+            })
+            .map(|r| r.amount_out)
+            .unwrap_or(0)
     }
 
     /// PT price in USDC at SCALAR_12 — the curve's `exchangeRate` at the current pool point. Drifts
-    /// to par (1.0) as `now → maturity`. Returns 0 if the pool is empty.
+    /// to par (1.0) as `now → maturity`.
+    ///
+    /// **Read-only and panic-free by contract** (mainnet-readiness, AMM hardening): returns a safe
+    /// `0` fallback for any state where a meaningful price is undefined — an empty pool, a pool too
+    /// thin/imbalanced for the curve (proportion outside the 0.5%…99.5% band), or at/after maturity
+    /// (no live curve). Integrations/frontends can treat `0` as "no price", never a revert.
     pub fn pt_price(env: Env) -> i128 {
         let pt_res = storage::pt_reserve(&env);
         let usdc_res = storage::usdc_reserve(&env);
-        if pt_res <= 0 || usdc_res <= 0 {
-            return 0;
+        let now = env.ledger().timestamp();
+        // Resolve params safely (Err past maturity); price safely (Err on empty/thin/imbalanced).
+        match curve::try_params(
+            &env,
+            storage::get_scalar_root(&env),
+            storage::get_rate_anchor(&env),
+            storage::get_maturity(&env),
+            now,
+        ) {
+            Ok(params) => curve::try_pt_price(&env, pt_res, usdc_res, &params).unwrap_or(0),
+            Err(_) => 0,
         }
-        let params = Self::curve_params(&env);
-        curve::pt_price(&env, pt_res, usdc_res, &params)
     }
 
     /// The headline implied APY (SCALAR_12 fraction, e.g. 0.08 = 8%): the annualized return of
     /// buying PT now and redeeming at par at maturity, derived from the PT price + time to maturity.
-    /// Returns 0 if the pool is empty or PT is at/above par.
+    ///
+    /// **Read-only and panic-free by contract**: returns a safe `0` for an empty / thin / imbalanced
+    /// pool, a pool at/above par, or one at/after maturity. Never reverts or divides by zero.
     pub fn implied_apy(env: Env) -> i128 {
-        let pt_res = storage::pt_reserve(&env);
-        let usdc_res = storage::usdc_reserve(&env);
-        if pt_res <= 0 || usdc_res <= 0 {
-            return 0;
-        }
+        // `curve::implied_apy` already maps every fallible/edge state to 0 (it wraps the fallible
+        // `try_implied_apy` with `unwrap_or(0)`), so this view is panic-free for any pool state.
         curve::implied_apy(
             &env,
-            pt_res,
-            usdc_res,
+            storage::pt_reserve(&env),
+            storage::usdc_reserve(&env),
             storage::get_scalar_root(&env),
             storage::get_rate_anchor(&env),
             storage::get_maturity(&env),
@@ -505,9 +530,22 @@ impl Market {
     }
 
     /// Resolve the curve parameters for *this* ledger time (rate_scalar grows as maturity nears).
-    /// Panics `MarketExpired` at/after maturity — quotes/prices are undefined past it.
+    /// Panics `MarketExpired` at/after maturity — quotes/prices are undefined past it. Used by the
+    /// swap path, where a revert past maturity is correct.
     fn curve_params(env: &Env) -> curve::CurveParams {
         curve::params(
+            env,
+            storage::get_scalar_root(env),
+            storage::get_rate_anchor(env),
+            storage::get_maturity(env),
+            env.ledger().timestamp(),
+        )
+    }
+
+    /// Non-panicking `curve_params` for read-only quote views: `Err(MarketExpired)` past maturity so
+    /// the view can fall back to `0` instead of reverting.
+    fn try_curve_params(env: &Env) -> Result<curve::CurveParams, Error> {
+        curve::try_params(
             env,
             storage::get_scalar_root(env),
             storage::get_rate_anchor(env),

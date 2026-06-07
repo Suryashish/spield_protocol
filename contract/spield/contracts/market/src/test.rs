@@ -430,6 +430,114 @@ fn lp_can_exit_after_maturity() {
 }
 
 // ===========================================================================
+// AMM hardening: LP can NEVER be trapped — exit works under EVERY combination of
+// the maturity-state transition and the pause circuit-breaker. (Invariant tests.)
+// ===========================================================================
+
+/// The strongest no-trap guarantee: post-maturity AND paused at the same time, the LP still exits
+/// in full and gets back proportional reserves. Neither the maturity halt (which only gates swaps)
+/// nor a pause (which only gates inflows) can lock liquidity in.
+#[test]
+fn lp_exit_works_even_when_matured_and_paused() {
+    let w = setup(YEAR);
+    let (lp, shares) = seed_pool(&w, 100 * USDC, 100 * USDC);
+
+    // Trigger BOTH trap conditions.
+    w.env().ledger().set_timestamp(w.maturity + 1); // matured
+    w.market().pause(); // and paused
+    w.env().cost_estimate().budget().reset_unlimited();
+
+    let (pt_out, usdc_out) = w.market().remove_liquidity(&lp, &shares);
+    assert!(pt_out > 0 && usdc_out > 0, "LP trapped: cannot exit when matured + paused");
+    let (held, _, _) = w.market().lp_position(&lp);
+    assert_eq!(held, 0, "all shares redeemed");
+}
+
+/// Conservation: the sum of what every LP can remove equals the pool reserves (no shares left
+/// stranded, no reserves conjured). Two LPs split the pool proportionally and both fully exit.
+#[test]
+fn full_lp_exit_conserves_reserves() {
+    let w = setup(YEAR);
+    let (lp1, s1) = seed_pool(&w, 100 * USDC, 100 * USDC);
+    // Second LP adds at the current (1:1) ratio.
+    let lp2 = w.new_user(200 * USDC);
+    w.mint_position(&lp2, 100 * USDC);
+    let s2 = w.market().add_liquidity(&lp2, &(100 * USDC), &(100 * USDC));
+
+    let (pt_res0, usdc_res0) = w.market().reserves();
+    w.env().cost_estimate().budget().reset_unlimited();
+    let (pt1, usdc1) = w.market().remove_liquidity(&lp1, &s1);
+    let (pt2, usdc2) = w.market().remove_liquidity(&lp2, &s2);
+
+    // Everything paid out equals the starting reserves (flooring may leave at most a tiny dust).
+    let pt_paid = pt1 + pt2;
+    let usdc_paid = usdc1 + usdc2;
+    assert!(pt_res0 - pt_paid >= 0 && pt_res0 - pt_paid <= 2, "PT conservation off: {} vs {}", pt_paid, pt_res0);
+    assert!(usdc_res0 - usdc_paid >= 0 && usdc_res0 - usdc_paid <= 2, "USDC conservation off: {} vs {}", usdc_paid, usdc_res0);
+    let (after_pt, after_usdc) = w.market().reserves();
+    assert!(after_pt <= 2 && after_usdc <= 2, "pool not drained to dust: {} {}", after_pt, after_usdc);
+    assert_eq!(w.market().total_shares(), 0, "all shares burned");
+}
+
+// ===========================================================================
+// AMM hardening: read-only views NEVER panic on empty / thin / imbalanced /
+// matured pools — they return safe fallbacks (0) instead of reverting.
+// ===========================================================================
+
+#[test]
+fn views_safe_on_empty_pool() {
+    let w = setup(YEAR);
+    // No liquidity added at all. Every analytics view must return a safe 0, not revert.
+    assert_eq!(w.market().pt_price(), 0, "pt_price on empty pool");
+    assert_eq!(w.market().implied_apy(), 0, "implied_apy on empty pool");
+    assert_eq!(w.market().quote_pt_for_usdc(&(USDC)), 0, "quote on empty pool");
+    assert_eq!(w.market().quote_usdc_for_pt(&(USDC)), 0, "quote on empty pool");
+    let (held, pt, usdc) = w.market().lp_position(&w.new_user(0));
+    assert_eq!((held, pt, usdc), (0, 0, 0));
+}
+
+#[test]
+fn views_safe_on_imbalanced_pool() {
+    let w = setup(YEAR);
+    // Seed an out-of-band pool directly (first LP sets the price): 1000 PT : 1 USDC ⇒ proportion
+    // ≈ 0.999, beyond the 99.5% band, so the curve can't price it. Fund the LP for BOTH legs:
+    // 1000 USDC to mint 1000 PT, PLUS 1 USDC for the pool's USDC side (= 1001 USDC total).
+    let lp = w.new_user(1_001 * USDC);
+    w.mint_position(&lp, 1_000 * USDC); // spends 1000 USDC → 1000 PT (+1000 YT); 1 USDC left
+    w.market().add_liquidity(&lp, &(1_000 * USDC), &(1 * USDC));
+
+    // Views must not panic — they return safe fallbacks for an out-of-band pool.
+    assert_eq!(w.market().pt_price(), 0, "pt_price must degrade to 0 on imbalanced pool");
+    assert_eq!(w.market().implied_apy(), 0, "implied_apy must degrade to 0 on imbalanced pool");
+    assert_eq!(w.market().quote_usdc_for_pt(&(USDC)), 0, "quote degrades on imbalanced pool");
+}
+
+#[test]
+fn views_safe_after_maturity() {
+    let w = setup(YEAR);
+    seed_pool(&w, 100 * USDC, 100 * USDC);
+    w.env().ledger().set_timestamp(w.maturity + 1);
+    // Past maturity the curve is undefined; views must return 0, not panic (MarketExpired).
+    assert_eq!(w.market().pt_price(), 0, "pt_price must be 0 after maturity");
+    assert_eq!(w.market().implied_apy(), 0, "implied_apy must be 0 after maturity");
+    assert_eq!(w.market().quote_pt_for_usdc(&(USDC)), 0, "quote must be 0 after maturity");
+    assert_eq!(w.market().quote_usdc_for_pt(&(USDC)), 0, "quote must be 0 after maturity");
+    // reserves() (a pure read) still works.
+    let (pt, usdc) = w.market().reserves();
+    assert!(pt > 0 && usdc > 0, "reserves still readable after maturity");
+}
+
+#[test]
+fn quote_returns_zero_when_amount_exceeds_liquidity() {
+    let w = setup(YEAR);
+    seed_pool(&w, 10 * USDC, 10 * USDC);
+    w.env().cost_estimate().budget().reset_unlimited();
+    // A buy larger than the pool can fill returns 0 ("amount exceeds liquidity"), not a revert.
+    let q = w.market().quote_usdc_for_pt(&(1_000_000 * USDC));
+    assert_eq!(q, 0, "oversized quote must degrade to 0");
+}
+
+// ===========================================================================
 // Imbalanced add_liquidity (off the pool ratio) is rejected.
 // ===========================================================================
 

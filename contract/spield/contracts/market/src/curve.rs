@@ -53,71 +53,116 @@ pub struct CurveParams {
     pub rate_anchor: i128,
 }
 
-/// Resolve `rate_scalar` from `scalar_root` and the time left. Panics `MarketExpired` at/after
-/// maturity (callers gate trading on this too, but the math is undefined past maturity).
-pub fn params(env: &Env, scalar_root: i128, rate_anchor: i128, maturity: u64, now: u64) -> CurveParams {
+/// **Non-panicking** resolve of `rate_scalar` from `scalar_root` and the time left. Returns
+/// `Err(MarketExpired)` at/after maturity (the math is undefined past it) so views can fall back.
+pub fn try_params(
+    env: &Env,
+    scalar_root: i128,
+    rate_anchor: i128,
+    maturity: u64,
+    now: u64,
+) -> Result<CurveParams, Error> {
     if now >= maturity {
-        panic_with_error!(env, Error::MarketExpired);
+        return Err(Error::MarketExpired);
     }
     let time_to_mat = (maturity - now) as i128;
     // yearsToMat = time_to_mat / SECONDS_PER_YEAR (SCALAR_12).
-    let years_to_mat = mul_div_floor(env, time_to_mat, SCALAR_12, SECONDS_PER_YEAR)
-        .unwrap_or_else(|e| panic_with_error!(env, e));
+    let years_to_mat = mul_div_floor(env, time_to_mat, SCALAR_12, SECONDS_PER_YEAR)?;
     if years_to_mat <= 0 {
         // < ~1 SECONDS_PER_YEAR/1e12 of a year left: treat as effectively matured.
-        panic_with_error!(env, Error::MarketExpired);
+        return Err(Error::MarketExpired);
     }
     // rate_scalar = scalar_root / years_to_mat  (SCALAR_12 division).
-    let rate_scalar = fdiv(env, scalar_root, years_to_mat)
-        .unwrap_or_else(|e| panic_with_error!(env, e));
-    CurveParams { rate_scalar, rate_anchor }
+    let rate_scalar = fdiv(env, scalar_root, years_to_mat)?;
+    Ok(CurveParams { rate_scalar, rate_anchor })
 }
 
-/// `proportion = pt / (pt + usdc)` at SCALAR_12, bounds-checked to stay strictly inside (0,1).
-pub fn proportion(env: &Env, pt_reserve: i128, usdc_reserve: i128) -> i128 {
+/// Resolve `rate_scalar` from `scalar_root` and the time left. Panics `MarketExpired` at/after
+/// maturity (callers gate trading on this too, but the math is undefined past maturity). Panicking
+/// wrapper for the swap/quote path.
+pub fn params(env: &Env, scalar_root: i128, rate_anchor: i128, maturity: u64, now: u64) -> CurveParams {
+    try_params(env, scalar_root, rate_anchor, maturity, now)
+        .unwrap_or_else(|e| panic_with_error!(env, e))
+}
+
+/// `proportion = pt / (pt + usdc)` at SCALAR_12, bounds-checked to stay strictly inside the usable
+/// band (0.5% … 99.5%). **Non-panicking core**: returns `Err(InsufficientLiquidity)` for an empty,
+/// negative, or too-imbalanced pool, and `Err(MathOverflow)` on overflow — so read-only views can
+/// degrade gracefully instead of reverting. The swap path uses the panicking [`proportion`] wrapper.
+pub fn try_proportion(env: &Env, pt_reserve: i128, usdc_reserve: i128) -> Result<i128, Error> {
+    if pt_reserve < 0 || usdc_reserve < 0 {
+        return Err(Error::InsufficientLiquidity);
+    }
     let total = pt_reserve
         .checked_add(usdc_reserve)
-        .unwrap_or_else(|| panic_with_error!(env, Error::MathOverflow));
-    if total <= 0 || pt_reserve < 0 || usdc_reserve < 0 {
-        panic_with_error!(env, Error::InsufficientLiquidity);
+        .ok_or(Error::MathOverflow)?;
+    if total <= 0 {
+        return Err(Error::InsufficientLiquidity);
     }
-    let p = mul_div_floor(env, pt_reserve, SCALAR_12, total)
-        .unwrap_or_else(|e| panic_with_error!(env, e));
+    let p = mul_div_floor(env, pt_reserve, SCALAR_12, total)?;
     if p < MIN_PROPORTION || p > MAX_PROPORTION {
-        panic_with_error!(env, Error::InsufficientLiquidity);
+        return Err(Error::InsufficientLiquidity);
     }
-    p
+    Ok(p)
+}
+
+/// Panicking wrapper around [`try_proportion`] (the coherent panicking API used by tests; the
+/// production swap/quote paths now go through the `try_*` variants directly).
+#[allow(dead_code)]
+pub fn proportion(env: &Env, pt_reserve: i128, usdc_reserve: i128) -> i128 {
+    try_proportion(env, pt_reserve, usdc_reserve)
+        .unwrap_or_else(|e| panic_with_error!(env, e))
+}
+
+/// **Non-panicking** `exchangeRate(proportion)` = rateAnchor − ln(p/(1-p)) / rateScalar, SCALAR_12
+/// (USDC per PT). Returns `Err` instead of reverting so views can fall back. `prop` is assumed to be
+/// already inside the usable band (the callers pass the output of `try_proportion`).
+pub fn try_exchange_rate(env: &Env, prop: i128, p: &CurveParams) -> Result<i128, Error> {
+    if p.rate_scalar <= 0 {
+        return Err(Error::InsufficientLiquidity);
+    }
+    // logit = ln( prop / (1 - prop) ) — signed; 0 at prop = 0.5, > 0 for PT-heavy pools.
+    let one_minus = SCALAR_12 - prop;
+    if one_minus <= 0 || prop <= 0 {
+        return Err(Error::InsufficientLiquidity);
+    }
+    let ratio = fdiv(env, prop, one_minus)?;
+    let logit = ln_fixed(env, ratio)?;
+    let term = fdiv(env, logit, p.rate_scalar)?;
+    let rate = p.rate_anchor.checked_sub(term).ok_or(Error::MathOverflow)?;
+    // A PT price must stay positive.
+    if rate <= 0 {
+        return Err(Error::InsufficientLiquidity);
+    }
+    Ok(rate)
 }
 
 /// `exchangeRate(proportion)` = rateAnchor − ln(p/(1-p)) / rateScalar, SCALAR_12. USDC per PT.
 /// The minus sign encodes supply/demand: more PT in the pool (higher proportion ⇒ higher logit)
-/// ⇒ a *lower* PT price.
+/// ⇒ a *lower* PT price. Panicking wrapper (coherent API; used by tests).
+#[allow(dead_code)]
 pub fn exchange_rate(env: &Env, prop: i128, p: &CurveParams) -> i128 {
-    // logit = ln( prop / (1 - prop) )  — signed; 0 at prop = 0.5, > 0 for PT-heavy pools.
-    let one_minus = SCALAR_12 - prop;
-    if one_minus <= 0 {
-        panic_with_error!(env, Error::InsufficientLiquidity);
-    }
-    let ratio = fdiv(env, prop, one_minus).unwrap_or_else(|e| panic_with_error!(env, e));
-    let logit = ln_fixed(env, ratio).unwrap_or_else(|e| panic_with_error!(env, e));
-    // term = logit / rateScalar
-    let term = fdiv(env, logit, p.rate_scalar).unwrap_or_else(|e| panic_with_error!(env, e));
-    // rate = anchor − term  (PT-heavy ⇒ term > 0 ⇒ cheaper PT).
-    let rate = p.rate_anchor
-        .checked_sub(term)
-        .unwrap_or_else(|| panic_with_error!(env, Error::MathOverflow));
-    // A PT price must stay positive. The anchor (par) + bounded logit/rateScalar keep it so for sane
-    // scalar_root; this is defence-in-depth against an extreme mis-set at init.
-    if rate <= 0 {
-        panic_with_error!(env, Error::InsufficientLiquidity);
-    }
-    rate
+    try_exchange_rate(env, prop, p).unwrap_or_else(|e| panic_with_error!(env, e))
 }
 
-/// PT price in USDC at the current pool point (= exchangeRate). SCALAR_12.
+/// PT price in USDC at the current pool point (= exchangeRate). SCALAR_12. Panicking wrapper
+/// (coherent API; used by tests — production reads go through `try_pt_price`).
+#[allow(dead_code)]
 pub fn pt_price(env: &Env, pt_reserve: i128, usdc_reserve: i128, p: &CurveParams) -> i128 {
     let prop = proportion(env, pt_reserve, usdc_reserve);
     exchange_rate(env, prop, p)
+}
+
+/// **Non-panicking** PT price for read-only views: `Ok(price)` for a healthy pool, `Err` for an
+/// empty / thin / too-imbalanced pool (the caller maps that to a safe fallback like 0).
+pub fn try_pt_price(
+    env: &Env,
+    pt_reserve: i128,
+    usdc_reserve: i128,
+    p: &CurveParams,
+) -> Result<i128, Error> {
+    let prop = try_proportion(env, pt_reserve, usdc_reserve)?;
+    try_exchange_rate(env, prop, p)
 }
 
 /// Implied APY (SCALAR_12 fraction) from the current PT price and the time to maturity:
@@ -132,26 +177,44 @@ pub fn implied_apy(
     maturity: u64,
     now: u64,
 ) -> i128 {
-    let p = params(env, scalar_root, rate_anchor, maturity, now);
-    let price = pt_price(env, pt_reserve, usdc_reserve, &p);
+    // The view layer never wants this to revert: any unusable/expired/thin state ⇒ 0 (no implied
+    // yield to show). `try_implied_apy` carries the real fallible math.
+    try_implied_apy(env, pt_reserve, usdc_reserve, scalar_root, rate_anchor, maturity, now)
+        .unwrap_or(0)
+}
+
+/// **Non-panicking** implied APY. Returns `Ok(apy)` for a healthy below-par pool, `Ok(0)` for an
+/// at/above-par pool or one effectively at maturity, and `Err` for an empty / thin / expired /
+/// overflowing state (the caller maps `Err` → 0). This is the fallible core behind the [`implied_apy`]
+/// view; isolating it lets tests assert the *graceful-degradation* contract directly.
+pub fn try_implied_apy(
+    env: &Env,
+    pt_reserve: i128,
+    usdc_reserve: i128,
+    scalar_root: i128,
+    rate_anchor: i128,
+    maturity: u64,
+    now: u64,
+) -> Result<i128, Error> {
+    let p = try_params(env, scalar_root, rate_anchor, maturity, now)?;
+    let price = try_pt_price(env, pt_reserve, usdc_reserve, &p)?;
     if price >= SCALAR_12 {
-        return 0; // PT at/above par ⇒ no positive yield to imply
+        return Ok(0); // PT at/above par ⇒ no positive yield to imply
     }
     // discount = par / price = 1 / price  (> 1)
-    let discount = fdiv(env, SCALAR_12, price).unwrap_or_else(|e| panic_with_error!(env, e));
+    let discount = fdiv(env, SCALAR_12, price)?;
     // exponent = 1 / yearsToMat
     let time_to_mat = (maturity - now) as i128;
-    let years_to_mat = mul_div_floor(env, time_to_mat, SCALAR_12, SECONDS_PER_YEAR)
-        .unwrap_or_else(|e| panic_with_error!(env, e));
+    let years_to_mat = mul_div_floor(env, time_to_mat, SCALAR_12, SECONDS_PER_YEAR)?;
     if years_to_mat <= 0 {
-        return 0;
+        return Ok(0);
     }
-    let inv_years = fdiv(env, SCALAR_12, years_to_mat).unwrap_or_else(|e| panic_with_error!(env, e));
+    let inv_years = fdiv(env, SCALAR_12, years_to_mat)?;
     // discount^(1/yearsToMat) = exp( (1/yearsToMat) * ln(discount) )
-    let ln_disc = ln_fixed(env, discount).unwrap_or_else(|e| panic_with_error!(env, e));
-    let pow_arg = fmul(env, inv_years, ln_disc).unwrap_or_else(|e| panic_with_error!(env, e));
-    let grown = exp_fixed(env, pow_arg).unwrap_or_else(|e| panic_with_error!(env, e));
-    grown - SCALAR_12
+    let ln_disc = ln_fixed(env, discount)?;
+    let pow_arg = fmul(env, inv_years, ln_disc)?;
+    let grown = exp_fixed(env, pow_arg)?;
+    Ok(grown - SCALAR_12)
 }
 
 /// Result of pricing a swap: the gross output (before the caller's slippage check). The post-trade
@@ -173,26 +236,41 @@ pub fn swap_pt_for_usdc(
     fee_bps: u32,
     p: &CurveParams,
 ) -> SwapResult {
+    try_swap_pt_for_usdc(env, pt_in, pt_reserve, usdc_reserve, fee_bps, p)
+        .unwrap_or_else(|e| panic_with_error!(env, e))
+}
+
+/// **Non-panicking** core of [`swap_pt_for_usdc`]. Returns `Err` (instead of reverting) for a bad
+/// amount, an unusable/too-imbalanced post-trade proportion, or a pool that can't cover the output —
+/// so the quote view can return a safe `0` ("no quote") and the swap path maps `Err` → revert.
+pub fn try_swap_pt_for_usdc(
+    env: &Env,
+    pt_in: i128,
+    pt_reserve: i128,
+    usdc_reserve: i128,
+    fee_bps: u32,
+    p: &CurveParams,
+) -> Result<SwapResult, Error> {
     if pt_in <= 0 {
-        panic_with_error!(env, Error::InvalidAmount);
+        return Err(Error::InvalidAmount);
     }
-    let pt_after_fee = apply_fee(env, pt_in, fee_bps);
-    let new_pt = pt_reserve + pt_after_fee;
+    let pt_after_fee = try_apply_fee(env, pt_in, fee_bps)?;
+    let new_pt = pt_reserve.checked_add(pt_after_fee).ok_or(Error::MathOverflow)?;
 
     // Iterate: start with the spot rate, compute USDC out, recompute proportion with that USDC
-    // removed, re-price. Two passes are plenty (rate is near-constant in usdc_out here).
+    // removed, re-price. A few passes converge (rate is near-constant in usdc_out here).
     let mut usdc_out = 0i128;
-    let mut prop_after = proportion(env, new_pt, usdc_reserve);
+    let mut prop_after = try_proportion(env, new_pt, usdc_reserve)?;
     for _ in 0..3 {
-        let rate = exchange_rate(env, prop_after, p);
-        usdc_out = fmul(env, pt_after_fee, rate).unwrap_or_else(|e| panic_with_error!(env, e));
+        let rate = try_exchange_rate(env, prop_after, p)?;
+        usdc_out = fmul(env, pt_after_fee, rate)?;
         if usdc_out >= usdc_reserve {
-            panic_with_error!(env, Error::InsufficientLiquidity);
+            return Err(Error::InsufficientLiquidity);
         }
-        prop_after = proportion(env, new_pt, usdc_reserve - usdc_out);
+        prop_after = try_proportion(env, new_pt, usdc_reserve - usdc_out)?;
     }
-    let _ = prop_after; // bounds-checked inside `proportion`; not surfaced to the caller
-    SwapResult { amount_out: usdc_out }
+    let _ = prop_after; // bounds-checked inside `try_proportion`; not surfaced to the caller
+    Ok(SwapResult { amount_out: usdc_out })
 }
 
 /// Price `usdc_in` USDC → PT out along the curve. The fee is taken on the USDC input. The output is
@@ -206,33 +284,47 @@ pub fn swap_usdc_for_pt(
     fee_bps: u32,
     p: &CurveParams,
 ) -> SwapResult {
-    if usdc_in <= 0 {
-        panic_with_error!(env, Error::InvalidAmount);
-    }
-    let usdc_after_fee = apply_fee(env, usdc_in, fee_bps);
-    let new_usdc = usdc_reserve + usdc_after_fee;
-
-    let mut pt_out = 0i128;
-    let mut prop_after = proportion(env, pt_reserve, new_usdc);
-    for _ in 0..3 {
-        let rate = exchange_rate(env, prop_after, p);
-        // pt_out = usdc_after_fee / rate
-        pt_out = fdiv(env, usdc_after_fee, rate).unwrap_or_else(|e| panic_with_error!(env, e));
-        if pt_out >= pt_reserve {
-            panic_with_error!(env, Error::InsufficientLiquidity);
-        }
-        prop_after = proportion(env, pt_reserve - pt_out, new_usdc);
-    }
-    let _ = prop_after; // bounds-checked inside `proportion`; not surfaced to the caller
-    SwapResult { amount_out: pt_out }
+    try_swap_usdc_for_pt(env, usdc_in, pt_reserve, usdc_reserve, fee_bps, p)
+        .unwrap_or_else(|e| panic_with_error!(env, e))
 }
 
-/// `amount * (10_000 - fee_bps) / 10_000`, floored.
-fn apply_fee(env: &Env, amount: i128, fee_bps: u32) -> i128 {
-    let keep = (10_000 - fee_bps as i128).max(0);
-    let out = mul_div_floor(env, amount, keep, 10_000).unwrap_or_else(|e| panic_with_error!(env, e));
-    if out <= 0 {
-        panic_with_error!(env, Error::InvalidAmount);
+/// **Non-panicking** core of [`swap_usdc_for_pt`]. Returns `Err` for a bad amount, an unusable
+/// post-trade proportion, or a pool that can't cover the PT output; the quote view maps `Err` → 0.
+pub fn try_swap_usdc_for_pt(
+    env: &Env,
+    usdc_in: i128,
+    pt_reserve: i128,
+    usdc_reserve: i128,
+    fee_bps: u32,
+    p: &CurveParams,
+) -> Result<SwapResult, Error> {
+    if usdc_in <= 0 {
+        return Err(Error::InvalidAmount);
     }
-    out
+    let usdc_after_fee = try_apply_fee(env, usdc_in, fee_bps)?;
+    let new_usdc = usdc_reserve.checked_add(usdc_after_fee).ok_or(Error::MathOverflow)?;
+
+    let mut pt_out = 0i128;
+    let mut prop_after = try_proportion(env, pt_reserve, new_usdc)?;
+    for _ in 0..3 {
+        let rate = try_exchange_rate(env, prop_after, p)?;
+        // pt_out = usdc_after_fee / rate
+        pt_out = fdiv(env, usdc_after_fee, rate)?;
+        if pt_out >= pt_reserve {
+            return Err(Error::InsufficientLiquidity);
+        }
+        prop_after = try_proportion(env, pt_reserve - pt_out, new_usdc)?;
+    }
+    let _ = prop_after; // bounds-checked inside `try_proportion`; not surfaced to the caller
+    Ok(SwapResult { amount_out: pt_out })
+}
+
+/// `amount * (10_000 - fee_bps) / 10_000`, floored. Non-panicking core.
+fn try_apply_fee(env: &Env, amount: i128, fee_bps: u32) -> Result<i128, Error> {
+    let keep = (10_000 - fee_bps as i128).max(0);
+    let out = mul_div_floor(env, amount, keep, 10_000)?;
+    if out <= 0 {
+        return Err(Error::InvalidAmount);
+    }
+    Ok(out)
 }

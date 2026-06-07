@@ -148,3 +148,30 @@ market suites.
   cursor (clamped to `MAX_HARVEST_BATCH = 50`), so a single call can never exceed the tx resource
   budget no matter how many positions accumulate. Repeated calls cover the whole list. Proven by
   `harvest_pagination_sweeps_all_positions`.
+
+## AMM curve hardening (the highest-risk math)
+
+The Pendle/Notional log curve (`exchangeRate = anchor − ln(p/(1−p))/rateScalar`) and its fixed-point
+swap solver are the riskiest components, so they get the deepest validation:
+
+- **Views never panic (graceful degradation).** Every read-only analytics endpoint —
+  `pt_price`, `implied_apy`, `quote_pt_for_usdc`, `quote_usdc_for_pt` — returns a **safe `0`** for any
+  state where a price is undefined: an empty pool, a pool too thin/imbalanced for the curve
+  (proportion outside the 0.5%…99.5% band), an output exceeding reserves, or at/after maturity. They
+  can no longer revert, divide by zero, or return garbage — frontends/integrations treat `0` as "no
+  price / amount exceeds liquidity". Implemented via non-panicking `try_*` curve cores
+  (`try_proportion` / `try_exchange_rate` / `try_pt_price` / `try_params` / `try_swap_*` /
+  `try_implied_apy`); the panicking wrappers remain for the swap path, where a revert is correct.
+  Proven by `views_safe_on_empty_pool`, `views_safe_on_imbalanced_pool`, `views_safe_after_maturity`,
+  `quote_returns_zero_when_amount_exceeds_liquidity`.
+- **Property / fuzz suite** (`market/src/curve_test.rs`, ~15 tests, thousands of cases, no Blend so
+  it's fast): no-panic across all pool states; price strictly positive and `== anchor` at proportion
+  0.5; **monotonic** (more PT ⇒ cheaper PT); PT-heavy below par / USDC-heavy above par; steeper scalar
+  pulls price toward par (the convergence property); swap output **bounded by reserves**; solver
+  **self-consistency** (3-pass converges to <~8 base-unit dust); **round-trip unprofitability** (no
+  risk-free extraction); larger trades get worse unit prices (slippage); and **overflow-safety at
+  mainnet scale** (1e15 base-unit reserves, via the i256-backed math layer).
+- **LPs can never be trapped.** `remove_liquidity` is gated only by `ensure_initialized` (no maturity
+  halt, no pause gate), so an LP exits in full under **every** combination of matured + paused.
+  Conservation holds: summed LP withdrawals equal the reserves (down to flooring dust) and all shares
+  burn. Proven by `lp_exit_works_even_when_matured_and_paused`, `full_lp_exit_conserves_reserves`.
