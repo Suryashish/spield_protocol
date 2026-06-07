@@ -96,7 +96,8 @@ See [`TESTNET.md`](TESTNET.md) and [`scripts/deploy_testnet.sh`](scripts/deploy_
 
 - **Yield & solvency: trustless** — from Blend's on-chain `b_rate`; no privileged party can inflate it.
 - **Admin (init, pause, rate/fee within ceilings, upgrade): trusted single key at launch →
-  multisig-pathed.** Pause can only *halt*, never move user funds.
+  multisig-pathed.** Pause can only *block new inflows* — it can never move or trap user funds
+  (exits stay open while paused; see below).
 - **Blend dependency:** we inherit Blend's risk (its oracle, its backstop), documented as an
   explicit named dependency, not hidden.
 
@@ -126,3 +127,24 @@ Governance is covered by tests in `shared/src/governance_test.rs` (the state mac
 code-swap end-to-end in `wrapper/src/test.rs` (schedule → too-early-fails → warp → apply → behavior
 changed), the soft-brick valve in `strategy/src/test.rs`, and rotation/timelock wiring in the vault &
 market suites.
+
+## Operational safety (mainnet-readiness #5, #6, #8)
+
+- **Pause blocks inflows, never traps funds (#8).** A pause halts only the *inflow* paths — wrapper
+  `mint`, vault `seed`/`deposit`, market `add_liquidity` + swaps. Every *exit* stays open while paused:
+  wrapper `claim_yield`/`redeem_pt`/`combine_and_redeem`/`transfer_position`, vault `redeem`, market
+  `remove_liquidity`. So an emergency pause stops new money entering but existing users can always
+  leave — the credibly-neutral behavior. The **strategy has no pause by design**: it has no
+  user-facing inflow (deposits only arrive via the wrapper, whose `mint` pause already gates them) and
+  its other paths are pure exits that must stay open. Proven by `paused_still_allows_*` tests.
+- **Maturity-aware TTL — bonds can't archive before they mature (#5).** Per-position and per-receipt
+  persistent entries are bumped to **`maturity + 30d grace`** (clamped to the network max-TTL), not a
+  flat ~60-day window that could lapse mid-bond. A held-to-maturity position that's never written
+  would otherwise archive; now it survives. For bonds longer than the network max-TTL, a
+  **permissionless** `bump_position(id)` / `bump_receipt(id)` lets anyone top the entry up — keeping
+  long-dated positions alive across the whole term. Logic in `shared/src/ttl.rs`.
+- **Paginated vault harvest — no unbounded loop (#6).** The vault tracks a growing list of wrapper
+  positions; `harvest(max_positions)` sweeps it a **bounded chunk at a time** via a stored round-robin
+  cursor (clamped to `MAX_HARVEST_BATCH = 50`), so a single call can never exceed the tx resource
+  budget no matter how many positions accumulate. Repeated calls cover the whole list. Proven by
+  `harvest_pagination_sweeps_all_positions`.

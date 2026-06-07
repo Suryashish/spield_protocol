@@ -80,7 +80,7 @@ impl Wrapper {
     /// `user`; record a **new** position. Returns the new position id.
     pub fn mint(env: Env, user: Address, amount: i128) -> u64 {
         user.require_auth();
-        Self::ensure_active(&env);
+        Self::ensure_can_deposit(&env); // inflow — blocked while paused
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
@@ -130,7 +130,7 @@ impl Wrapper {
     /// Claim accrued yield for a position. **Settles, never burns YT** (SCF #6). Yield is measured
     /// from the position's own `settled_rate` (SCF #4/#5). Returns USDC paid out.
     pub fn claim_yield(env: Env, position_id: u64) -> i128 {
-        Self::ensure_active(&env);
+        Self::ensure_initialized(&env); // outflow — allowed even while paused
         let mut pos = Self::load(&env, position_id);
         pos.owner.require_auth();
         let paid = Self::do_claim(&env, position_id, &mut pos);
@@ -177,7 +177,7 @@ impl Wrapper {
     /// Redeem `amount` PT for `amount` USDC 1:1, allowed only at/after maturity (SCF: principal
     /// covered by the grown Blend position). Burns the PT.
     pub fn redeem_pt(env: Env, position_id: u64, amount: i128) -> i128 {
-        Self::ensure_active(&env);
+        Self::ensure_initialized(&env); // outflow — allowed even while paused
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
@@ -216,7 +216,7 @@ impl Wrapper {
     /// yield first so none is silently lost, then burns `amount` PT + `amount` YT and returns
     /// `amount` USDC. Returns (principal_returned, yield_claimed).
     pub fn combine_and_redeem(env: Env, position_id: u64, amount: i128) -> (i128, i128) {
-        Self::ensure_active(&env);
+        Self::ensure_initialized(&env); // outflow (returns principal) — allowed even while paused
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
@@ -256,7 +256,9 @@ impl Wrapper {
     /// can only claim yield accrued *after* the transfer). Also moves the PT+YT SAC balances so
     /// the position and the tokens stay reconciled.
     pub fn transfer_position(env: Env, position_id: u64, to: Address) {
-        Self::ensure_active(&env);
+        // Not a fund flow — just reassigns a position's claim. Allowed while paused so users can
+        // still manage/transfer their positions during an emergency.
+        Self::ensure_initialized(&env);
         let mut pos = Self::load(&env, position_id);
         pos.owner.require_auth();
 
@@ -303,6 +305,19 @@ impl Wrapper {
 
     pub fn get_position(env: Env, position_id: u64) -> Position {
         Self::load(&env, position_id)
+    }
+
+    /// **Permissionless** TTL keep-alive (mainnet-readiness #5). Extends a position entry's storage
+    /// TTL to comfortably exceed the market maturity (+grace), clamped to the network max. Anyone
+    /// may call it — it only prolongs an entry, never mutates accounting — so a long-dated bond that
+    /// is simply held (never claimed) for months can't archive before it matures. No auth, no pause
+    /// gate (keeping state alive is always safe). Panics `PositionNotFound` for an unknown id.
+    pub fn bump_position(env: Env, position_id: u64) {
+        Self::ensure_initialized(&env);
+        if !storage::has_position(&env, position_id) {
+            panic_with_error!(&env, Error::PositionNotFound);
+        }
+        storage::bump_position_ttl(&env, position_id);
     }
 
     /// The protocol-wide solvency figures, for the public dashboard (plan §11.5):
@@ -434,12 +449,23 @@ impl Wrapper {
 
     // ---------------- internals ----------------
 
-    fn ensure_active(env: &Env) {
+    /// Guard for **inflows** (new money entering): requires initialized AND not paused. A pause
+    /// blocks `mint` so no new deposits enter during an emergency.
+    fn ensure_can_deposit(env: &Env) {
         if !storage::is_initialized(env) {
             panic_with_error!(env, Error::NotInitialized);
         }
         if storage::is_paused(env) {
             panic_with_error!(env, Error::Paused);
+        }
+    }
+
+    /// Guard for **outflows** (users leaving): requires initialized only — these stay open even when
+    /// paused, so a pause can never trap user funds (mainnet-readiness #8: block inflows, allow
+    /// exits). `claim_yield` / `redeem_pt` / `combine_and_redeem` use this.
+    fn ensure_initialized(env: &Env) {
+        if !storage::is_initialized(env) {
+            panic_with_error!(env, Error::NotInitialized);
         }
     }
 

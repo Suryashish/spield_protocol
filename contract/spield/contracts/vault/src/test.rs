@@ -284,7 +284,7 @@ fn harvest_grows_capacity_from_yield() {
     w.advance(YEAR - 24 * 60 * 60);
     // Reset the host budget before the deep harvest chain (vault→wrapper→strategy→Blend).
     w.env().cost_estimate().budget().reset_unlimited();
-    let (claimed, pt_added) = w.vault().harvest();
+    let (claimed, pt_added) = w.vault().harvest(&50u32);
     assert!(claimed > 0, "harvest must claim real accrued yield");
     assert_eq!(claimed, pt_added);
 
@@ -375,6 +375,133 @@ fn paused_blocks_deposit() {
     w.vault().pause();
     let user = w.new_user(100 * USDC);
     w.vault().deposit(&user, &(100 * USDC));
+}
+
+// ===========================================================================
+// Pause coverage & emergency exit (mainnet-readiness #8): pause blocks deposits
+// but a matured receipt can still be REDEEMED while paused (no trapped funds).
+// ===========================================================================
+
+#[test]
+fn paused_still_allows_redeem() {
+    let w = setup(YEAR);
+    let seeder = w.new_user(100 * USDC);
+    w.vault().seed(&seeder, &(100 * USDC));
+    let user = w.new_user(100 * USDC);
+    let id = w.vault().deposit(&user, &(100 * USDC));
+    let payout = w.vault().get_receipt(&id).payout;
+
+    // Warp to maturity, then pause (emergency).
+    w.advance(YEAR + 1);
+    w.vault().pause();
+
+    // Deposit (inflow) is blocked while paused — the pause guard runs first in `ensure_can_deposit`.
+    let intruder = w.new_user(100 * USDC);
+    assert_eq!(
+        w.vault().try_deposit(&intruder, &(100 * USDC)),
+        Err(Ok(spield_shared::Error::Paused.into())),
+        "deposit (inflow) must be blocked while paused"
+    );
+
+    // ...but the user can still REDEEM their matured receipt while paused.
+    w.env().cost_estimate().budget().reset_unlimited();
+    let before = w.usdc().balance(&user);
+    let paid = w.vault().redeem(&id);
+    assert_eq!(paid, payout, "redeem must pay the full fixed payout while paused");
+    assert_eq!(w.usdc().balance(&user) - before, payout, "user received funds while paused");
+}
+
+// ===========================================================================
+// Harvest pagination (mainnet-readiness #6): with many positions, a bounded
+// harvest(max_positions) sweeps the list a chunk at a time via a cursor and
+// still claims yield across all of them — no unbounded loop that could brick.
+// ===========================================================================
+
+#[test]
+fn harvest_pagination_sweeps_all_positions() {
+    let w = setup(YEAR);
+    // Build several positions: one seed + several deposits each open a wrapper position the vault
+    // tracks. (deposit needs capacity; seed generously first.)
+    let seeder = w.new_user(1_000 * USDC);
+    w.vault().seed(&seeder, &(1_000 * USDC)); // position #0
+    for _ in 0..4 {
+        let u = w.new_user(50 * USDC);
+        w.vault().deposit(&u, &(50 * USDC)); // positions #1..#4
+    }
+
+    // Accrue real yield, staying before maturity.
+    w.advance(YEAR - 24 * 60 * 60);
+    w.env().cost_estimate().budget().reset_unlimited();
+
+    let cap_before = w.vault().stats().coupon_capacity;
+
+    // Harvest only 2 positions per call. Several calls must, together, sweep every position and
+    // claim real yield (each call advances the stored cursor). We loop a few times to cover all 5+.
+    let mut total_claimed = 0i128;
+    for _ in 0..5 {
+        w.env().cost_estimate().budget().reset_unlimited();
+        let (claimed, pt_added) = w.vault().harvest(&2u32); // bounded batch
+        assert_eq!(claimed, pt_added);
+        total_claimed += claimed;
+    }
+    assert!(total_claimed > 0, "paginated harvest must claim real yield across positions");
+
+    let cap_after = w.vault().stats().coupon_capacity;
+    assert!(cap_after > cap_before, "paginated harvest grew capacity: {} -> {}", cap_before, cap_after);
+
+    // The vault stays solvent throughout (asserted inside harvest, re-checked here).
+    let stats = w.vault().stats();
+    assert!(stats.pt_inventory >= stats.total_liability);
+}
+
+#[test]
+fn harvest_clamps_batch_and_handles_empty_list() {
+    let w = setup(YEAR);
+    // No positions yet → harvest is a no-op (claims 0), never panics.
+    let (claimed, pt_added) = w.vault().harvest(&50u32);
+    assert_eq!((claimed, pt_added), (0, 0));
+
+    // A huge max_positions is clamped internally (MAX_HARVEST_BATCH) — must not error.
+    let seeder = w.new_user(100 * USDC);
+    w.vault().seed(&seeder, &(100 * USDC));
+    w.advance(YEAR - 24 * 60 * 60);
+    w.env().cost_estimate().budget().reset_unlimited();
+    let (claimed2, _) = w.vault().harvest(&u32::MAX);
+    assert!(claimed2 >= 0);
+}
+
+// ===========================================================================
+// TTL keep-alive (mainnet-readiness #5): a receipt held past the old ~60-day
+// window survives, and bump_receipt keeps a long-dated receipt alive.
+// ===========================================================================
+
+#[test]
+fn receipt_survives_long_hold_via_maturity_aware_ttl() {
+    let six_months = 182 * 24 * 60 * 60;
+    let w = setup(six_months);
+    let seeder = w.new_user(1_000 * USDC);
+    w.vault().seed(&seeder, &(1_000 * USDC));
+    let user = w.new_user(100 * USDC);
+    let id = w.vault().deposit(&user, &(100 * USDC));
+
+    // Advance ~90 days of ledgers without touching the receipt — would archive under a flat 60-day
+    // bump; the maturity-aware bump (to ~maturity+grace) keeps it live.
+    w.env().ledger().with_mut(|li| {
+        li.sequence_number += 90 * 24 * 60 * 60 / 5;
+    });
+    let r = w.vault().get_receipt(&id);
+    assert!(r.open && r.principal == 100 * USDC, "receipt archived before maturity (TTL too short)");
+
+    // Permissionless bump keeps it alive further.
+    w.vault().bump_receipt(&id);
+    assert!(w.vault().get_receipt(&id).open);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #60)")] // ReceiptNotFound
+fn bump_receipt_unknown_id_panics() {
+    let w = setup(YEAR);
+    w.vault().bump_receipt(&999u64);
 }
 
 // ===========================================================================

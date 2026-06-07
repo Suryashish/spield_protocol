@@ -475,6 +475,41 @@ fn paused_blocks_swap() {
 }
 
 // ===========================================================================
+// Pause coverage & emergency exit (mainnet-readiness #8): pause blocks inflows
+// (add_liquidity, swaps) but LPs can still EXIT via remove_liquidity.
+// ===========================================================================
+
+#[test]
+fn paused_still_allows_remove_liquidity() {
+    let w = setup(YEAR);
+    let (lp, shares) = seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+
+    // Emergency pause.
+    w.market().pause();
+    assert!(w.market().is_paused());
+
+    // Inflows are blocked: add_liquidity and swaps.
+    let lp2 = w.new_user(200 * USDC);
+    w.mint_position(&lp2, 100 * USDC);
+    assert_eq!(
+        w.market().try_add_liquidity(&lp2, &(100 * USDC), &(100 * USDC)),
+        Err(Ok(spield_shared::Error::Paused.into())),
+        "add_liquidity (inflow) must be blocked while paused"
+    );
+    assert_eq!(
+        w.market().try_swap_exact_usdc_for_pt(&lp2, &(10 * USDC), &0),
+        Err(Ok(spield_shared::Error::Paused.into())),
+        "swap (inflow) must be blocked while paused"
+    );
+
+    // ...but the LP can still EXIT via remove_liquidity while paused (no trapped funds).
+    let (pt_out, usdc_out) = w.market().remove_liquidity(&lp, &shares);
+    assert!(pt_out > 0 && usdc_out > 0, "LP must be able to exit while paused");
+    let (held, _, _) = w.market().lp_position(&lp);
+    assert_eq!(held, 0, "all shares removed");
+}
+
+// ===========================================================================
 // remove_liquidity for more shares than held is rejected.
 // ===========================================================================
 

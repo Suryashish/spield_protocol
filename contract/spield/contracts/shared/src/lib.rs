@@ -18,6 +18,7 @@ pub mod amm_math;
 pub mod errors;
 pub mod governance;
 pub mod math;
+pub mod ttl;
 pub mod strategy;
 pub mod types;
 pub mod wrapper;

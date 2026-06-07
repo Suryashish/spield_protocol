@@ -4,10 +4,11 @@
 //! (SCF #9) via `save_receipt` / `bump_instance`.
 
 use soroban_sdk::{contracttype, vec, Address, Env, Vec};
-use spield_shared::{types::FixedReceipt, Error};
+use spield_shared::{ttl, types::FixedReceipt, Error};
 
-/// ~30 / ~60 days expressed in 5-second ledgers, for instance + persistent TTL bumps (matches
-/// the wrapper's bump window so the whole protocol's state ages consistently).
+/// ~30 / ~60 days expressed in 5-second ledgers, for the instance-storage TTL bump (config/
+/// singletons, rewritten on every mutation). Per-receipt entries use the maturity-aware bump
+/// (mainnet-readiness #5) so a held-to-maturity receipt can't archive before the vault matures.
 pub const BUMP_LO: u32 = 30 * 24 * 60 * 60 / 5;
 pub const BUMP_HI: u32 = 60 * 24 * 60 * 60 / 5;
 
@@ -38,9 +39,12 @@ pub enum DataKey {
     /// Sum of `payout` across all open receipts — the vault's maturity obligation.
     TotalLiability,
     /// The list of wrapper position ids the vault owns (its PT/YT inventory lives across these).
-    /// Walked on `harvest` (claim each) and `redeem` (burn PT across them); pruned as positions
-    /// empty. Bounded for a testnet demo; a production vault would consolidate periodically.
+    /// Walked on `harvest` (claim each, paginated) and `redeem` (burn PT across them); pruned as
+    /// positions empty. Bounded per-call by pagination so the list can never make an op un-runnable.
     Positions,
+    /// Round-robin cursor into `Positions` for paginated `harvest` — the index to resume from on the
+    /// next call, so repeated `harvest(max)` calls sweep the whole list a chunk at a time.
+    HarvestCursor,
     /// A single fixed-rate receipt, keyed by id.
     Receipt(u64),
 }
@@ -177,6 +181,18 @@ pub fn set_positions(env: &Env, p: &Vec<u64>) {
     env.storage().instance().set(&DataKey::Positions, p);
 }
 
+/// The paginated-harvest cursor (index into `positions`). Defaults to 0.
+pub fn harvest_cursor(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::HarvestCursor)
+        .unwrap_or(0)
+}
+
+pub fn set_harvest_cursor(env: &Env, c: u32) {
+    env.storage().instance().set(&DataKey::HarvestCursor, &c);
+}
+
 /// Read the next receipt id without incrementing (= total receipts ever issued).
 pub fn peek_next_receipt_id(env: &Env) -> u64 {
     env.storage()
@@ -208,9 +224,23 @@ pub fn get_receipt(env: &Env, id: u64) -> Result<FixedReceipt, Error> {
 
 pub fn save_receipt(env: &Env, id: u64, r: &FixedReceipt) {
     env.storage().persistent().set(&DataKey::Receipt(id), r);
+    bump_receipt_ttl(env, id);
+}
+
+/// Extend a receipt entry's TTL to exceed the vault's maturity (+grace), clamped to the network
+/// max. Called on every write and by the permissionless `bump_receipt` so a held receipt never
+/// archives before it can be redeemed.
+pub fn bump_receipt_ttl(env: &Env, id: u64) {
+    let maturity = get_maturity(env);
+    let (threshold, extend_to) = ttl::maturity_aware_bump(env, maturity);
     env.storage()
         .persistent()
-        .extend_ttl(&DataKey::Receipt(id), BUMP_LO, BUMP_HI);
+        .extend_ttl(&DataKey::Receipt(id), threshold, extend_to);
+}
+
+/// True if a receipt entry exists (used by the permissionless bump to fail cleanly on a bad id).
+pub fn has_receipt(env: &Env, id: u64) -> bool {
+    env.storage().persistent().has(&DataKey::Receipt(id))
 }
 
 pub fn bump_instance(env: &Env) {

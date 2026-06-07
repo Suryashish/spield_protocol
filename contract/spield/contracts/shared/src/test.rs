@@ -148,3 +148,74 @@ fn mul_div_floor_no_overflow_large() {
     let u = math::shares_to_underlying(&env, big, rate).unwrap();
     assert_eq!(u, 1_050_000_000_000_000);
 }
+
+// ---------------------------------------------------------------------------
+// Maturity-aware TTL bump (mainnet-readiness #5)
+// ---------------------------------------------------------------------------
+
+use crate::ttl;
+use soroban_sdk::testutils::Ledger as _;
+
+/// Set the ledger so TTL math has a known now/sequence, with a given `max_entry_ttl` (the count of
+/// ledgers, from current, that an entry may live — the SDK's `set_max_entry_ttl` adds 1 internally).
+fn set_ledger(env: &Env, timestamp: u64, sequence: u32, max_entry_ttl: u32) {
+    env.ledger().with_mut(|li| {
+        li.timestamp = timestamp;
+        li.sequence_number = sequence;
+    });
+    env.ledger().set_max_entry_ttl(max_entry_ttl);
+}
+
+#[test]
+fn ttl_bump_targets_maturity_plus_grace() {
+    let env = Env::default();
+    // now = 1000s, seq = 100. Maturity 90 days out. Network max-TTL very high (not the constraint).
+    let now = 1_000u64;
+    let maturity = now + 90 * 24 * 60 * 60;
+    set_ledger(&env, now, 100, 50_000_000);
+
+    let (threshold, extend_to) = ttl::maturity_aware_bump(&env, maturity);
+    assert_eq!(threshold, 0, "always re-extends");
+    // Expected: (maturity + grace - now) / 5 ledgers (network cap is not binding here).
+    let expected =
+        ((maturity + ttl::POST_MATURITY_GRACE_SECS - now) / ttl::SECS_PER_LEDGER) as u32;
+    assert_eq!(extend_to, expected, "bump must reach maturity + grace");
+    // And that's well past the old flat 60-day window.
+    let flat_60d = (60 * 24 * 60 * 60 / ttl::SECS_PER_LEDGER) as u32;
+    assert!(extend_to > flat_60d, "maturity-aware bump exceeds the old 60-day flat bump");
+}
+
+#[test]
+fn ttl_bump_clamps_to_network_max() {
+    let env = Env::default();
+    let now = 1_000u64;
+    // Maturity 2 years out — beyond the network max-TTL we set below.
+    let maturity = now + 2 * 365 * 24 * 60 * 60;
+    let seq = 100u32;
+    // Network cap: only ~30 days of ledgers allowed from current.
+    let cap_ledgers = (30 * 24 * 60 * 60 / ttl::SECS_PER_LEDGER) as u32;
+    set_ledger(&env, now, seq, cap_ledgers);
+
+    let (_t, extend_to) = ttl::maturity_aware_bump(&env, maturity);
+    let max_extend = env.ledger().max_live_until_ledger() - seq;
+    assert_eq!(
+        extend_to, max_extend,
+        "must clamp to the network max — a >max-TTL bond is re-bumped via bump_position later"
+    );
+    // The desired (uncapped) value would have been far larger.
+    assert!(extend_to < (maturity / ttl::SECS_PER_LEDGER) as u32);
+}
+
+#[test]
+fn ttl_bump_floors_at_minimum_after_maturity() {
+    let env = Env::default();
+    let now = 10_000_000u64;
+    // Maturity already in the past → desired window is just the grace; still at least MIN_BUMP.
+    let maturity = now - 1; // matured
+    set_ledger(&env, now, 100, 50_000_000);
+    let (_t, extend_to) = ttl::maturity_aware_bump(&env, maturity);
+    assert!(
+        extend_to >= ttl::MIN_BUMP_LEDGERS,
+        "even past maturity the entry gets at least the minimum bump"
+    );
+}

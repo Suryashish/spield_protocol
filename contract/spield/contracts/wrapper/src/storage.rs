@@ -1,12 +1,17 @@
 //! Storage layout for the wrapper. Instance storage for config/singletons; persistent storage
 //! for per-position records (each keyed by a unique `u64` id — never overwritten, fixing SCF #4).
 //!
-//! TTL is extended after every persistent write (SCF #9) via the `*_with_ttl` helpers.
+//! TTL is extended after every persistent write (SCF #9). **Per-position entries are bumped to
+//! exceed the market's maturity** (mainnet-readiness #5) via `spield_shared::ttl` — a flat ~60-day
+//! bump could otherwise let a long-dated bond's position *archive before maturity*. Instance config
+//! still uses the flat window (it's rewritten on every mutation, so it never idles long enough to
+//! lapse).
 
 use soroban_sdk::{contracttype, Address, Env};
-use spield_shared::{types::Position, Error};
+use spield_shared::{ttl, types::Position, Error};
 
-/// ~30 / ~60 days expressed in 5-second ledgers, for instance + persistent TTL bumps.
+/// ~30 / ~60 days expressed in 5-second ledgers, for the instance-storage TTL bump (config/
+/// singletons, rewritten on every mutation). Per-position entries use the maturity-aware bump.
 pub const BUMP_LO: u32 = 30 * 24 * 60 * 60 / 5;
 pub const BUMP_HI: u32 = 60 * 24 * 60 * 60 / 5;
 
@@ -180,9 +185,23 @@ pub fn get_position(env: &Env, id: u64) -> Result<Position, Error> {
 
 pub fn save_position(env: &Env, id: u64, p: &Position) {
     env.storage().persistent().set(&DataKey::Position(id), p);
+    bump_position_ttl(env, id);
+}
+
+/// Extend a position entry's TTL to comfortably exceed the market's maturity (+ grace), clamped to
+/// the network max. Called on every write (`save_position`) and, crucially, by the permissionless
+/// `bump_position` entry point so a long-held position never archives before its bond matures.
+pub fn bump_position_ttl(env: &Env, id: u64) {
+    let maturity = get_maturity(env);
+    let (threshold, extend_to) = ttl::maturity_aware_bump(env, maturity);
     env.storage()
         .persistent()
-        .extend_ttl(&DataKey::Position(id), BUMP_LO, BUMP_HI);
+        .extend_ttl(&DataKey::Position(id), threshold, extend_to);
+}
+
+/// True if a position entry exists (used by the permissionless bump to fail cleanly on a bad id).
+pub fn has_position(env: &Env, id: u64) -> bool {
+    env.storage().persistent().has(&DataKey::Position(id))
 }
 
 pub fn bump_instance(env: &Env) {

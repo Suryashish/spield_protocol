@@ -431,6 +431,100 @@ fn paused_blocks_mint() {
 }
 
 // ===========================================================================
+// Pause coverage & emergency exit (mainnet-readiness #8): pause blocks INFLOWS
+// (mint) but users can still EXIT (claim / redeem / combine) while paused.
+// ===========================================================================
+
+#[test]
+fn paused_still_allows_claim_and_redeem() {
+    let w = setup(YEAR);
+    // Deposit BEFORE pausing (mint is the inflow that gets blocked).
+    let (user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR); // accrue real yield
+
+    // Emergency pause.
+    w.wrapper().pause();
+    assert!(w.wrapper().is_paused());
+
+    // New inflow is blocked...
+    let intruder = Address::generate(w.env());
+    w.usdc_admin().mint(&intruder, &(100 * USDC));
+    assert_eq!(
+        w.wrapper().try_mint(&intruder, &(100 * USDC)),
+        Err(Ok(spield_shared::Error::Paused.into())),
+        "mint (inflow) must be blocked while paused"
+    );
+
+    // ...but the existing user can still CLAIM yield while paused (exit stays open).
+    let claimed = w.wrapper().claim_yield(&id);
+    assert!(claimed > 0, "claim must succeed while paused (no trapped funds)");
+
+    // ...and REDEEM principal at maturity while paused.
+    w.env().ledger().set_timestamp(w.maturity + 1);
+    w.oracle().set_price_stable(&vec![w.env(), 1_0000000, 1_0000000]);
+    let before = w.usdc().balance(&user);
+    w.wrapper().redeem_pt(&id, &(100 * USDC));
+    assert_eq!(
+        w.usdc().balance(&user) - before,
+        100 * USDC,
+        "redeem must succeed while paused"
+    );
+}
+
+#[test]
+fn paused_still_allows_combine_and_transfer() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+    w.wrapper().pause();
+
+    // combine_and_redeem (returns principal early) works while paused.
+    let (returned, _claimed) = w.wrapper().combine_and_redeem(&id, &(40 * USDC));
+    assert_eq!(returned, 40 * USDC, "combine exit must work while paused");
+
+    // transfer_position (position management) works while paused.
+    let to = Address::generate(w.env());
+    w.wrapper().transfer_position(&id, &to);
+    assert_eq!(w.wrapper().get_position(&id).owner, to);
+    let _ = user;
+}
+
+// ===========================================================================
+// TTL keep-alive (mainnet-readiness #5): a position held (never written) past
+// the old ~60-day window survives, and bump_position keeps a long bond alive.
+// ===========================================================================
+
+#[test]
+fn position_survives_long_hold_via_maturity_aware_ttl() {
+    // Maturity ~6 months out — well past the old 60-day flat bump.
+    let six_months = 182 * 24 * 60 * 60;
+    let w = setup(six_months);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    // Advance the ledger sequence far beyond the old 60-day bump window WITHOUT touching the
+    // position (no claim/redeem). Under a flat 60-day bump this entry would have archived; the
+    // maturity-aware bump (set at mint) keeps it live to ~maturity+grace.
+    w.env().ledger().with_mut(|li| {
+        li.sequence_number += 90 * 24 * 60 * 60 / 5; // ~90 days of ledgers
+    });
+
+    // Still readable — the position did not archive.
+    let pos = w.wrapper().get_position(&id);
+    assert_eq!(pos.principal, 100 * USDC, "position archived before maturity (TTL too short)");
+
+    // Permissionless bump by a random caller keeps it alive further (no auth needed).
+    w.wrapper().bump_position(&id);
+    let pos2 = w.wrapper().get_position(&id);
+    assert_eq!(pos2.principal, 100 * USDC);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #20)")] // PositionNotFound
+fn bump_position_unknown_id_panics() {
+    let w = setup(YEAR);
+    w.wrapper().bump_position(&999u64);
+}
+
+// ===========================================================================
 // Governance (mainnet-readiness): admin rotation + upgrade timelock, end-to-end
 // against the real registered wrapper contract (not the shared harness).
 // ===========================================================================

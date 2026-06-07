@@ -243,9 +243,17 @@ stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK 
 stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\
   -- deposit --user $ADMIN_ADDR --amount 100000000
 
-# Harvest the vault's accrued YT yield into fresh PT capacity (permissionless):
+# Harvest the vault's accrued YT yield into fresh PT capacity (permissionless, PAGINATED — pass how
+# many positions to sweep this call; repeat to sweep the whole list a chunk at a time):
 stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\
-  -- harvest
+  -- harvest --max_positions 50
+
+# Keep a long-dated position/receipt alive (permissionless TTL bump — anyone can call so a
+# held-to-maturity bond never archives before maturity):
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- bump_position --position_id 0
+stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\
+  -- bump_receipt --receipt_id 0
 
 # After maturity ($MATURITY), redeem the receipt for principal + the fixed coupon:
 stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\

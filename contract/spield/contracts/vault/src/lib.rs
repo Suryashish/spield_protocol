@@ -51,6 +51,10 @@ use soroban_sdk::{
 };
 use spield_shared::{governance, math, types::VaultStats, Error, WrapperContractClient};
 
+/// Hard ceiling on how many positions a single `harvest` call may process, so the per-call work
+/// (and thus the tx resource cost) is bounded regardless of the caller-supplied `max_positions`.
+const MAX_HARVEST_BATCH: u32 = 50;
+
 #[contract]
 pub struct Vault;
 
@@ -113,7 +117,7 @@ impl Vault {
     /// Anyone may seed (it only donates PT to the vault); we still require `from` to authorize the
     /// USDC pull.
     pub fn seed(env: Env, from: Address, amount: i128) -> u64 {
-        Self::ensure_active(&env);
+        Self::ensure_can_deposit(&env); // inflow — blocked while paused
         from.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -141,7 +145,7 @@ impl Vault {
     /// just minted covers the principal, and the `coupon` PT must already exist in inventory (from
     /// seed/harvest). If it doesn't, we revert rather than promise an unbacked return.
     pub fn deposit(env: Env, user: Address, amount: i128) -> u64 {
-        Self::ensure_active(&env);
+        Self::ensure_can_deposit(&env); // inflow — blocked while paused
         user.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -198,7 +202,7 @@ impl Vault {
     /// Redeem a matured receipt: at/after maturity, redeem `payout` PT from the vault's inventory
     /// 1:1 and pay the owner `payout` USDC. Closes the receipt and clears its liability.
     pub fn redeem(env: Env, receipt_id: u64) -> i128 {
-        Self::ensure_active(&env);
+        Self::ensure_initialized(&env); // user exit — allowed even while paused
         let mut receipt = storage::get_receipt(&env, receipt_id)
             .unwrap_or_else(|e| panic_with_error!(&env, e));
         receipt.owner.require_auth();
@@ -234,31 +238,55 @@ impl Vault {
         pay
     }
 
-    /// Claim the vault's accrued YT yield across its positions and reinvest it as fresh PT,
-    /// growing coupon capacity. Permissionless (it only ever *increases* the vault's backing).
-    /// Returns (yield_claimed_usdc, pt_added). Anyone can call it to keep capacity healthy.
-    pub fn harvest(env: Env) -> (i128, i128) {
-        Self::ensure_active(&env);
+    /// Claim the vault's accrued YT yield across **up to `max_positions`** of its tracked positions
+    /// (starting from a stored round-robin cursor) and reinvest it as fresh PT, growing coupon
+    /// capacity. **Paginated** so the per-call work is bounded no matter how many positions the vault
+    /// has accumulated — repeated calls sweep the whole list a chunk at a time (mainnet-readiness #6:
+    /// an un-paginated loop over an ever-growing list would eventually exceed the tx budget and
+    /// permanently revert). Permissionless (it only ever *increases* backing) and allowed while
+    /// paused (it's an upkeep/outflow-side op, never an inflow of new user money). `max_positions`
+    /// is clamped to a sane ceiling; pass e.g. 20–50. Returns (yield_claimed_usdc, pt_added).
+    pub fn harvest(env: Env, max_positions: u32) -> (i128, i128) {
+        Self::ensure_initialized(&env);
         Self::ensure_before_maturity(&env);
         let usdc = storage::get_underlying(&env);
-
-        // 1) Claim yield from every tracked position into the vault (USDC).
         let wrapper = storage::get_wrapper(&env);
         let w = WrapperContractClient::new(&env, &wrapper);
+
         let positions = storage::positions(&env);
-        let before = token::Client::new(&env, &usdc).balance(&env.current_contract_address());
-        for id in positions.iter() {
-            // claim_yield requires the position owner (the vault) to authorize; it pays USDC to us.
-            w.claim_yield(&id);
-        }
-        let after = token::Client::new(&env, &usdc).balance(&env.current_contract_address());
-        let claimed = after - before;
-        if claimed <= 0 {
+        let n = positions.len();
+        if n == 0 {
             events::harvested(&env, 0, 0);
             return (0, 0);
         }
 
-        // 2) Reinvest the claimed USDC as fresh PT (+YT) → new coupon capacity.
+        // Bound the batch: at least 1, at most `n`, capped at MAX_HARVEST_BATCH so one call is cheap.
+        let batch = max_positions.clamp(1, MAX_HARVEST_BATCH).min(n);
+        // Resume from the stored cursor (wrapped into range), claiming `batch` positions.
+        let start = storage::harvest_cursor(&env) % n;
+
+        let before = token::Client::new(&env, &usdc).balance(&env.current_contract_address());
+        let mut processed = 0u32;
+        let mut idx = start;
+        while processed < batch {
+            let id = positions.get(idx).unwrap();
+            // claim_yield requires the position owner (the vault) to authorize; it pays USDC to us.
+            w.claim_yield(&id);
+            idx = (idx + 1) % n;
+            processed += 1;
+        }
+        // Advance + persist the cursor so the next call continues where this one stopped.
+        storage::set_harvest_cursor(&env, idx);
+
+        let after = token::Client::new(&env, &usdc).balance(&env.current_contract_address());
+        let claimed = after - before;
+        if claimed <= 0 {
+            storage::bump_instance(&env);
+            events::harvested(&env, 0, 0);
+            return (0, 0);
+        }
+
+        // Reinvest the claimed USDC as fresh PT (+YT) → new coupon capacity.
         let position_id = Self::wrapper_mint(&env, &usdc, claimed);
         Self::track_position(&env, position_id);
         storage::bump_instance(&env);
@@ -299,6 +327,19 @@ impl Vault {
 
     pub fn get_receipt(env: Env, receipt_id: u64) -> spield_shared::types::FixedReceipt {
         storage::get_receipt(&env, receipt_id).unwrap_or_else(|e| panic_with_error!(&env, e))
+    }
+
+    /// **Permissionless** TTL keep-alive (mainnet-readiness #5). Extends a receipt entry's storage
+    /// TTL to comfortably exceed the vault maturity (+grace), clamped to the network max. Anyone may
+    /// call it — it only prolongs the entry, never mutates accounting — so a receipt held to maturity
+    /// can't archive before its owner redeems. No auth, no pause gate. Panics `ReceiptNotFound` for
+    /// an unknown id.
+    pub fn bump_receipt(env: Env, receipt_id: u64) {
+        Self::ensure_initialized(&env);
+        if !storage::has_receipt(&env, receipt_id) {
+            panic_with_error!(&env, Error::ReceiptNotFound);
+        }
+        storage::bump_receipt_ttl(&env, receipt_id);
     }
 
     pub fn rate_bps(env: Env) -> u32 {
@@ -408,12 +449,23 @@ impl Vault {
 
     // ---------------- internals ----------------
 
-    fn ensure_active(env: &Env) {
+    /// Guard for **inflows** (new money entering): initialized AND not paused. A pause blocks
+    /// `seed` / `deposit` so no new deposits enter during an emergency. (mainnet-readiness #8)
+    fn ensure_can_deposit(env: &Env) {
         if !storage::is_initialized(env) {
             panic_with_error!(env, Error::NotInitialized);
         }
         if storage::is_paused(env) {
             panic_with_error!(env, Error::Paused);
+        }
+    }
+
+    /// Guard for **outflows / keep-alive ops** (users leaving, capacity upkeep): initialized only —
+    /// these stay open even when paused so a pause can never trap user funds. `redeem` (the user
+    /// exit) and `harvest` (permissionless, only grows backing) use this.
+    fn ensure_initialized(env: &Env) {
+        if !storage::is_initialized(env) {
+            panic_with_error!(env, Error::NotInitialized);
         }
     }
 

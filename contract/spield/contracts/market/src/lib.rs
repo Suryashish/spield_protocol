@@ -119,7 +119,7 @@ impl Market {
     ///
     /// Returns the LP shares minted.
     pub fn add_liquidity(env: Env, lp: Address, pt_in: i128, usdc_in: i128) -> i128 {
-        Self::ensure_active(&env);
+        Self::ensure_can_trade(&env); // inflow — blocked while paused
         lp.require_auth();
         if pt_in <= 0 || usdc_in <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -180,7 +180,7 @@ impl Market {
     /// Allowed any time (including after maturity, so LPs can always exit). Returns `(pt_out,
     /// usdc_out)`.
     pub fn remove_liquidity(env: Env, lp: Address, shares: i128) -> (i128, i128) {
-        Self::ensure_active(&env);
+        Self::ensure_initialized(&env); // LP exit — allowed even while paused
         lp.require_auth();
         if shares <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -226,7 +226,7 @@ impl Market {
         pt_in: i128,
         min_usdc_out: i128,
     ) -> i128 {
-        Self::ensure_active(&env);
+        Self::ensure_can_trade(&env); // swap is an inflow-side op — blocked while paused
         Self::ensure_tradeable(&env);
         trader.require_auth();
 
@@ -262,7 +262,7 @@ impl Market {
         usdc_in: i128,
         min_pt_out: i128,
     ) -> i128 {
-        Self::ensure_active(&env);
+        Self::ensure_can_trade(&env); // swap is an inflow-side op — blocked while paused
         Self::ensure_tradeable(&env);
         trader.require_auth();
 
@@ -485,12 +485,22 @@ impl Market {
 
     // ---------------- internals ----------------
 
-    fn ensure_active(env: &Env) {
+    /// Guard for **inflows** (liquidity in, swaps): initialized AND not paused. A pause blocks
+    /// `add_liquidity` and both swaps so no new exposure enters during an emergency.
+    fn ensure_can_trade(env: &Env) {
         if !storage::is_initialized(env) {
             panic_with_error!(env, Error::NotInitialized);
         }
         if storage::is_paused(env) {
             panic_with_error!(env, Error::Paused);
+        }
+    }
+
+    /// Guard for the **LP exit** (`remove_liquidity`): initialized only — staying open while paused
+    /// so a pause can never trap LP funds (mainnet-readiness #8: block inflows, allow exits).
+    fn ensure_initialized(env: &Env) {
+        if !storage::is_initialized(env) {
+            panic_with_error!(env, Error::NotInitialized);
         }
     }
 

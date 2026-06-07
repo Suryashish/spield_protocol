@@ -15,6 +15,14 @@
 //! No privileged minting. The only mutating entry points (`deposit`/`redeem`/`redeem_underlying`)
 //! require the configured `wrapper` to authorize, and they move only funds the wrapper directs
 //! into/out of *this contract's own* Blend position. `initialize` is admin-gated and one-shot.
+//!
+//! ## Pause (mainnet-readiness #8) — deliberately none here
+//! The strategy has **no pause flag of its own** by design. It has no user-facing inflow: deposits
+//! can only arrive via the `wrapper` (the sole authorized caller), so pausing the wrapper's `mint`
+//! already halts every new inflow into Blend. The strategy's other mutating paths
+//! (`redeem`/`redeem_underlying`) are pure *outflows* serving user exits, which must stay open even
+//! during an emergency — so there is nothing here a pause should block. Adding a strategy pause would
+//! only create a way to trap funds (block exits) with no inflow benefit, so we intentionally omit it.
 
 use blend_contract_sdk::pool::{Client as PoolClient, Request};
 use soroban_sdk::{
