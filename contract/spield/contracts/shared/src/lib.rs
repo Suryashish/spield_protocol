@@ -16,6 +16,7 @@
 
 pub mod amm_math;
 pub mod errors;
+pub mod governance;
 pub mod math;
 pub mod strategy;
 pub mod types;
@@ -26,6 +27,9 @@ mod test;
 
 #[cfg(test)]
 mod amm_math_test;
+
+#[cfg(test)]
+mod governance_test;
 
 pub use errors::Error;
 pub use strategy::YieldStrategyClient;

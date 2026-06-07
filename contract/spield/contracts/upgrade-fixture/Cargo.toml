@@ -1,0 +1,17 @@
+[package]
+name = "spield-upgrade-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# A tiny throwaway contract used ONLY as the upgrade *target* in tests: we schedule an upgrade to
+# this wasm, apply it, and confirm the live contract's behavior changed. Never deployed to a real
+# network.
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+spield-shared = { workspace = true }

@@ -95,7 +95,34 @@ See [`TESTNET.md`](TESTNET.md) and [`scripts/deploy_testnet.sh`](scripts/deploy_
 ## Trust model (honest, per SCF #8)
 
 - **Yield & solvency: trustless** — from Blend's on-chain `b_rate`; no privileged party can inflate it.
-- **Admin (init, pause): trusted single key at launch → multisig-pathed.** Pause can only *halt*,
-  never move user funds.
+- **Admin (init, pause, rate/fee within ceilings, upgrade): trusted single key at launch →
+  multisig-pathed.** Pause can only *halt*, never move user funds.
 - **Blend dependency:** we inherit Blend's risk (its oracle, its backstop), documented as an
   explicit named dependency, not hidden.
+
+## Governance (mainnet-readiness)
+
+All four deployed contracts (`wrapper`, `strategy`, `vault`, `market`) share one governance surface,
+implemented once in [`shared/src/governance.rs`](contracts/shared/src/governance.rs):
+
+- **Admin rotation — two-step, no fat-finger.** `propose_admin(new)` then `accept_admin()` *by the new
+  key* (it must prove control before gaining power). `cancel_admin_transfer()` aborts a pending one.
+  View: `pending_admin()`, `admin()`. **Before mainnet, rotate every contract's admin to a multisig.**
+- **Upgrades — timelocked.** `schedule_upgrade(wasm_hash)` records an `eta = now + timelock`;
+  `apply_upgrade()` runs `update_current_contract_wasm` only at/after `eta`; `cancel_upgrade()` aborts.
+  The delay (default **24 h**, admin-settable 1 h…30 d via `set_timelock`) gives users a window to exit
+  before the code under their funds changes. Views: `pending_upgrade()`, `timelock()`.
+- **Strategy rate-bound — time-aware + safety valve (`set_max_apr_bps`).** The `b_rate` sanity bound
+  is an **annual** growth ceiling (`max_apr_bps`) **pro-rated by elapsed time** on each read, not a
+  fixed per-read cap. This removes the soft-brick failure mode of a per-read bound (a long-untouched
+  position taking one big legitimate jump and tripping the check) — read frequency no longer matters,
+  so the only thing to calibrate is `max_apr_bps` against Blend's real max borrow APR (a known
+  constant). If Blend's rate ever outpaces the cap anyway, the admin can widen it with no redeploy.
+  Widening only *increases tolerance* on an already-trusted, monotonic rate — it can never mint value
+  or move funds, and the wrapper still asserts `backing ≥ principal` against Blend's real position on
+  every mutation. View: `rate_bound()` → `(last_rate, last_ts, max_apr_bps)`.
+
+Governance is covered by tests in `shared/src/governance_test.rs` (the state machine + bounds), a real
+code-swap end-to-end in `wrapper/src/test.rs` (schedule → too-early-fails → warp → apply → behavior
+changed), the soft-brick valve in `strategy/src/test.rs`, and rotation/timelock wiring in the vault &
+market suites.

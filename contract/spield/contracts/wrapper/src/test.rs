@@ -153,7 +153,7 @@ fn setup(maturity_secs_from_now: u64) -> World {
     // Deploy the strategy adapter, owned by the wrapper.
     let strategy = env.register(BlendStrategy, ());
     BlendStrategyClient::new(&env, &strategy).initialize(
-        &admin, &wrapper, &pool, &usdc, &10_000u32,
+        &admin, &wrapper, &pool, &usdc, &30_000u32,
     );
 
     // PT + YT SACs admined by the wrapper (so the wrapper can mint/burn).
@@ -428,4 +428,115 @@ fn paused_blocks_mint() {
     let user = Address::generate(w.env());
     w.usdc_admin().mint(&user, &(100 * USDC));
     w.wrapper().mint(&user, &(100 * USDC));
+}
+
+// ===========================================================================
+// Governance (mainnet-readiness): admin rotation + upgrade timelock, end-to-end
+// against the real registered wrapper contract (not the shared harness).
+// ===========================================================================
+
+/// The compiled throwaway upgrade target. After we upgrade the wrapper to this, `version()`
+/// returns "UPGRADED" — proving `apply_upgrade` swapped the running code, not just the schedule.
+mod upgrade_fixture {
+    soroban_sdk::contractimport!(
+        file = "../../target/wasm32v1-none/release/spield_upgrade_fixture.wasm"
+    );
+}
+
+#[test]
+fn admin_rotation_two_step_e2e() {
+    let w = setup(YEAR);
+    let new_admin = Address::generate(w.env());
+
+    assert_eq!(w.wrapper().pending_admin(), None);
+    w.wrapper().propose_admin(&new_admin);
+    assert_eq!(w.wrapper().pending_admin(), Some(new_admin.clone()));
+
+    w.wrapper().accept_admin();
+    assert_eq!(w.wrapper().admin(), new_admin, "new admin in control");
+    assert_eq!(w.wrapper().pending_admin(), None);
+
+    // The new admin can now drive admin-only ops (pause), proving the rotation took effect.
+    w.wrapper().pause();
+    assert!(w.wrapper().is_paused());
+}
+
+#[test]
+fn upgrade_respects_timelock_then_swaps_code() {
+    let w = setup(YEAR);
+    // Upload the upgrade target's wasm and get its hash.
+    let wasm_hash = w
+        .env()
+        .deployer()
+        .upload_contract_wasm(upgrade_fixture::WASM);
+
+    // Default timelock is 24h.
+    let tl = w.wrapper().timelock();
+    assert_eq!(tl, 24 * 60 * 60);
+
+    let now = w.env().ledger().timestamp();
+    let eta = w.wrapper().schedule_upgrade(&wasm_hash);
+    assert_eq!(eta, now + tl);
+    assert_eq!(w.wrapper().pending_upgrade().unwrap().eta, eta);
+
+    // Applying before the eta must fail (TimelockNotElapsed = #9).
+    let early = w.wrapper().try_apply_upgrade();
+    assert_eq!(
+        early,
+        Err(Ok(spield_shared::Error::TimelockNotElapsed.into())),
+        "upgrade must not apply before the timelock elapses"
+    );
+
+    // Warp past the eta and apply — the code is now swapped.
+    w.env().ledger().set_timestamp(eta + 1);
+    w.wrapper().apply_upgrade();
+
+    // From here ON we must use the UPGRADED client — the wrapper now runs the fixture's code, which
+    // defines `version()` (the swap marker) and re-exposes `pending_upgrade()` (reading the same
+    // governance key). Calling a wrapper-only fn would fail with "non-existent contract function".
+    let upgraded = upgrade_fixture::Client::new(w.env(), &w.wrapper);
+    assert_eq!(
+        upgraded.version(),
+        String::from_str(w.env(), "UPGRADED"),
+        "running code did not change — upgrade was a no-op"
+    );
+    assert!(
+        upgraded.pending_upgrade().is_none(),
+        "apply_upgrade must clear the schedule"
+    );
+}
+
+#[test]
+fn cancel_upgrade_aborts_a_scheduled_one() {
+    let w = setup(YEAR);
+    let wasm_hash = w
+        .env()
+        .deployer()
+        .upload_contract_wasm(upgrade_fixture::WASM);
+    w.wrapper().schedule_upgrade(&wasm_hash);
+    assert!(w.wrapper().pending_upgrade().is_some());
+    w.wrapper().cancel_upgrade();
+    assert!(w.wrapper().pending_upgrade().is_none());
+
+    // After cancelling, even past any eta, apply fails (nothing scheduled = #8).
+    w.env().ledger().set_timestamp(w.env().ledger().timestamp() + 10 * 24 * 60 * 60);
+    assert_eq!(
+        w.wrapper().try_apply_upgrade(),
+        Err(Ok(spield_shared::Error::NoPendingUpgrade.into()))
+    );
+}
+
+#[test]
+fn set_timelock_changes_future_schedule_window() {
+    let w = setup(YEAR);
+    w.wrapper().set_timelock(&(72 * 60 * 60));
+    assert_eq!(w.wrapper().timelock(), 72 * 60 * 60);
+
+    let wasm_hash = w
+        .env()
+        .deployer()
+        .upload_contract_wasm(upgrade_fixture::WASM);
+    let now = w.env().ledger().timestamp();
+    let eta = w.wrapper().schedule_upgrade(&wasm_hash);
+    assert_eq!(eta, now + 72 * 60 * 60, "new schedule uses the updated timelock");
 }

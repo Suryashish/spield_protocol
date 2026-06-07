@@ -28,8 +28,10 @@ BLEND_POOL="CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF"
 USDC_SAC="CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU"
 USDC_ASSET="USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56"
 
-# Rate sanity bound: max 100% b_rate jump per read (generous; defence-in-depth).
-MAX_JUMP_BPS=10000
+# Rate sanity bound: max ANNUAL b_rate growth, in bps (the bound is pro-rated by elapsed time on
+# each read, so read frequency no longer matters — calibrate ONLY against Blend's real max borrow
+# APR). 30000 = 300% APR, generously above any real Blend supply rate; defence-in-depth.
+MAX_APR_BPS=30000
 # Maturity: ~30 days from now (unix seconds).
 MATURITY=$(( $(date +%s) + 30*24*60*60 ))
 
@@ -115,7 +117,7 @@ stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" --network "$
      --wrapper "$WRAPPER" \
      --pool "$BLEND_POOL" \
      --underlying "$USDC_SAC" \
-     --max_jump_bps "$MAX_JUMP_BPS" >/dev/null
+     --max_apr_bps "$MAX_APR_BPS" >/dev/null
 echo "    strategy initialized"
 
 echo "==> [5/8] Initializing the wrapper..."
@@ -272,4 +274,41 @@ stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK
 # Add more liquidity (needs PT in your wallet first; mint via the wrapper):
 stellar contract invoke --id $MARKET --source-account $SOURCE --network $NETWORK \\
   -- add_liquidity --lp $ADMIN_ADDR --pt_in 10000000 --usdc_in 10000000
+
+──────────────────────────────────────────────────────────────────────
+GOVERNANCE (mainnet-readiness items #1/#2/#3) — same surface on all four
+contracts: wrapper, strategy, vault, market.
+
+# 1) Rotate the admin to a MULTISIG (two-step; the new key must accept).
+#    Step A — current admin proposes the new admin (e.g. a multisig G-address):
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- propose_admin --new_admin <MULTISIG_ADDR>
+#    Step B — the NEW admin signs accept_admin (proves it controls the key):
+stellar contract invoke --id $WRAPPER --source-account <MULTISIG_SIGNER> --network $NETWORK \\
+  -- accept_admin
+#    (Repeat for strategy, vault, market. Before launch, ALL FOUR admins
+#     should be a multisig, not a single hot key.)
+
+# 2) Upgrade path is timelocked (default 24h; bounded 1h..30d). Schedule, wait, apply:
+HASH=\$(stellar contract install --source-account $SOURCE --network $NETWORK --wasm <new.wasm>)
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- schedule_upgrade --wasm_hash \$HASH      # returns the eta (now + timelock)
+#    ...users have the timelock window to exit; then after eta:
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- apply_upgrade
+#    Abort a pending upgrade any time before apply:
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- cancel_upgrade
+#    Tune the exit window (seconds, 3600..2592000):
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- set_timelock --secs 259200
+
+# 3) Strategy soft-brick safety valve. The b_rate sanity bound is TIME-AWARE: it allows up to
+#    max_apr_bps of annual growth, pro-rated by elapsed time since the last read — so a long-
+#    untouched position never false-trips. If Blend's real rate ever outpaces the annual cap and
+#    current_rate starts panicking, widen the cap (no redeploy):
+stellar contract invoke --id $STRATEGY --source-account $SOURCE --network $NETWORK \\
+  -- rate_bound                               # (last_rate, last_ts, max_apr_bps)
+stellar contract invoke --id $STRATEGY --source-account $SOURCE --network $NETWORK \\
+  -- set_max_apr_bps --max_apr_bps 50000
 EOF

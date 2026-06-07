@@ -98,19 +98,44 @@ pub fn coupon_amount(
     mul_div_floor(env, annual, term_secs as i128, SECONDS_PER_YEAR)
 }
 
-/// Defence-in-depth sanity bound on a freshly-read `b_rate`. Blend's state is trusted, but a
-/// catastrophically wrong read (oracle/host bug, or a malicious strategy address) should not
-/// be allowed to mint phantom value. We require:
-///   * `current >= last` (rates are monotonic non-decreasing), and
-///   * the increase is at most `max_jump_bps` basis points of `last` (a per-update ceiling).
+/// Small absolute tolerance (stroops of SCALAR_12 rate) added to every rate-bound ceiling so that
+/// fixed-point floor-rounding in Blend's own share math can't false-trip the check at very short
+/// elapsed times (when the time-pro-rated allowance rounds down to ~0). Microscopic next to any
+/// real rate, far below a meaningful jump.
+pub const RATE_BOUND_DUST: i128 = 16;
+
+/// Defence-in-depth sanity bound on a freshly-read `b_rate`, **scaled by elapsed time**.
 ///
-/// `last == 0` (first observation) bypasses the upper bound (nothing to compare against) but
-/// still requires `current > 0`.
-pub fn check_rate_bound(
+/// Blend's state is trusted, but a catastrophically wrong read (host bug, or a misconfigured /
+/// malicious strategy address) should not be allowed to mint phantom value. The honest physical
+/// bound on `b_rate` is an **annual growth ceiling**: Blend's supply rate can never exceed its max
+/// borrow APR, so over `elapsed` seconds `b_rate` can rise by at most
+///
+/// ```text
+/// max_increase = last * (max_apr_bps / 10_000) * (elapsed / SECONDS_PER_YEAR)   (+ dust)
+/// ```
+///
+/// This is **time-aware on purpose**: the previous per-read form falsely tripped when a position
+/// sat untouched for a long time (a big-but-legitimate single-read jump), which would soft-brick the
+/// whole protocol. Pro-rating by elapsed time removes the read-frequency dependency entirely — the
+/// only thing to calibrate is `max_apr_bps` against Blend's real max borrow APR (a known constant),
+/// not how often Spield happens to read. We require:
+///   * `current > 0`,
+///   * `current >= last` (Blend's `b_rate` is monotonic non-decreasing), and
+///   * `current <= last + max_increase`.
+///
+/// `last == 0` (first observation) bypasses the upper bound (nothing to compare against) but still
+/// requires `current > 0`. `elapsed == 0` (same-ledger re-read) ⇒ `max_increase == 0`, so only the
+/// dust tolerance is allowed — i.e. the rate must not move within a single timestamp.
+///
+/// `max_apr_bps` is the **annual** ceiling in basis points (e.g. `30_000` = 300% APR), generously
+/// above Blend's real max so honest reads always pass while a wild read is still caught.
+pub fn check_rate_bound_timed(
     env: &Env,
     last: i128,
     current: i128,
-    max_jump_bps: u32,
+    elapsed_secs: u64,
+    max_apr_bps: u32,
 ) -> Result<(), Error> {
     if current <= 0 {
         return Err(Error::RateOutOfBounds);
@@ -121,9 +146,15 @@ pub fn check_rate_bound(
     if current < last {
         return Err(Error::RateOutOfBounds);
     }
-    // max allowed = last * (1 + max_jump_bps/10_000)
-    let max_increase = mul_div_floor(env, last, max_jump_bps as i128, 10_000)?;
-    let ceiling = last.checked_add(max_increase).ok_or(Error::MathOverflow)?;
+    // max_increase = last * max_apr_bps/10_000 * elapsed/SECONDS_PER_YEAR, in two floored steps
+    // (each via the i256-backed mul_div_floor so the products can't overflow).
+    let annual_cap = mul_div_floor(env, last, max_apr_bps as i128, 10_000)?;
+    let max_increase =
+        mul_div_floor(env, annual_cap, elapsed_secs as i128, SECONDS_PER_YEAR)?;
+    let ceiling = last
+        .checked_add(max_increase)
+        .and_then(|c| c.checked_add(RATE_BOUND_DUST))
+        .ok_or(Error::MathOverflow)?;
     if current > ceiling {
         return Err(Error::RateOutOfBounds);
     }

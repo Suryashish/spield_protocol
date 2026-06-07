@@ -20,6 +20,16 @@ pub enum Error {
     /// Arithmetic overflowed (should be unreachable with i128 + overflow-checks, but asserted).
     MathOverflow = 6,
 
+    // --- Governance: admin rotation + upgrade timelock (7–19) ---
+    /// `accept_admin` / `cancel_admin_transfer` called with no admin proposal pending.
+    NoPendingAdmin = 7,
+    /// `apply_upgrade` / `cancel_upgrade` called with no upgrade scheduled.
+    NoPendingUpgrade = 8,
+    /// `apply_upgrade` called before the scheduled upgrade's timelock `eta`.
+    TimelockNotElapsed = 9,
+    /// `set_timelock` value outside the allowed `[MIN_TIMELOCK_SECS, MAX_TIMELOCK_SECS]` range.
+    TimelockOutOfBounds = 10,
+
     // --- Wrapper accounting (20–39) ---
     /// The referenced position id does not exist.
     PositionNotFound = 20,

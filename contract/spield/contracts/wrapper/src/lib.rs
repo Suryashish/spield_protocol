@@ -27,9 +27,10 @@ mod storage;
 mod test;
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, Address, Env, String,
+    contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String,
 };
 use spield_shared::{
+    governance,
     math,
     types::{Position, PositionValue},
     Error, YieldStrategyClient,
@@ -71,6 +72,7 @@ impl Wrapper {
         storage::set_maturity(&env, maturity);
         storage::set_paused(&env, false);
         storage::set_total_principal(&env, 0);
+        governance::init(&env);
         storage::bump_instance(&env);
     }
 
@@ -363,6 +365,71 @@ impl Wrapper {
 
     pub fn version(env: Env) -> String {
         String::from_str(&env, "spield-wrapper-0.1.0")
+    }
+
+    // ---------- governance: admin rotation (two-step) + upgrade timelock ----------
+    //
+    // All delegate to the shared `governance` module so every Spield contract behaves identically.
+    // The *current* admin lives in this contract's own `Admin` storage (single source of truth);
+    // governance reads it via the arg and, on `accept_admin`, we write the new admin back.
+
+    /// Propose a new admin (step 1 of 2). Current admin authorizes; the new admin must then call
+    /// `accept_admin` to take control — so a typo'd/dead address can never gain power.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        governance::propose_admin(&env, &storage::get_admin(&env), &new_admin);
+    }
+
+    /// Accept a pending admin proposal (step 2 of 2). Must be called by the proposed admin.
+    pub fn accept_admin(env: Env) {
+        let new_admin = governance::accept_admin(&env);
+        storage::set_admin(&env, &new_admin);
+        storage::bump_instance(&env);
+    }
+
+    /// Cancel a pending admin proposal. Current admin only.
+    pub fn cancel_admin_transfer(env: Env) {
+        governance::cancel_admin_transfer(&env, &storage::get_admin(&env));
+    }
+
+    /// The pending (proposed, not-yet-accepted) admin, if any.
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        governance::pending_admin(&env)
+    }
+
+    /// Schedule a contract upgrade to `wasm_hash`. Applyable only after the timelock elapses, so
+    /// users get a window to exit before the code under their funds changes. Returns the `eta`.
+    pub fn schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> u64 {
+        governance::schedule_upgrade(&env, &storage::get_admin(&env), wasm_hash)
+    }
+
+    /// Apply a scheduled upgrade (only at/after its `eta`). Current admin only.
+    pub fn apply_upgrade(env: Env) {
+        governance::apply_upgrade(&env, &storage::get_admin(&env));
+    }
+
+    /// Cancel a scheduled upgrade before it is applied. Current admin only.
+    pub fn cancel_upgrade(env: Env) {
+        governance::cancel_upgrade(&env, &storage::get_admin(&env));
+    }
+
+    /// The currently-scheduled upgrade (wasm hash + eta), if any.
+    pub fn pending_upgrade(env: Env) -> Option<governance::PendingUpgrade> {
+        governance::pending_upgrade(&env)
+    }
+
+    /// The current upgrade timelock delay (seconds).
+    pub fn timelock(env: Env) -> u64 {
+        governance::timelock(&env)
+    }
+
+    /// Set the upgrade timelock delay (seconds), bounded to [1h, 30d]. Current admin only.
+    pub fn set_timelock(env: Env, secs: u64) {
+        governance::set_timelock(&env, &storage::get_admin(&env), secs);
+    }
+
+    /// The current admin (for the frontend / monitoring).
+    pub fn admin(env: Env) -> Address {
+        storage::get_admin(&env)
     }
 
     // ---------------- internals ----------------

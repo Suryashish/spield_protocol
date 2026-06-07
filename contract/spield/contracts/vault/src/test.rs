@@ -154,7 +154,7 @@ fn setup(maturity_secs_from_now: u64) -> World {
     // Wrapper first (so we can admin PT/YT to it), then strategy, then PT/YT SACs, then init.
     let wrapper = env.register(Wrapper, ());
     let strategy = env.register(BlendStrategy, ());
-    BlendStrategyClient::new(&env, &strategy).initialize(&admin, &wrapper, &pool, &usdc, &10_000u32);
+    BlendStrategyClient::new(&env, &strategy).initialize(&admin, &wrapper, &pool, &usdc, &30_000u32);
 
     let pt = register_sac(&env, &wrapper);
     let yt = register_sac(&env, &wrapper);
@@ -407,4 +407,41 @@ fn receipt_survives_ttl_window() {
     let r = w.vault().get_receipt(&id);
     assert!(r.open, "receipt archived/lost after ledger advance (SCF #9)");
     assert_eq!(r.principal, 100 * USDC);
+}
+
+// ===========================================================================
+// Governance: admin rotation + upgrade timelock wiring (mainnet-readiness)
+// ===========================================================================
+
+#[test]
+fn vault_admin_rotation_two_step() {
+    let w = setup(YEAR);
+    let new_admin = Address::generate(w.env());
+
+    assert_eq!(w.vault().pending_admin(), None);
+    w.vault().propose_admin(&new_admin);
+    assert_eq!(w.vault().pending_admin(), Some(new_admin.clone()));
+    w.vault().accept_admin();
+    assert_eq!(w.vault().admin(), new_admin);
+    assert_eq!(w.vault().pending_admin(), None);
+
+    // New admin can drive an admin-only op (set_rate within the ceiling).
+    w.vault().set_rate(&600u32);
+    assert_eq!(w.vault().rate_bps(), 600u32);
+}
+
+#[test]
+fn vault_upgrade_timelock_schedule_and_default() {
+    let w = setup(YEAR);
+    assert_eq!(w.vault().timelock(), 24 * 60 * 60);
+    let hash = BytesN::<32>::random(w.env());
+    let now = w.env().ledger().timestamp();
+    let eta = w.vault().schedule_upgrade(&hash);
+    assert_eq!(eta, now + 24 * 60 * 60);
+    assert_eq!(w.vault().pending_upgrade().unwrap().eta, eta);
+    // Too-early apply is rejected.
+    assert_eq!(
+        w.vault().try_apply_upgrade(),
+        Err(Ok(spield_shared::Error::TimelockNotElapsed.into()))
+    );
 }

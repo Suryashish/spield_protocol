@@ -19,10 +19,10 @@
 use blend_contract_sdk::pool::{Client as PoolClient, Request};
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
-    contract, contractimpl, contracttype, panic_with_error, token, Address, Env, IntoVal, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, panic_with_error, token, Address, BytesN, Env, IntoVal,
+    String, Symbol, Vec,
 };
-use spield_shared::{math, types::RateBound, Error};
+use spield_shared::{governance, math, types::RateBound, Error};
 
 /// Blend `RequestType` discriminants (verified from `blend-contracts-v2/pool/src/pool/actions.rs`).
 /// Encoded as the plain `u32` `request_type` on the wire.
@@ -64,14 +64,16 @@ impl BlendStrategy {
     /// * `wrapper` — the Spield wrapper; the sole authorized caller of deposit/redeem.
     /// * `pool` — the Blend pool contract.
     /// * `underlying` — the asset SAC (USDC) to supply.
-    /// * `max_jump_bps` — max allowed `b_rate` increase per read (sanity bound).
+    /// * `max_apr_bps` — max allowed **annual** `b_rate` growth, in basis points (the sanity bound,
+    ///   pro-rated by elapsed time on each read). Set generously above Blend's real max borrow APR
+    ///   (e.g. `30_000` = 300%) so honest reads always pass while a wild read is still caught.
     pub fn initialize(
         env: Env,
         admin: Address,
         wrapper: Address,
         pool: Address,
         underlying: Address,
-        max_jump_bps: u32,
+        max_apr_bps: u32,
     ) {
         let storage = env.storage().instance();
         if storage.has(&DataKey::Initialized) {
@@ -94,9 +96,11 @@ impl BlendStrategy {
             &DataKey::Bound,
             &RateBound {
                 last_rate: reserve.data.b_rate,
-                max_jump_bps,
+                last_ts: env.ledger().timestamp(),
+                max_apr_bps,
             },
         );
+        governance::init(&env);
         storage.extend_ttl(INSTANCE_BUMP_LO, INSTANCE_BUMP_HI);
     }
 
@@ -188,10 +192,22 @@ impl BlendStrategy {
             .instance()
             .get(&DataKey::Bound)
             .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
-        math::check_rate_bound(&env, bound.last_rate, rate, bound.max_jump_bps)
+
+        // Time-aware sanity bound: the allowed `b_rate` rise is pro-rated by the seconds elapsed
+        // since `last_ts`, so a long-untouched position never false-trips (the soft-brick fix).
+        let now = env.ledger().timestamp();
+        let elapsed = now.saturating_sub(bound.last_ts);
+        math::check_rate_bound_timed(&env, bound.last_rate, rate, elapsed, bound.max_apr_bps)
             .unwrap_or_else(|e| panic_with_error!(&env, e));
-        if rate > bound.last_rate {
-            bound.last_rate = rate;
+
+        // Advance the observation point. We move `last_ts` to now whenever the rate is at least the
+        // last (always, given monotonicity passed above) so the next read's elapsed window is
+        // measured from here; bump `last_rate` only when it actually rose.
+        if rate > bound.last_rate || now > bound.last_ts {
+            if rate > bound.last_rate {
+                bound.last_rate = rate;
+            }
+            bound.last_ts = now;
             env.storage().instance().set(&DataKey::Bound, &bound);
             Self::bump_instance(&env);
         }
@@ -224,7 +240,109 @@ impl BlendStrategy {
         Self::pool_addr(&env)
     }
 
+    // ---------- rate-bound admin (mainnet-readiness #3) ----------
+
+    /// The current `b_rate` sanity bound: `(last_rate, last_ts, max_apr_bps)`. View for monitoring —
+    /// lets ops watch the last observed rate/time and the configured annual-growth ceiling.
+    pub fn rate_bound(env: Env) -> (i128, u64, u32) {
+        let bound = Self::bound(&env);
+        (bound.last_rate, bound.last_ts, bound.max_apr_bps)
+    }
+
+    /// Widen (or tighten) the max **annual** `b_rate` growth, in basis points (the bound is then
+    /// pro-rated by elapsed time on each read — see `check_rate_bound_timed`). Admin only.
+    ///
+    /// This is the safety valve for the soft-brick risk: if Blend's real `b_rate` ever rises faster
+    /// than the configured annual ceiling, **every** `current_rate` read would otherwise panic and
+    /// freeze the whole protocol (no claims/redeems/mints/solvency reads). The admin can raise the
+    /// ceiling to unstick it without a redeploy. `last_rate`/`last_ts` are preserved.
+    ///
+    /// Intentionally *immediate* (not timelocked): it is a liveness safety valve that can only widen
+    /// tolerance on an already-trusted, monotonic Blend rate — it can never mint value or move funds.
+    /// Raising it does not bypass any solvency check; the wrapper still asserts `backing >= principal`
+    /// against Blend's *real* position on every mutation.
+    pub fn set_max_apr_bps(env: Env, max_apr_bps: u32) {
+        Self::current_admin(&env).require_auth();
+        let mut bound = Self::bound(&env);
+        bound.max_apr_bps = max_apr_bps;
+        env.storage().instance().set(&DataKey::Bound, &bound);
+        Self::bump_instance(&env);
+    }
+
+    // ---------- governance: admin rotation (two-step) + upgrade timelock ----------
+
+    /// Propose a new admin (step 1 of 2). Current admin authorizes; the proposed admin must then
+    /// call `accept_admin` to take control.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        governance::propose_admin(&env, &Self::current_admin(&env), &new_admin);
+    }
+
+    /// Accept a pending admin proposal (step 2 of 2). Must be called by the proposed admin.
+    pub fn accept_admin(env: Env) {
+        let new_admin = governance::accept_admin(&env);
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        Self::bump_instance(&env);
+    }
+
+    /// Cancel a pending admin proposal. Current admin only.
+    pub fn cancel_admin_transfer(env: Env) {
+        governance::cancel_admin_transfer(&env, &Self::current_admin(&env));
+    }
+
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        governance::pending_admin(&env)
+    }
+
+    /// Schedule a contract upgrade to `wasm_hash`, applyable after the timelock. Returns the `eta`.
+    pub fn schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> u64 {
+        governance::schedule_upgrade(&env, &Self::current_admin(&env), wasm_hash)
+    }
+
+    pub fn apply_upgrade(env: Env) {
+        governance::apply_upgrade(&env, &Self::current_admin(&env));
+    }
+
+    pub fn cancel_upgrade(env: Env) {
+        governance::cancel_upgrade(&env, &Self::current_admin(&env));
+    }
+
+    pub fn pending_upgrade(env: Env) -> Option<governance::PendingUpgrade> {
+        governance::pending_upgrade(&env)
+    }
+
+    pub fn timelock(env: Env) -> u64 {
+        governance::timelock(&env)
+    }
+
+    pub fn set_timelock(env: Env, secs: u64) {
+        governance::set_timelock(&env, &Self::current_admin(&env), secs);
+    }
+
+    pub fn admin(env: Env) -> Address {
+        Self::current_admin(&env)
+    }
+
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, "spield-strategy-0.1.0")
+    }
+
     // ---- internals ----
+
+    /// The current admin (from instance storage). Internal helper; the public view is `admin`.
+    fn current_admin(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized))
+    }
+
+    /// The stored rate sanity bound.
+    fn bound(env: &Env) -> RateBound {
+        env.storage()
+            .instance()
+            .get(&DataKey::Bound)
+            .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized))
+    }
 
     /// Authorize, on this contract's behalf, the single nested `transfer(me, pool, amount)`
     /// that Blend's `submit` performs to pull our supplied underlying into the pool.

@@ -166,7 +166,7 @@ fn setup(maturity_secs_from_now: u64) -> World {
     // Wrapper first (so we can admin PT/YT to it), then strategy, then PT/YT SACs, then init.
     let wrapper = env.register(Wrapper, ());
     let strategy = env.register(BlendStrategy, ());
-    BlendStrategyClient::new(&env, &strategy).initialize(&admin, &wrapper, &pool, &usdc, &10_000u32);
+    BlendStrategyClient::new(&env, &strategy).initialize(&admin, &wrapper, &pool, &usdc, &30_000u32);
 
     let pt = register_sac(&env, &wrapper);
     let yt = register_sac(&env, &wrapper);
@@ -640,4 +640,40 @@ fn curve_config_and_version() {
     let (root, anchor) = w.market().curve_config();
     assert_eq!(root, SCALAR_ROOT);
     assert_eq!(anchor, RATE_ANCHOR);
+}
+
+// ===========================================================================
+// Governance: admin rotation + upgrade timelock wiring (mainnet-readiness)
+// ===========================================================================
+
+#[test]
+fn market_admin_rotation_two_step() {
+    let w = setup(YEAR);
+    let new_admin = Address::generate(w.env());
+
+    assert_eq!(w.market().pending_admin(), None);
+    w.market().propose_admin(&new_admin);
+    assert_eq!(w.market().pending_admin(), Some(new_admin.clone()));
+    w.market().accept_admin();
+    assert_eq!(w.market().admin(), new_admin);
+    assert_eq!(w.market().pending_admin(), None);
+
+    // New admin can drive an admin-only op (set_fee within the ceiling).
+    w.market().set_fee(&50u32);
+    assert_eq!(w.market().fee_bps(), 50u32);
+}
+
+#[test]
+fn market_upgrade_timelock_schedule_and_default() {
+    let w = setup(YEAR);
+    assert_eq!(w.market().timelock(), 24 * 60 * 60);
+    let hash = BytesN::<32>::random(w.env());
+    let now = w.env().ledger().timestamp();
+    let eta = w.market().schedule_upgrade(&hash);
+    assert_eq!(eta, now + 24 * 60 * 60);
+    assert_eq!(w.market().pending_upgrade().unwrap().eta, eta);
+    assert_eq!(
+        w.market().try_apply_upgrade(),
+        Err(Ok(spield_shared::Error::TimelockNotElapsed.into()))
+    );
 }

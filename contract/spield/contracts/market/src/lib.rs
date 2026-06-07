@@ -32,8 +32,10 @@ mod storage;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, Env, String};
-use spield_shared::{math, Error};
+use soroban_sdk::{
+    contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String,
+};
+use spield_shared::{governance, math, Error};
 
 /// Integer square root (Newton) for the first LP's share seeding (`sqrt(pt*usdc)`), mirroring
 /// Uniswap-V2's initial-mint. Operates on the host i128; inputs are non-negative.
@@ -103,6 +105,7 @@ impl Market {
         storage::set_pt_reserve(&env, 0);
         storage::set_usdc_reserve(&env, 0);
         storage::set_total_shares(&env, 0);
+        governance::init(&env);
         storage::bump_instance(&env);
     }
 
@@ -425,6 +428,59 @@ impl Market {
         storage::set_paused(&env, false);
         storage::bump_instance(&env);
         events::paused(&env, false);
+    }
+
+    // ---------- governance: admin rotation (two-step) + upgrade timelock ----------
+
+    /// Propose a new admin (step 1 of 2). Current admin authorizes; the proposed admin must then
+    /// call `accept_admin` to take control.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        governance::propose_admin(&env, &storage::get_admin(&env), &new_admin);
+    }
+
+    /// Accept a pending admin proposal (step 2 of 2). Must be called by the proposed admin.
+    pub fn accept_admin(env: Env) {
+        let new_admin = governance::accept_admin(&env);
+        storage::set_admin(&env, &new_admin);
+        storage::bump_instance(&env);
+    }
+
+    /// Cancel a pending admin proposal. Current admin only.
+    pub fn cancel_admin_transfer(env: Env) {
+        governance::cancel_admin_transfer(&env, &storage::get_admin(&env));
+    }
+
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        governance::pending_admin(&env)
+    }
+
+    /// Schedule a contract upgrade to `wasm_hash`, applyable after the timelock. Returns the `eta`.
+    pub fn schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> u64 {
+        governance::schedule_upgrade(&env, &storage::get_admin(&env), wasm_hash)
+    }
+
+    pub fn apply_upgrade(env: Env) {
+        governance::apply_upgrade(&env, &storage::get_admin(&env));
+    }
+
+    pub fn cancel_upgrade(env: Env) {
+        governance::cancel_upgrade(&env, &storage::get_admin(&env));
+    }
+
+    pub fn pending_upgrade(env: Env) -> Option<governance::PendingUpgrade> {
+        governance::pending_upgrade(&env)
+    }
+
+    pub fn timelock(env: Env) -> u64 {
+        governance::timelock(&env)
+    }
+
+    pub fn set_timelock(env: Env, secs: u64) {
+        governance::set_timelock(&env, &storage::get_admin(&env), secs);
+    }
+
+    pub fn admin(env: Env) -> Address {
+        storage::get_admin(&env)
     }
 
     // ---------------- internals ----------------

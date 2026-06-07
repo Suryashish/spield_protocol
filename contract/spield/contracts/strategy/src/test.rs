@@ -167,7 +167,7 @@ fn deploy_strategy<'a>(b: &'a BlendEnv, wrapper: &Address) -> BlendStrategyClien
         wrapper,
         &b.pool,
         &b.usdc,
-        &10_000u32, // allow up to 100% rate jump per read in tests (we fast-forward years)
+        &30_000u32, // allow up to 300% APR growth in tests (time-pro-rated; we fast-forward years)
     );
     client
 }
@@ -288,4 +288,99 @@ fn phase0_current_rate_is_monotonic_across_reads() {
     advance(&b, 30 * 24 * 60 * 60);
     let r3 = strategy.current_rate();
     assert!(r1 <= r2 && r2 <= r3, "b_rate must be monotonic: {} {} {}", r1, r2, r3);
+}
+
+// ---------------------------------------------------------------------------
+// Mainnet-readiness #3: the TIME-AWARE max_apr_bps sanity bound + safety valve
+// ---------------------------------------------------------------------------
+
+/// Deploy the adapter with a caller-chosen `max_apr_bps` (the default helper hardcodes 30_000).
+fn deploy_strategy_with_bound<'a>(
+    b: &'a BlendEnv,
+    wrapper: &Address,
+    admin: &Address,
+    max_apr_bps: u32,
+) -> BlendStrategyClient<'a> {
+    let strategy_id = b.env.register(BlendStrategy, ());
+    let client = BlendStrategyClient::new(&b.env, &strategy_id);
+    client.initialize(admin, wrapper, &b.pool, &b.usdc, &max_apr_bps);
+    client
+}
+
+/// THE point of the time-aware bound: a position can sit **untouched for a long time** and the next
+/// read must still pass, because the allowed `b_rate` rise is pro-rated by the elapsed seconds — not
+/// a fixed per-read cap. (The old per-read form would soft-brick here.) We use a realistic annual
+/// cap (300% APR) and a year-long gap; real Blend growth is far under the cap, so the read succeeds.
+#[test]
+fn time_aware_bound_does_not_soft_brick_after_a_long_gap() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 30_000u32); // 300% APR cap
+
+    let deposit = 1_000 * USDC;
+    b.usdc_admin().mint(&wrapper, &deposit);
+    strategy.current_rate(); // establish last_rate + last_ts
+    strategy.deposit(&wrapper, &deposit);
+
+    // A full year with no reads in between — the danger case for the old per-read bound.
+    advance(&b, 365 * 24 * 60 * 60);
+
+    // Must NOT trip: the year of elapsed time scales the allowance up to a full year's worth.
+    let rate = strategy.current_rate();
+    assert!(rate > 0, "a long-untouched read must still pass under the time-aware bound");
+}
+
+/// The bound still catches a genuinely impossible rate (its defence-in-depth purpose): over a tiny
+/// elapsed window the pro-rated allowance is ~0, so a same-instant rate that jumped is rejected.
+/// `set_max_apr_bps` is the admin safety valve — widen the annual cap and reads pass again.
+#[test]
+fn tiny_annual_cap_trips_then_set_max_apr_bps_unsticks() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    // Absurdly tight: 1 bps = 0.01% APR. Even a full year of real Blend growth exceeds this.
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 1u32);
+
+    let deposit = 1_000 * USDC;
+    b.usdc_admin().mint(&wrapper, &deposit);
+    strategy.current_rate();
+    strategy.deposit(&wrapper, &deposit);
+    advance(&b, 365 * 24 * 60 * 60);
+
+    // 0.01% APR over a year is still far below the real accrual => rejected (soft-brick condition).
+    assert_eq!(
+        strategy.try_current_rate(),
+        Err(Ok(spield_shared::Error::RateOutOfBounds.into())),
+        "a real jump beyond the (absurdly tight) annual cap must be rejected"
+    );
+
+    // Admin widens the annual cap (the valve). Reads work again — no redeploy needed.
+    strategy.set_max_apr_bps(&30_000u32);
+    let (_, _, max) = strategy.rate_bound();
+    assert_eq!(max, 30_000u32, "annual cap widened");
+    let rate = strategy.current_rate();
+    assert!(rate > 0, "reads work again after widening the cap");
+    let total = strategy.total_shares();
+    assert!(strategy.position_value(&total) > 0, "downstream value reads unfrozen");
+}
+
+/// Admin can rotate (two-step) and the new admin controls `set_max_apr_bps`.
+#[test]
+fn strategy_admin_rotation_and_governed_set_max_apr() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 5_000u32);
+
+    assert_eq!(strategy.admin(), admin);
+    let new_admin = Address::generate(&b.env);
+    strategy.propose_admin(&new_admin);
+    assert_eq!(strategy.pending_admin(), Some(new_admin.clone()));
+    strategy.accept_admin();
+    assert_eq!(strategy.admin(), new_admin);
+
+    strategy.set_max_apr_bps(&7_777u32);
+    let (_, _, max) = strategy.rate_bound();
+    assert_eq!(max, 7_777u32);
 }

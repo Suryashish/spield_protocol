@@ -1530,6 +1530,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spield-upgrade-fixture"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "spield-shared",
+]
+
+[[package]]
 name = "spield-vault"
 version = "0.1.0"
 dependencies = [

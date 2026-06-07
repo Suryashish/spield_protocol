@@ -61,13 +61,15 @@ fn scf4_two_tranche_total_is_fifteen_not_ten() {
     assert_eq!(a + b, 15_0000000, "v1 lost 5 by overwriting A's entry; v2 must total 15");
 }
 
+const YEAR_SECS: u64 = 365 * 24 * 60 * 60;
+
 #[test]
-fn rate_bound_accepts_monotonic_within_jump() {
+fn rate_bound_accepts_monotonic_within_annual_cap() {
     let env = Env::default();
     let last = SCALAR_12;
-    let current = SCALAR_12 + SCALAR_12 / 100; // +1%
-    // allow up to 5% jump
-    assert!(math::check_rate_bound(&env, last, current, 500).is_ok());
+    let current = SCALAR_12 + SCALAR_12 / 100; // +1% over a year
+                                               // allow up to 5% APR
+    assert!(math::check_rate_bound_timed(&env, last, current, YEAR_SECS, 500).is_ok());
 }
 
 #[test]
@@ -75,23 +77,65 @@ fn rate_bound_rejects_decrease() {
     let env = Env::default();
     let last = SCALAR_12 + SCALAR_12 / 20;
     let current = SCALAR_12; // decreased
-    assert!(math::check_rate_bound(&env, last, current, 10_000).is_err());
+    assert!(math::check_rate_bound_timed(&env, last, current, YEAR_SECS, 10_000).is_err());
 }
 
 #[test]
-fn rate_bound_rejects_absurd_jump() {
+fn rate_bound_rejects_absurd_jump_for_elapsed() {
     let env = Env::default();
     let last = SCALAR_12;
-    let current = SCALAR_12 * 3; // +200%
-    // allow only 50%
-    assert!(math::check_rate_bound(&env, last, current, 5_000).is_err());
+    let current = SCALAR_12 * 3; // +200% in one year
+                                 // allow only 50% APR => rejected
+    assert!(math::check_rate_bound_timed(&env, last, current, YEAR_SECS, 5_000).is_err());
 }
 
 #[test]
 fn rate_bound_rejects_nonpositive() {
     let env = Env::default();
-    assert!(math::check_rate_bound(&env, SCALAR_12, 0, 10_000).is_err());
-    assert!(math::check_rate_bound(&env, SCALAR_12, -1, 10_000).is_err());
+    assert!(math::check_rate_bound_timed(&env, SCALAR_12, 0, YEAR_SECS, 10_000).is_err());
+    assert!(math::check_rate_bound_timed(&env, SCALAR_12, -1, YEAR_SECS, 10_000).is_err());
+}
+
+#[test]
+fn rate_bound_first_observation_bypasses_cap() {
+    let env = Env::default();
+    // last == 0 (no prior observation) accepts any positive current, regardless of cap/elapsed.
+    assert!(math::check_rate_bound_timed(&env, 0, SCALAR_12 * 100, 0, 1).is_ok());
+    assert!(math::check_rate_bound_timed(&env, 0, 0, 0, 1).is_err()); // still must be positive
+}
+
+#[test]
+fn rate_bound_is_time_proportional() {
+    let env = Env::default();
+    let last = SCALAR_12;
+    // 100% APR cap. A +10% move is allowed over ~1.2 months (10% of a year) but NOT over 1 month.
+    let plus_10pct = last + SCALAR_12 / 10;
+    let tenth_year = YEAR_SECS / 10; // exactly 10% of a year => allowance ~= +10%
+    assert!(
+        math::check_rate_bound_timed(&env, last, plus_10pct, tenth_year + 1000, 10_000).is_ok(),
+        "10% rise over ~1/10 year is within a 100% APR cap"
+    );
+    let one_month = YEAR_SECS / 12;
+    assert!(
+        math::check_rate_bound_timed(&env, last, plus_10pct, one_month, 10_000).is_err(),
+        "the same 10% rise over only 1 month exceeds a 100% APR cap"
+    );
+}
+
+#[test]
+fn rate_bound_same_timestamp_allows_only_dust() {
+    let env = Env::default();
+    let last = SCALAR_12;
+    // elapsed == 0: allowance is just RATE_BOUND_DUST. Equal rate ok; a real rise rejected.
+    assert!(math::check_rate_bound_timed(&env, last, last, 0, 30_000).is_ok());
+    assert!(
+        math::check_rate_bound_timed(&env, last, last + math::RATE_BOUND_DUST, 0, 30_000).is_ok(),
+        "dust drift tolerated at the same timestamp"
+    );
+    assert!(
+        math::check_rate_bound_timed(&env, last, last + SCALAR_12 / 100, 0, 30_000).is_err(),
+        "a real 1% rise within a single timestamp is rejected"
+    );
 }
 
 #[test]

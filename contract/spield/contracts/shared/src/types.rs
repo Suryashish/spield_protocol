@@ -50,13 +50,22 @@ pub struct PositionValue {
 }
 
 /// Defence-in-depth bound on `b_rate` reads, stored in the strategy adapter's config.
+///
+/// The bound is **time-aware**: `b_rate` may rise by at most `max_apr_bps` per year, pro-rated by
+/// the seconds elapsed since `last_ts`. This makes the check independent of how often the strategy
+/// is read (a long-untouched position no longer false-trips), so only `max_apr_bps` — calibrated
+/// against Blend's real max borrow APR — needs tuning. See [`crate::math::check_rate_bound_timed`].
 #[derive(Clone)]
 #[contracttype]
 pub struct RateBound {
-    /// Last `b_rate` the strategy observed (SCALAR_12). Used to enforce monotonicity.
+    /// Last `b_rate` the strategy observed (SCALAR_12). Used to enforce monotonicity + the ceiling.
     pub last_rate: i128,
-    /// Max allowed per-read increase, in basis points of `last_rate`.
-    pub max_jump_bps: u32,
+    /// Unix-second timestamp at which `last_rate` was observed. The elapsed time since this is what
+    /// the allowed increase is pro-rated by. `0` = no observation yet (first read bypasses the cap).
+    pub last_ts: u64,
+    /// Max allowed **annual** `b_rate` growth, in basis points (e.g. `30_000` = 300% APR). Set
+    /// generously above Blend's real max borrow APR so honest reads always pass.
+    pub max_apr_bps: u32,
 }
 
 /// A single Fixed-Rate Vault deposit (plan §11.2 / §7.5 — the flagship "lock X% fixed" product).
