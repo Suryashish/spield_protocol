@@ -17,10 +17,18 @@
 #     (A Stellar asset's issuer can't hold its own asset, so PT/YT MUST be issued by a separate
 #      account from any account that will hold PT/YT — incl. the deployer.)
 #
+# RESUMABLE: every address/checkpoint is written to a STATE FILE the instant it's created
+# (default: scripts/deploy_mainnet.state). If the script stops midway (e.g. the deployer runs out of
+# XLM), just top up and RE-RUN the same command — it reloads the state file and SKIPS every step that
+# already completed, picking up exactly where it left off instead of redeploying. A step that never
+# landed on-chain costs nothing (failed txs aren't charged), so a stop is non-wasteful.
+#
 # Usage:
 #   bash scripts/deploy_mainnet.sh                          # uses spield_deployer + spield_issuer_mainnet
 #   SOURCE=mykey ISSUER=myissuer bash scripts/deploy_mainnet.sh
 #   YES=1 bash scripts/deploy_mainnet.sh                    # skip the interactive confirmation (CI)
+#   STATE_FILE=/path/to/run.state bash scripts/deploy_mainnet.sh   # custom checkpoint file
+#   FRESH=1 bash scripts/deploy_mainnet.sh                  # ignore + overwrite any existing state (start over)
 set -euo pipefail
 
 SOURCE="${SOURCE:-spield_deployer}"
@@ -73,6 +81,48 @@ MARKET_RATE_ANCHOR="${MARKET_RATE_ANCHOR:-1000000000000}"   # 1.0 * 1e12 (PT anc
 # need no USDC; add liquidity later via market.add_liquidity once funded.
 MARKET_SEED_AMOUNT="${MARKET_SEED_AMOUNT:-0}"
 
+# ─── Checkpoint / resume state ───────────────────────────────────────────────────────────────────
+# The state file accumulates `KEY=value` lines (contract addresses + step-complete markers). It's
+# sourced on startup so a re-run already knows everything the previous run accomplished. Each step is
+# guarded so it only runs if its checkpoint is absent — making the whole script idempotent & resumable.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/deploy_mainnet.state}"
+
+if [ "${FRESH:-0}" = "1" ]; then
+  rm -f "$STATE_FILE"
+fi
+
+# Variables that may be restored from the state file (declare so `set -u` is happy when absent).
+WRAPPER=""; STRATEGY=""; VAULT=""; MARKET=""; PT_SAC=""; YT_SAC=""
+PT_ADMIN_SET=""; YT_ADMIN_SET=""; TRUSTLINES_SET=""
+STRATEGY_INIT=""; WRAPPER_INIT=""; VAULT_INIT=""; MARKET_INIT=""
+VAULT_SEEDED=""; MARKET_MINTED=""; MARKET_SEEDED=""; SAVED_MATURITY=""; DEPLOY_COMPLETE=""
+
+if [ -f "$STATE_FILE" ]; then
+  echo "==> Resuming from existing state file: $STATE_FILE"
+  # shellcheck disable=SC1090
+  source "$STATE_FILE"
+  # Maturity MUST be stable across resumes (strategy/wrapper/vault/market all share it). If a prior
+  # run persisted it, reuse that value rather than recomputing a new "now + Nd" that would mismatch.
+  if [ -n "$SAVED_MATURITY" ]; then MATURITY="$SAVED_MATURITY"; fi
+fi
+
+# If a previous run already finished everything, don't rebuild/redeploy — just reprint the addresses.
+if [ -n "$DEPLOY_COMPLETE" ]; then
+  echo "==> This deploy already completed (per $STATE_FILE). Nothing to do."
+  echo "    wrapper=$WRAPPER  strategy=$STRATEGY  vault=$VAULT  market=$MARKET"
+  echo "    PT=$PT_SAC  YT=$YT_SAC"
+  echo "    (To start a brand-new deployment, run with FRESH=1 or delete the state file.)"
+  exit 0
+fi
+
+# Append a KEY=value checkpoint and also set it live in this shell.
+save_state() {  # save_state KEY VALUE
+  local key="$1" val="$2"
+  printf '%s=%q\n' "$key" "$val" >> "$STATE_FILE"
+  printf -v "$key" '%s' "$val"
+}
+
 # ─── Resolve addresses ──────────────────────────────────────────────────────────────────────────
 ADMIN_ADDR=$(stellar keys address "$SOURCE")
 ISSUER_ADDR=$(stellar keys address "$ISSUER")
@@ -89,15 +139,21 @@ echo "  USDC SAC     : $USDC_SAC"
 echo "  Maturity     : $MATURITY  (+${MATURITY_DAYS}d)"
 echo "  Vault seed   : $VAULT_SEED_AMOUNT base units   Market seed: $MARKET_SEED_AMOUNT base units"
 echo "  Max APR bps  : $MAX_APR_BPS"
+echo "  State file   : $STATE_FILE"
 echo
 
-# Hard guard: confirm before doing anything irreversible.
-if [ "${YES:-0}" != "1" ]; then
+# Hard guard: confirm before doing anything irreversible. (Skipped automatically when resuming a
+# run that already created contracts — you already confirmed on the first pass.)
+if [ "${YES:-0}" != "1" ] && [ -z "$WRAPPER" ]; then
   read -r -p "Type 'deploy mainnet' to proceed: " CONFIRM
   if [ "$CONFIRM" != "deploy mainnet" ]; then
     echo "Aborted (no confirmation)."; exit 1
   fi
 fi
+
+# Pin the maturity into the state on the very first run so every contract shares one value across
+# resumes. (No-op on resume — it's already saved.)
+if [ -z "$SAVED_MATURITY" ]; then save_state SAVED_MATURITY "$MATURITY"; fi
 
 echo "==> [1/8] Building + optimizing WASMs (wasm-opt — shrinks the binary => lower mainnet"
 echo "          install/rent fees; behaviour identical, but the code hash differs from testnet)..."
@@ -116,110 +172,194 @@ for w in "$STRAT_WASM" "$WRAP_WASM" "$VAULT_WASM" "$MARKET_WASM"; do
   printf "      %8s  %s\n" "$(wc -c < "$w" 2>/dev/null || echo '?')" "$w"
 done
 
-echo "==> [2/8] Deploying the wrapper contract (need its address to admin PT/YT)..."
 # admin bound ATOMICALLY by __constructor at deploy (after `--`), so the deploy->initialize window
 # can't be front-run: only this admin can complete initialize(). Rotate to a MULTISIG post-deploy.
 # NOTE: admin = the deployer (a single hot key). That is functionally fine to KEEP — a single-key
 # admin runs the protocol identically, and admin powers can't steal funds / mint unbacked tokens /
 # bypass the upgrade timelock. Rotating to a multisig (§6 in MAINNET.md) is RECOMMENDED for real
 # TVL (so one key compromise isn't fatal), not required to operate.
-WRAPPER=$(stellar contract deploy --wasm "$WRAP_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- --admin "$ADMIN_ADDR")
-echo "    wrapper = $WRAPPER"
+if [ -z "$WRAPPER" ]; then
+  echo "==> [2/8] Deploying the wrapper contract (need its address to admin PT/YT)..."
+  W=$(stellar contract deploy --wasm "$WRAP_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- --admin "$ADMIN_ADDR")
+  save_state WRAPPER "$W"
+  echo "    wrapper = $WRAPPER"
+else
+  echo "==> [2/8] wrapper already deployed ($WRAPPER) — skipping."
+fi
 
-echo "==> [3/8] Creating PT and YT assets + SACs (issued by $ISSUER), handing admin to the wrapper..."
 PT_ASSET="SPLDPT:$ISSUER_ADDR"
 YT_ASSET="SPLDYT:$ISSUER_ADDR"
 
-stellar contract asset deploy --asset "$PT_ASSET" --source-account "$ISSUER" "${NET_ARGS[@]}" >/dev/null 2>&1 || true
-stellar contract asset deploy --asset "$YT_ASSET" --source-account "$ISSUER" "${NET_ARGS[@]}" >/dev/null 2>&1 || true
-PT_SAC=$(stellar contract id asset --asset "$PT_ASSET" "${NET_ARGS[@]}")
-YT_SAC=$(stellar contract id asset --asset "$YT_ASSET" "${NET_ARGS[@]}")
-echo "    PT SAC = $PT_SAC"
-echo "    YT SAC = $YT_SAC"
+# SAC ids are DETERMINISTIC (asset code + issuer + network), so re-deriving them on a resume is free
+# and always yields the same address — but the asset *deploy* is a state-changing tx, so only run it
+# when we don't already have the SAC recorded. (Deploy is idempotent-tolerant via `|| true`, but
+# skipping avoids a needless tx + fee on resume.)
+if [ -z "$PT_SAC" ] || [ -z "$YT_SAC" ]; then
+  echo "==> [3/8] Creating PT and YT assets + SACs (issued by $ISSUER)..."
+  stellar contract asset deploy --asset "$PT_ASSET" --source-account "$ISSUER" "${NET_ARGS[@]}" >/dev/null 2>&1 || true
+  stellar contract asset deploy --asset "$YT_ASSET" --source-account "$ISSUER" "${NET_ARGS[@]}" >/dev/null 2>&1 || true
+  save_state PT_SAC "$(stellar contract id asset --asset "$PT_ASSET" "${NET_ARGS[@]}")"
+  save_state YT_SAC "$(stellar contract id asset --asset "$YT_ASSET" "${NET_ARGS[@]}")"
+  echo "    PT SAC = $PT_SAC"
+  echo "    YT SAC = $YT_SAC"
+else
+  echo "==> [3/8] PT/YT SACs already created (PT=$PT_SAC, YT=$YT_SAC) — skipping."
+fi
 
-# Hand SAC admin to the wrapper so it (not the issuer) controls mint/burn.
-stellar contract invoke --id "$PT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" \
-  -- set_admin --new_admin "$WRAPPER" >/dev/null
-stellar contract invoke --id "$YT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" \
-  -- set_admin --new_admin "$WRAPPER" >/dev/null
-echo "    PT/YT admin -> wrapper"
+# Hand SAC admin to the wrapper so it (not the issuer) controls mint/burn. Guarded per-token: once
+# admin is the wrapper, the issuer can no longer call set_admin, so a blind re-run would fail.
+if [ -z "$PT_ADMIN_SET" ]; then
+  stellar contract invoke --id "$PT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" \
+    -- set_admin --new_admin "$WRAPPER" >/dev/null
+  save_state PT_ADMIN_SET 1
+  echo "    PT admin -> wrapper"
+else
+  echo "    PT admin already handed to wrapper — skipping."
+fi
+if [ -z "$YT_ADMIN_SET" ]; then
+  stellar contract invoke --id "$YT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" \
+    -- set_admin --new_admin "$WRAPPER" >/dev/null
+  save_state YT_ADMIN_SET 1
+  echo "    YT admin -> wrapper"
+else
+  echo "    YT admin already handed to wrapper — skipping."
+fi
 
 # The deployer (who will receive PT/YT when it seeds the market) needs trustlines for these classic
 # assets before the wrapper can mint to them. (Any other user must do the same before their 1st mint.)
-echo "==> [3b] Adding PT/YT trustlines for $SOURCE..."
-stellar tx new change-trust --source-account "$SOURCE" "${NET_ARGS[@]}" --line "$PT_ASSET" >/dev/null 2>&1 || true
-stellar tx new change-trust --source-account "$SOURCE" "${NET_ARGS[@]}" --line "$YT_ASSET" >/dev/null 2>&1 || true
-echo "    trustlines set"
+if [ -z "$TRUSTLINES_SET" ]; then
+  echo "==> [3b] Adding PT/YT trustlines for $SOURCE..."
+  stellar tx new change-trust --source-account "$SOURCE" "${NET_ARGS[@]}" --line "$PT_ASSET" >/dev/null 2>&1 || true
+  stellar tx new change-trust --source-account "$SOURCE" "${NET_ARGS[@]}" --line "$YT_ASSET" >/dev/null 2>&1 || true
+  save_state TRUSTLINES_SET 1
+  echo "    trustlines set"
+else
+  echo "==> [3b] PT/YT trustlines already set — skipping."
+fi
 
-echo "==> [4/8] Deploying + initializing the Blend strategy adapter..."
-STRATEGY=$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- --admin "$ADMIN_ADDR")
-echo "    strategy = $STRATEGY"
-stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- initialize \
-     --wrapper "$WRAPPER" \
-     --pool "$BLEND_POOL" \
-     --underlying "$USDC_SAC" \
-     --max_apr_bps "$MAX_APR_BPS" >/dev/null
-echo "    strategy initialized (Blend FixedV2 + Circle USDC)"
+# Strategy: deploy and initialize are separate checkpoints (the run could die between them).
+if [ -z "$STRATEGY" ]; then
+  echo "==> [4/8] Deploying the Blend strategy adapter..."
+  S=$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- --admin "$ADMIN_ADDR")
+  save_state STRATEGY "$S"
+  echo "    strategy = $STRATEGY"
+else
+  echo "==> [4/8] strategy already deployed ($STRATEGY) — skipping deploy."
+fi
+if [ -z "$STRATEGY_INIT" ]; then
+  echo "    initializing strategy..."
+  stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- initialize \
+       --wrapper "$WRAPPER" \
+       --pool "$BLEND_POOL" \
+       --underlying "$USDC_SAC" \
+       --max_apr_bps "$MAX_APR_BPS" >/dev/null
+  save_state STRATEGY_INIT 1
+  echo "    strategy initialized (Blend FixedV2 + Circle USDC)"
+else
+  echo "    strategy already initialized — skipping (re-init would panic AlreadyInitialized)."
+fi
 
-echo "==> [5/8] Initializing the wrapper..."
-stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- initialize \
-     --strategy "$STRATEGY" \
-     --pt_token "$PT_SAC" \
-     --yt_token "$YT_SAC" \
-     --maturity "$MATURITY" >/dev/null
-echo "    wrapper initialized"
+if [ -z "$WRAPPER_INIT" ]; then
+  echo "==> [5/8] Initializing the wrapper..."
+  stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- initialize \
+       --strategy "$STRATEGY" \
+       --pt_token "$PT_SAC" \
+       --yt_token "$YT_SAC" \
+       --maturity "$MATURITY" >/dev/null
+  save_state WRAPPER_INIT 1
+  echo "    wrapper initialized"
+else
+  echo "==> [5/8] wrapper already initialized — skipping."
+fi
 
-echo "==> [6/8] Deploying + initializing the Fixed-Rate Vault..."
-VAULT=$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- --admin "$ADMIN_ADDR")
-echo "    vault = $VAULT"
-stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- initialize \
-     --wrapper "$WRAPPER" \
-     --underlying "$USDC_SAC" \
-     --rate_bps "$VAULT_RATE_BPS" \
-     --max_rate_bps "$VAULT_MAX_RATE_BPS" >/dev/null
-echo "    vault initialized (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)"
+if [ -z "$VAULT" ]; then
+  echo "==> [6/8] Deploying the Fixed-Rate Vault..."
+  V=$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- --admin "$ADMIN_ADDR")
+  save_state VAULT "$V"
+  echo "    vault = $VAULT"
+else
+  echo "==> [6/8] vault already deployed ($VAULT) — skipping deploy."
+fi
+if [ -z "$VAULT_INIT" ]; then
+  echo "    initializing vault..."
+  stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- initialize \
+       --wrapper "$WRAPPER" \
+       --underlying "$USDC_SAC" \
+       --rate_bps "$VAULT_RATE_BPS" \
+       --max_rate_bps "$VAULT_MAX_RATE_BPS" >/dev/null
+  save_state VAULT_INIT 1
+  echo "    vault initialized (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)"
+else
+  echo "    vault already initialized — skipping."
+fi
 
-if [ "$VAULT_SEED_AMOUNT" -gt 0 ]; then
+if [ "$VAULT_SEED_AMOUNT" -gt 0 ] && [ -z "$VAULT_SEEDED" ]; then
   echo "==> [6b] Seeding the vault with $VAULT_SEED_AMOUNT USDC base units of PT capacity (REAL USDC)..."
   stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- seed --from "$ADMIN_ADDR" --amount "$VAULT_SEED_AMOUNT" >/dev/null
+  save_state VAULT_SEEDED 1
   echo "    vault seeded"
+elif [ -n "$VAULT_SEEDED" ]; then
+  echo "==> [6b] vault already seeded — skipping."
 else
   echo "==> [6b] Skipping vault seed (VAULT_SEED_AMOUNT=0). Seed later via vault.seed once verified."
 fi
 
-echo "==> [7/8] Deploying + initializing the Market (PT/USDC time-decay AMM)..."
-MARKET=$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- --admin "$ADMIN_ADDR")
-echo "    market = $MARKET"
-stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-  -- initialize \
-     --pt "$PT_SAC" \
-     --usdc "$USDC_SAC" \
-     --maturity "$MATURITY" \
-     --fee_bps "$MARKET_FEE_BPS" \
-     --max_fee_bps "$MARKET_MAX_FEE_BPS" \
-     --scalar_root "$MARKET_SCALAR_ROOT" \
-     --rate_anchor "$MARKET_RATE_ANCHOR" >/dev/null
-echo "    market initialized (fee=${MARKET_FEE_BPS}bps, anchor=par, root=${MARKET_SCALAR_ROOT})"
+if [ -z "$MARKET" ]; then
+  echo "==> [7/8] Deploying the Market (PT/USDC time-decay AMM)..."
+  M=$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- --admin "$ADMIN_ADDR")
+  save_state MARKET "$M"
+  echo "    market = $MARKET"
+else
+  echo "==> [7/8] market already deployed ($MARKET) — skipping deploy."
+fi
+if [ -z "$MARKET_INIT" ]; then
+  echo "    initializing market..."
+  stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- initialize \
+       --pt "$PT_SAC" \
+       --usdc "$USDC_SAC" \
+       --maturity "$MATURITY" \
+       --fee_bps "$MARKET_FEE_BPS" \
+       --max_fee_bps "$MARKET_MAX_FEE_BPS" \
+       --scalar_root "$MARKET_SCALAR_ROOT" \
+       --rate_anchor "$MARKET_RATE_ANCHOR" >/dev/null
+  save_state MARKET_INIT 1
+  echo "    market initialized (fee=${MARKET_FEE_BPS}bps, anchor=par, root=${MARKET_SCALAR_ROOT})"
+else
+  echo "    market already initialized — skipping."
+fi
 
-if [ "$MARKET_SEED_AMOUNT" -gt 0 ]; then
+if [ "$MARKET_SEED_AMOUNT" -gt 0 ] && [ -z "$MARKET_SEEDED" ]; then
   echo "==> [7b] Seeding the market with $MARKET_SEED_AMOUNT USDC base units of liquidity per side (REAL USDC)..."
-  stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- mint --user "$ADMIN_ADDR" --amount "$MARKET_SEED_AMOUNT" >/dev/null
+  # Two separate txs (mint PT, then add_liquidity) get two checkpoints so a stop between them doesn't
+  # double-mint on resume. MARKET_MINTED guards the PT mint; MARKET_SEEDED guards the add_liquidity.
+  if [ -z "${MARKET_MINTED:-}" ]; then
+    stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+      -- mint --user "$ADMIN_ADDR" --amount "$MARKET_SEED_AMOUNT" >/dev/null
+    save_state MARKET_MINTED 1
+    echo "    minted $MARKET_SEED_AMOUNT PT for the seed"
+  else
+    echo "    PT for the seed already minted — skipping mint."
+  fi
   stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- add_liquidity --lp "$ADMIN_ADDR" --pt_in "$MARKET_SEED_AMOUNT" --usdc_in "$MARKET_SEED_AMOUNT" >/dev/null
+  save_state MARKET_SEEDED 1
   echo "    market seeded (balanced PT/USDC pool opened at par)"
+elif [ -n "$MARKET_SEEDED" ]; then
+  echo "==> [7b] market already seeded — skipping."
 else
   echo "==> [7b] Skipping market seed (MARKET_SEED_AMOUNT=0). Add liquidity later via market.add_liquidity."
 fi
 
+save_state DEPLOY_COMPLETE 1
 echo "==> [8/8] Done. Summary:"
 cat <<EOF
 
