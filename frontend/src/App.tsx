@@ -4,23 +4,26 @@ import DashboardPage from '@/pages/DashboardPage';
 import { WalletProvider } from '@/context/WalletContext';
 import { ProtocolProvider } from '@/context/ProtocolContext';
 import { ToastProvider } from '@/context/ToastContext';
+import { ReownProvider } from '@/context/ReownContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 function App() {
   return (
     <ErrorBoundary>
-      <WalletProvider>
-        <ToastProvider>
-          <ProtocolProvider>
-            <Router>
-              <Routes>
-                <Route path="/" element={<LandingPage />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-              </Routes>
-            </Router>
-          </ProtocolProvider>
-        </ToastProvider>
-      </WalletProvider>
+      <ReownProvider>
+        <WalletProvider>
+          <ToastProvider>
+            <ProtocolProvider>
+              <Router>
+                <Routes>
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                </Routes>
+              </Router>
+            </ProtocolProvider>
+          </ToastProvider>
+        </WalletProvider>
+      </ReownProvider>
     </ErrorBoundary>
   );
 }

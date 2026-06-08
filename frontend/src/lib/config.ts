@@ -161,6 +161,39 @@ export const ASSETS = {
 /** Waitlist API URL (same for both networks unless overridden). */
 export const BACKEND_URL = env('VITE_BACKEND_URL', 'https://spield-protocol-waitlistbackend.vercel.app');
 
+/**
+ * Cross-chain bridge (Allbridge Core) configuration.
+ *
+ * IMPORTANT: Allbridge Core has NO testnet — the SDK ships only a mainnet config
+ * (see `@allbridge/bridge-core-sdk/dist/src/configs` → only `mainnet`). So we let
+ * the bridge UI *quote* against real mainnet liquidity on every build, but only
+ * permit actual execution when this app is itself targeting mainnet. On testnet
+ * builds the UI shows prices and disables the bridge with a "mainnet only" note.
+ */
+export const BRIDGE_ENABLED = NETWORK_KEY === 'mainnet';
+
+/**
+ * WalletConnect / Reown Cloud project id, required to initialise the EVM + Solana
+ * wallet modal used to sign bridge transfers FROM non-Stellar chains. Get a free
+ * id at https://cloud.reown.com. When unset, Stellar-source bridging still works
+ * (it uses the app's existing Stellar wallet); only EVM/Solana sources are gated.
+ */
+export const REOWN_PROJECT_ID = env('VITE_REOWN_PROJECT_ID', '');
+
+/**
+ * RPC endpoints the Allbridge SDK uses to read/build txs on each non-Stellar chain
+ * it can bridge from. EVM chains work without a custom RPC (the SDK falls back to
+ * the injected wallet provider), but Solana REQUIRES one. All overridable via env.
+ */
+export const BRIDGE_RPC = {
+  SOL: env('VITE_BRIDGE_RPC_SOL', 'https://api.mainnet-beta.solana.com'),
+  ETH: env('VITE_BRIDGE_RPC_ETH', ''),
+  BSC: env('VITE_BRIDGE_RPC_BSC', ''),
+  POL: env('VITE_BRIDGE_RPC_POL', ''),
+  ARB: env('VITE_BRIDGE_RPC_ARB', ''),
+  TRX: env('VITE_BRIDGE_RPC_TRX', ''),
+} as const;
+
 /** Token display metadata, keyed by contract address. */
 export const TOKEN_META: Record<string, { symbol: string; label: string }> = {
   [CONTRACTS.usdc]: { symbol: 'USDC', label: 'USD Coin' },
