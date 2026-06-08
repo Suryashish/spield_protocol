@@ -5,7 +5,52 @@ a live end-to-end demo against a **real Blend v2 pool**. The contracts are alrea
 in unit tests against the real Blend WASM (23 tests pass — see [README.md](README.md)); this is the
 on-chain liveness step.
 
-## ✅ LIVE DEPLOYMENT (verified 2026-06-05)
+---
+
+## 🟢 Updated contracts (v2 redeploy — verified 2026-06-09)
+
+**These are the CURRENT live testnet contracts.** After the contracts received a lot of changes and
+updates since the original 2026-06-05 deployment, they were **redeployed fresh** from the updated code
+(optimized WASMs via `stellar contract build --optimize`) against the same real Blend TestnetV2 pool.
+This is what the frontend points at (`frontend/src/lib/config.ts`, testnet profile).
+
+| Contract | Address |
+| --- | --- |
+| **wrapper** | `CDH7ZGX7QJYIIAUW6Z6LORTLJ7VW7KR4B2INITTSUZL4O22QTMVSYIV4` |
+| **strategy** (Blend adapter) | `CCTSIOSOVXPACHX2E4KXK4QH2CJKVFFWJHBBVLPB6X3XE3EQXKS3KYIT` |
+| **vault** (Fixed-Rate Vault) | `CDEPQKWCBW4Z7XGKPDG2GHNBQ54MOCMCF6PXJFJ5EJM4VJPP6Y4A3ECN` |
+| **market** (PT/USDC AMM) | `CBY7LGWONKPIRRFSK4BFHK2YLDFPYJ4SLMQJIDVKVXCQZFHYUKJXUFNU` |
+| PT (SAC) | `CCT4VJ32RBT2Q6UH5UH5QCCCZIRYKXYJX44IDLXUMVFUTLZDXBPBJLUW` |
+| YT (SAC) | `CA2QLQDSJUR6H5QNZSYURGGMZPGJI7D4WEYPXBSXWDLX7FCFZF7FD2OU` |
+| **PT/YT issuer** | `GD6OOYY52IZRHSAMA6MMAG24MCPD5UWK7HLKPTBG5X2I2L7H3FF2U6LL` (`spield_issuer_v2`) |
+| Blend pool (unchanged) | `CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF` |
+| USDC (SAC, unchanged) | `CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU` |
+
+- **Deployer/admin:** `alice` (`GBNK7ZOQIZL3HM2LPY7WWJJL3C5YCOEUIJAF4UBSPIEWCEIC2HFSBVVI`).
+- **Maturity:** `1783546154` (~30 days out).
+- **Why a fresh issuer (`spield_issuer_v2`):** PT/YT SAC addresses are deterministic from
+  (asset code + issuer + network). The OLD PT/YT SACs are admined by the *old* wrapper, so reusing the
+  old issuer would make the redeploy's `set_admin` fail. A fresh issuer yields clean new SACs whose
+  admin is handed to the new wrapper. (`alice` got new PT/YT trustlines automatically in step [3b].)
+
+**Verified on-chain (2026-06-09):**
+- wrapper `solvency` → `["99999999","100000000","0"]` (backing ≈ principal within 1 stroop — the
+  invariant holds; the 1-stroop gap is Blend's `entry_rate > 1.0` floor-rounding, handled by the
+  share-based yield math).
+- strategy `pool` → the Blend TestnetV2 pool; `version` → `spield-strategy-0.1.0`.
+- vault `stats` → `pt_inventory=50000000`, `coupon_capacity=50000000`, `total_liability=0` —
+  **seeded with 5 USDC of coupon capacity**, solvent, ready for `deposit`.
+- market `reserves` → `["50000000","50000000"]` (**seeded 5 PT / 5 USDC**), `pt_price` → `1.0` (par).
+
+> Redeployed with `scripts/deploy_testnet.sh` (now checkpointed/resumable + optimized build). The run
+> used `STELLAR_INCLUSION_FEE=1000000` + `STELLAR_NO_CACHE=true` to avoid RPC submission timeouts.
+
+---
+
+## ✅ Original deployment (2026-06-05) — SUPERSEDED by the v2 redeploy above
+
+> ⚠️ Historical record. These contracts are no longer wired into the frontend; use the v2 addresses
+> above. Kept for provenance.
 
 Deployed and exercised on testnet against the real Blend TestnetV2 pool:
 
