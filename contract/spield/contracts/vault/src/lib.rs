@@ -55,6 +55,9 @@ use spield_shared::{governance, math, types::VaultStats, Error, WrapperContractC
 /// (and thus the tx resource cost) is bounded regardless of the caller-supplied `max_positions`.
 const MAX_HARVEST_BATCH: u32 = 50;
 
+/// The USDC the vault holds/settles in must have exactly 7 decimals (Stellar USDC, testnet + mainnet).
+const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
+
 #[contract]
 pub struct Vault;
 
@@ -74,7 +77,6 @@ impl Vault {
     /// * `max_rate_bps` — the hard ceiling on any future quoted rate (a guardrail).
     pub fn initialize(
         env: Env,
-        admin: Address,
         wrapper: Address,
         underlying: Address,
         rate_bps: u32,
@@ -83,9 +85,14 @@ impl Vault {
         if storage::is_initialized(&env) {
             panic_with_error!(&env, Error::AlreadyInitialized);
         }
-        admin.require_auth();
+        // Only the admin bound atomically at deploy (constructor) may finish setup — front-run-proof.
+        storage::get_admin(&env).require_auth();
         if rate_bps > max_rate_bps {
             panic_with_error!(&env, Error::RateNotAllowed);
+        }
+        // The USDC the vault holds must have the decimals the math expects (don't assume).
+        if token::Client::new(&env, &underlying).decimals() != EXPECTED_UNDERLYING_DECIMALS {
+            panic_with_error!(&env, Error::UnexpectedDecimals);
         }
 
         // Pull the PT/YT addresses and the maturity from the wrapper (single source of truth for
@@ -96,7 +103,6 @@ impl Vault {
         let maturity = w.maturity();
 
         storage::set_initialized(&env);
-        storage::set_admin(&env, &admin);
         storage::set_wrapper(&env, &wrapper);
         storage::set_pt(&env, &pt);
         storage::set_yt(&env, &yt);
@@ -104,6 +110,23 @@ impl Vault {
         storage::set_maturity(&env, maturity);
         storage::set_rate_bps(&env, rate_bps);
         storage::set_max_rate_bps(&env, max_rate_bps);
+        storage::bump_instance(&env);
+
+        events::initialized(
+            &env,
+            &storage::get_admin(&env),
+            &wrapper,
+            &underlying,
+            rate_bps,
+            max_rate_bps,
+            maturity,
+        );
+    }
+
+    /// **Atomic deploy-time constructor (no deploy→init front-run).** Binds `admin` the moment the
+    /// vault exists; the remaining [`Self::initialize`] is then gated to this admin.
+    pub fn __constructor(env: Env, admin: Address) {
+        storage::set_admin(&env, &admin);
         storage::set_paused(&env, false);
         storage::set_total_liability(&env, 0);
         governance::init(&env);
@@ -362,8 +385,16 @@ impl Vault {
         storage::get_yt(&env)
     }
 
+    /// Human-readable semver of the source build (informational; for verifiable identity use
+    /// [`Self::code_hash`]).
     pub fn version(env: Env) -> String {
         String::from_str(&env, "spield-vault-0.1.0")
+    }
+
+    /// The live deployed WASM hash (32-byte SHA-256) of the running code — reflects the current
+    /// build even across upgrades.
+    pub fn code_hash(env: Env) -> BytesN<32> {
+        governance::code_hash(&env)
     }
 
     // ---------- admin / circuit breaker ----------

@@ -57,6 +57,19 @@ pub struct PausedEvent {
     pub paused: bool,
 }
 
+/// Emitted once when `initialize` wires the market — lets indexers record the market going live
+/// (strategy + PT/YT + maturity) without scraping deploy txs.
+#[contractevent]
+#[derive(Clone)]
+pub struct Initialized {
+    #[topic]
+    pub admin: Address,
+    pub strategy: Address,
+    pub pt: Address,
+    pub yt: Address,
+    pub maturity: u64,
+}
+
 pub fn minted(env: &Env, user: &Address, id: u64, amount: i128, entry_rate: i128) {
     Mint {
         user: user.clone(),
@@ -106,4 +119,22 @@ pub fn transferred(env: &Env, from: &Address, to: &Address, id: u64) {
 
 pub fn paused(env: &Env, paused: bool) {
     PausedEvent { paused }.publish(env);
+}
+
+pub fn initialized(
+    env: &Env,
+    admin: &Address,
+    strategy: &Address,
+    pt: &Address,
+    yt: &Address,
+    maturity: u64,
+) {
+    Initialized {
+        admin: admin.clone(),
+        strategy: strategy.clone(),
+        pt: pt.clone(),
+        yt: yt.clone(),
+        maturity,
+    }
+    .publish(env);
 }

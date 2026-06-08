@@ -219,3 +219,82 @@ fn ttl_bump_floors_at_minimum_after_maturity() {
         "even past maturity the entry gets at least the minimum bump"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Mainnet-scale i128 fuzz for the yield/share math (overflow & precision safety)
+// ---------------------------------------------------------------------------
+
+/// Deterministic LCG so the fuzz is reproducible.
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        self.0
+    }
+    fn range(&mut self, lo: i128, hi: i128) -> i128 {
+        if hi <= lo {
+            return lo;
+        }
+        let span = (hi - lo) as u128 + 1;
+        lo + (self.next() as u128 % span) as i128
+    }
+}
+
+#[test]
+fn share_math_no_overflow_at_mainnet_scale_fuzz() {
+    let env = Env::default();
+    // The i256-backed mul_div consumes host budget; the 20k-iter sweep aggregates far past one
+    // call's worth, so lift the default budget (a single on-chain call fits the real budget).
+    env.cost_estimate().budget().reset_unlimited();
+    let mut rng = Rng(0xDEADBEEF);
+    // Reserves/shares up to ~1e17 base units (10 BILLION USDC at 7 decimals) and rates spanning
+    // 0.5×..50× par. shares * rate must route through i256 and never overflow i128 nor go negative.
+    for _ in 0..20_000 {
+        let shares = rng.range(0, 100_000_000_000_000_000); // up to 1e17
+        let rate = rng.range(SCALAR_12 / 2, 50 * SCALAR_12); // 0.5 .. 50.0
+        let u = math::shares_to_underlying(&env, shares, rate).expect("no overflow");
+        assert!(u >= 0, "underlying must be non-negative");
+        // Round-trip back to shares is <= original (floor on both legs), and never overflows.
+        let back = math::underlying_to_shares(&env, u, rate).expect("no overflow");
+        assert!(back <= shares + 1, "round-trip shares grew: {} -> {} -> {}", shares, u, back);
+    }
+}
+
+#[test]
+fn yield_amount_no_overflow_at_mainnet_scale_fuzz() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    let mut rng = Rng(0xFEEDFACE);
+    for _ in 0..20_000 {
+        let shares = rng.range(0, 100_000_000_000_000_000);
+        let settled = rng.range(SCALAR_12 / 2, 50 * SCALAR_12);
+        // current may be below or above settled — must clamp at 0 when not risen, never overflow.
+        let current = rng.range(SCALAR_12 / 2, 50 * SCALAR_12);
+        let y = math::yield_amount(&env, shares, settled, current).expect("no overflow");
+        assert!(y >= 0, "yield must be >= 0 (clamped)");
+        if current <= settled {
+            assert_eq!(y, 0, "no yield when rate hasn't risen");
+        }
+    }
+}
+
+#[test]
+fn coupon_amount_no_overflow_at_mainnet_scale_fuzz() {
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    let mut rng = Rng(0x0C0FFEE5);
+    let year = 365 * 24 * 60 * 60u64;
+    for _ in 0..20_000 {
+        let principal = rng.range(0, 100_000_000_000_000_000); // up to 1e17
+        let rate_bps = rng.range(0, 100_000) as u32; // up to 1000% APR
+        let term = rng.range(0, (10 * year) as i128) as u64; // up to 10 years
+        let c = math::coupon_amount(&env, principal, rate_bps, term).expect("no overflow");
+        assert!(c >= 0, "coupon must be non-negative");
+        if rate_bps == 0 || term == 0 {
+            assert_eq!(c, 0);
+        }
+    }
+}

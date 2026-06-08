@@ -147,13 +147,14 @@ fn setup(maturity_secs_from_now: u64) -> World {
     );
     pool_client.submit(&whale, &whale, &whale, &reqs);
 
-    // Register the wrapper FIRST so we know its address to admin the PT/YT SACs.
-    let wrapper = env.register(Wrapper, ());
+    // Register the wrapper FIRST (admin bound atomically by its constructor) so we know its address
+    // to admin the PT/YT SACs.
+    let wrapper = env.register(Wrapper, (admin.clone(),));
 
-    // Deploy the strategy adapter, owned by the wrapper.
-    let strategy = env.register(BlendStrategy, ());
+    // Deploy the strategy adapter, owned by the wrapper (admin set by its constructor).
+    let strategy = env.register(BlendStrategy, (admin.clone(),));
     BlendStrategyClient::new(&env, &strategy).initialize(
-        &admin, &wrapper, &pool, &usdc, &30_000u32,
+        &wrapper, &pool, &usdc, &30_000u32,
     );
 
     // PT + YT SACs admined by the wrapper (so the wrapper can mint/burn).
@@ -162,7 +163,7 @@ fn setup(maturity_secs_from_now: u64) -> World {
 
     let maturity = env.ledger().timestamp() + maturity_secs_from_now;
     WrapperClient::new(&env, &wrapper).initialize(
-        &admin, &strategy, &pt, &yt, &maturity,
+        &strategy, &pt, &yt, &maturity,
     );
 
     World { env, pool, usdc, oracle_id, wrapper, strategy, pt, yt, maturity }
@@ -348,9 +349,8 @@ fn scf6_claim_settles_never_burns_multi_epoch() {
 #[should_panic(expected = "Error(Contract, #1)")] // AlreadyInitialized
 fn scf7_double_initialize_panics() {
     let w = setup(YEAR);
-    let admin = Address::generate(w.env());
-    // Second initialize must panic regardless of args.
-    w.wrapper().initialize(&admin, &w.strategy, &w.pt, &w.yt, &(w.maturity + 1));
+    // Second initialize must panic regardless of args (admin is bound at deploy via constructor).
+    w.wrapper().initialize(&w.strategy, &w.pt, &w.yt, &(w.maturity + 1));
 }
 
 // ===========================================================================
@@ -633,4 +633,68 @@ fn set_timelock_changes_future_schedule_window() {
     let now = w.env().ledger().timestamp();
     let eta = w.wrapper().schedule_upgrade(&wasm_hash);
     assert_eq!(eta, now + 72 * 60 * 60, "new schedule uses the updated timelock");
+}
+
+// ===========================================================================
+// Mainnet-readiness: the solvency dust tolerance is BOUNDED and ungameable —
+// many tiny open/close cycles can't inflate it (it tracks open positions, not
+// historical op count).
+// ===========================================================================
+
+#[test]
+fn dust_tolerance_does_not_grow_with_churn() {
+    let w = setup(10 * YEAR);
+    // Churn: open and immediately fully combine (close) the same-sized position many times. Under
+    // the OLD tolerance (next_position_id + withdraw_ops) this inflates the band ~3 per cycle; under
+    // the new open-positions basis it stays flat (every position is closed again).
+    for _ in 0..30 {
+        let user = Address::generate(w.env());
+        w.usdc_admin().mint(&user, &(10 * USDC));
+        let id = w.wrapper().mint(&user, &(10 * USDC));
+        // Fully combine → position closes (PT+YT both burned), so open_positions returns to 0.
+        w.wrapper().combine_and_redeem(&id, &(10 * USDC));
+    }
+
+    // After 30 closed cycles, open a real position and let yield accrue. Solvency must still hold
+    // with the TIGHT tolerance — there's no inflated band to hide behind.
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR);
+    let payout = w.wrapper().claim_yield(&id);
+    assert!(payout > 0);
+    let (backing, principal, _unclaimed) = w.wrapper().solvency();
+    // Backing must cover principal with only the tiny (open_positions + 4)-stroop slack — here just
+    // 1 open position, so the band is ~5 stroops, NOT ~90+ it would have been under the old form.
+    assert!(
+        backing + 5 >= principal,
+        "solvency must hold under a TIGHT tolerance after churn: backing {} principal {}",
+        backing,
+        principal
+    );
+    std::println!("dust: after 30 close cycles, backing={} principal={}", backing, principal);
+}
+
+// ===========================================================================
+// Mainnet-readiness: Blend dependency — if the pool is FROZEN, the wrapper's
+// reads/solvency stay sane (no spurious panic); we document that withdrawals
+// inherit Blend's availability.
+// ===========================================================================
+
+#[test]
+fn solvency_view_survives_blend_pool_frozen() {
+    let w = setup(YEAR);
+    let (_user, _id) = w.deposit_new_user(100 * USDC);
+    w.advance(30 * 24 * 60 * 60);
+
+    // Freeze the Blend pool (admin status 2 = frozen: no new supply/borrow). Existing positions and
+    // the b_rate read still resolve, so our solvency view must NOT panic — it reflects real backing.
+    w.pool_client().set_status(&2);
+    w.pool_client().update_status();
+    w.oracle().set_price_stable(&vec![w.env(), 1_0000000, 1_0000000]);
+
+    let (backing, principal, _unclaimed) = w.wrapper().solvency();
+    assert!(backing >= principal, "frozen pool: backing {} < principal {}", backing, principal);
+    // position_value (a per-position read) also resolves without panicking.
+    let pv = w.wrapper().position_value(&0);
+    assert_eq!(pv.principal, 100 * USDC);
+    std::println!("blend-frozen: solvency still readable, backing={}", backing);
 }

@@ -37,7 +37,14 @@ pub enum DataKey {
     /// Total principal across all open positions (underlying terms). Solvency LHS component.
     TotalPrincipal,
     /// Count of withdrawing operations (claims/redeems). Bounds cumulative withdraw rounding dust.
+    /// NOTE: this is monotonic/unbounded and is NO LONGER used in the solvency tolerance (it could
+    /// be inflated by many tiny ops to widen the band). Kept only as an informational event/metric.
     WithdrawOps,
+    /// Count of currently-OPEN positions. Increments on `mint`, decrements when a position closes.
+    /// This is the correct, **bounded** basis for the solvency dust tolerance: each open position
+    /// can carry at most ~1 stroop of mint-floor rounding, and closed positions carry none, so the
+    /// tolerance tracks only live dust and can't be inflated by historical churn (mainnet-readiness).
+    OpenPositions,
     /// A single position record, keyed by id.
     Position(u64),
 }
@@ -140,7 +147,9 @@ pub fn set_total_principal(env: &Env, v: i128) {
     env.storage().instance().set(&DataKey::TotalPrincipal, &v);
 }
 
-/// Read the next position id without incrementing (= total positions ever opened).
+/// Read the next position id without incrementing (= total positions ever opened). Informational
+/// metric only (no longer part of the solvency tolerance — that now uses `open_positions`).
+#[allow(dead_code)]
 pub fn peek_next_position_id(env: &Env) -> u64 {
     env.storage()
         .instance()
@@ -160,6 +169,26 @@ pub fn bump_withdraw_ops(env: &Env) {
     env.storage()
         .instance()
         .set(&DataKey::WithdrawOps, &(n + 1));
+}
+
+/// Count of currently-open positions — the bounded basis for the solvency dust tolerance.
+pub fn open_positions(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::OpenPositions)
+        .unwrap_or(0)
+}
+
+pub fn inc_open_positions(env: &Env) {
+    let n = open_positions(env);
+    env.storage().instance().set(&DataKey::OpenPositions, &(n + 1));
+}
+
+pub fn dec_open_positions(env: &Env) {
+    let n = open_positions(env);
+    // Saturating: never underflow (defence-in-depth; close is only called on an open position).
+    let next = n.saturating_sub(1);
+    env.storage().instance().set(&DataKey::OpenPositions, &next);
 }
 
 pub fn next_position_id(env: &Env) -> u64 {

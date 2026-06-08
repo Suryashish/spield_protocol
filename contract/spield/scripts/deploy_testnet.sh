@@ -76,7 +76,10 @@ VAULT_WASM="$WASM_DIR/spield_vault.wasm"
 MARKET_WASM="$WASM_DIR/spield_market.wasm"
 
 echo "==> [2/8] Deploying the wrapper contract (need its address to admin PT/YT)..."
-WRAPPER=$(stellar contract deploy --wasm "$WRAP_WASM" --source-account "$SOURCE" --network "$NETWORK")
+# The admin is bound ATOMICALLY by the contract's __constructor at deploy (passed after `--`), so
+# the deploy→initialize window can't be front-run: only this admin can complete initialize().
+WRAPPER=$(stellar contract deploy --wasm "$WRAP_WASM" --source-account "$SOURCE" --network "$NETWORK" \
+  -- --admin "$ADMIN_ADDR")
 echo "    wrapper = $WRAPPER"
 
 echo "==> [3/8] Creating PT and YT assets + SACs (issued by $ISSUER), handing admin to the wrapper..."
@@ -109,11 +112,12 @@ stellar tx new change-trust --source-account "$SOURCE" --network "$NETWORK" --li
 echo "    trustlines set"
 
 echo "==> [4/8] Deploying + initializing the Blend strategy adapter..."
-STRATEGY=$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" --network "$NETWORK")
+# admin bound atomically by the constructor (after `--`); initialize() then requires that admin.
+STRATEGY=$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" --network "$NETWORK" \
+  -- --admin "$ADMIN_ADDR")
 echo "    strategy = $STRATEGY"
 stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" --network "$NETWORK" \
   -- initialize \
-     --admin "$ADMIN_ADDR" \
      --wrapper "$WRAPPER" \
      --pool "$BLEND_POOL" \
      --underlying "$USDC_SAC" \
@@ -123,7 +127,6 @@ echo "    strategy initialized"
 echo "==> [5/8] Initializing the wrapper..."
 stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" --network "$NETWORK" \
   -- initialize \
-     --admin "$ADMIN_ADDR" \
      --strategy "$STRATEGY" \
      --pt_token "$PT_SAC" \
      --yt_token "$YT_SAC" \
@@ -132,12 +135,12 @@ echo "    wrapper initialized"
 
 echo "==> [6/8] Deploying + initializing the Fixed-Rate Vault..."
 # The vault sits on top of the wrapper: it inherits PT/YT/underlying/maturity from it on init,
-# so we only pass the wrapper address + the fixed-rate config.
-VAULT=$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" --network "$NETWORK")
+# so we only pass the wrapper address + the fixed-rate config. admin bound atomically at deploy.
+VAULT=$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" --network "$NETWORK" \
+  -- --admin "$ADMIN_ADDR")
 echo "    vault = $VAULT"
 stellar contract invoke --id "$VAULT" --source-account "$SOURCE" --network "$NETWORK" \
   -- initialize \
-     --admin "$ADMIN_ADDR" \
      --wrapper "$WRAPPER" \
      --underlying "$USDC_SAC" \
      --rate_bps "$VAULT_RATE_BPS" \
@@ -161,11 +164,12 @@ echo "==> [7/8] Deploying + initializing the Market (PT/USDC time-decay AMM)..."
 # The market trades the wrapper's PT against USDC on the Pendle-style log curve. It's told the PT
 # SAC, USDC SAC and maturity explicitly (they must match the wrapper market it sits on), plus the
 # fee + curve params. Like the vault, it's a contract holder of the PT/USDC SACs (no trustline).
-MARKET=$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" --network "$NETWORK")
+# admin bound atomically by the constructor (after `--`); initialize() then requires that admin.
+MARKET=$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" --network "$NETWORK" \
+  -- --admin "$ADMIN_ADDR")
 echo "    market = $MARKET"
 stellar contract invoke --id "$MARKET" --source-account "$SOURCE" --network "$NETWORK" \
   -- initialize \
-     --admin "$ADMIN_ADDR" \
      --pt "$PT_SAC" \
      --usdc "$USDC_SAC" \
      --maturity "$MATURITY" \
@@ -319,4 +323,18 @@ stellar contract invoke --id $STRATEGY --source-account $SOURCE --network $NETWO
   -- rate_bound                               # (last_rate, last_ts, max_apr_bps)
 stellar contract invoke --id $STRATEGY --source-account $SOURCE --network $NETWORK \\
   -- set_max_apr_bps --max_apr_bps 50000
+
+──────────────────────────────────────────────────────────────────────
+VERIFY THE DEPLOYED CODE (mainnet-readiness):
+# Each contract exposes the LIVE wasm hash so you can confirm what's actually running
+# (and that an apply_upgrade landed). Compare against \`stellar contract install --wasm <f>\` output.
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK -- code_hash
+stellar contract invoke --id $VAULT   --source-account $SOURCE --network $NETWORK -- code_hash
+stellar contract invoke --id $MARKET  --source-account $SOURCE --network $NETWORK -- code_hash
+stellar contract invoke --id $STRATEGY --source-account $SOURCE --network $NETWORK -- code_hash
+
+OFF-CHAIN SOLVENCY MONITOR (the out-of-band watchtower):
+# Polls the wrapper's solvency() and pages if backing < principal. Pure reads, costs nothing.
+node scripts/solvency_monitor.mjs --wrapper $WRAPPER --rpc https://soroban-testnet.stellar.org --interval 60
+#   (one-shot for CI/cron:)   node scripts/solvency_monitor.mjs --wrapper $WRAPPER --once
 EOF

@@ -152,19 +152,20 @@ fn setup(maturity_secs_from_now: u64) -> World {
     pool_client.submit(&whale, &whale, &whale, &reqs);
 
     // Wrapper first (so we can admin PT/YT to it), then strategy, then PT/YT SACs, then init.
-    let wrapper = env.register(Wrapper, ());
-    let strategy = env.register(BlendStrategy, ());
-    BlendStrategyClient::new(&env, &strategy).initialize(&admin, &wrapper, &pool, &usdc, &30_000u32);
+    // Each contract's admin is bound atomically by its constructor (front-run-proof).
+    let wrapper = env.register(Wrapper, (admin.clone(),));
+    let strategy = env.register(BlendStrategy, (admin.clone(),));
+    BlendStrategyClient::new(&env, &strategy).initialize(&wrapper, &pool, &usdc, &30_000u32);
 
     let pt = register_sac(&env, &wrapper);
     let yt = register_sac(&env, &wrapper);
 
     let maturity = env.ledger().timestamp() + maturity_secs_from_now;
-    WrapperClient::new(&env, &wrapper).initialize(&admin, &strategy, &pt, &yt, &maturity);
+    WrapperClient::new(&env, &wrapper).initialize(&strategy, &pt, &yt, &maturity);
 
     // The vault sits on top of the wrapper.
-    let vault = env.register(Vault, ());
-    VaultClient::new(&env, &vault).initialize(&admin, &wrapper, &usdc, &RATE_BPS, &MAX_RATE_BPS);
+    let vault = env.register(Vault, (admin.clone(),));
+    VaultClient::new(&env, &vault).initialize(&wrapper, &usdc, &RATE_BPS, &MAX_RATE_BPS);
 
     World { env, pool, usdc, oracle_id, wrapper, vault, pt, yt, maturity }
 }
@@ -512,8 +513,7 @@ fn bump_receipt_unknown_id_panics() {
 #[should_panic(expected = "Error(Contract, #1)")] // AlreadyInitialized
 fn double_initialize_panics() {
     let w = setup(YEAR);
-    let admin = Address::generate(w.env());
-    w.vault().initialize(&admin, &w.wrapper, &w.usdc, &RATE_BPS, &MAX_RATE_BPS);
+    w.vault().initialize(&w.wrapper, &w.usdc, &RATE_BPS, &MAX_RATE_BPS);
 }
 
 // ===========================================================================

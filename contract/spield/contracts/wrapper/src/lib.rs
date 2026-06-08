@@ -19,6 +19,21 @@
 //! unit. A position's PT/YT amounts always mirror the SAC tokens the owner was minted for that
 //! deposit. Claiming yield, redeeming PT, and combining all operate on a position the caller
 //! owns, and reconcile the SAC balances (burning PT/YT) as they go.
+//!
+//! ## Reentrancy & checks-effects-interactions (mainnet-readiness)
+//! Soroban's host **forbids reentrancy by default**: a contract cannot be re-entered while one of
+//! its own calls is still on the stack, so the classic single-function reentrancy attack is
+//! impossible here. As defence-in-depth we *also* follow checks-effects-interactions in shape: each
+//! mutating entry point **loads the `Position` once, computes every effect in memory, then persists
+//! it exactly once at the end** (`save_position` + the `total_principal`/`open_positions` updates),
+//! after the external Blend/SAC calls. There is no intermediate on-chain write that a callback could
+//! observe in an inconsistent state. The one ordering that *must* follow the external call is
+//! `pos.shares -= burned` in `do_claim`/`redeem_pt`/`combine_and_redeem`: we subtract the **actual**
+//! Blend shares burned (returned by the strategy), which is only known after the withdraw — so the
+//! effect is computed from the interaction's result and then written once. The external counterparties
+//! (the USDC SAC and the Blend pool) are fixed, trusted addresses set at init, not attacker-controlled
+//! tokens, so they cannot re-enter the wrapper even if reentrancy were allowed. `assert_solvent`
+//! runs *after* all writes, against Blend's real position, so any accounting slip fails loudly.
 
 mod events;
 mod storage;
@@ -39,18 +54,44 @@ use spield_shared::{
 #[contract]
 pub struct Wrapper;
 
+/// The underlying (USDC) must have exactly this many decimals. Stellar USDC is 7 on both testnet
+/// (Blend's test token) and mainnet (Circle's SAC). The fixed-point yield math (SCALAR_12 rates,
+/// 7-dec amounts) is calibrated to this; we assert it at init rather than assume (mainnet-readiness).
+const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
+
+/// Fixed slack (stroops) in the solvency dust tolerance for withdraw-side ceil-rounding within a
+/// single transaction. The deepest path (`combine_and_redeem`) does at most 2 Blend withdraws
+/// (the auto-claim + the principal redeem), each removing ≤1 stroop of extra backing; 4 is a
+/// comfortable bound and, crucially, a CONSTANT (it cannot grow with history, so the tolerance
+/// can't be inflated by churn).
+const WITHDRAW_SLACK: i128 = 4;
+
 #[contractimpl]
 impl Wrapper {
-    /// One-shot, admin-gated init (SCF #7).
+    /// **Atomic deploy-time constructor (mainnet-readiness: no deploy→init front-run).** Runs as
+    /// part of contract creation, so it cannot be front-run: it binds the `admin` the moment the
+    /// contract exists. The remaining setup ([`Self::initialize`]) is then admin-gated, so even
+    /// though it's a separate call, only this `admin` can complete it — a front-runner can never
+    /// hijack the wrapper by racing the init.
     ///
-    /// * `admin` — operational admin (pause; cannot move user funds).
+    /// * `admin` — operational admin (pause/upgrade/governance; cannot move user funds).
+    pub fn __constructor(env: Env, admin: Address) {
+        storage::set_admin(&env, &admin);
+        storage::set_paused(&env, false);
+        storage::set_total_principal(&env, 0);
+        governance::init(&env);
+        storage::bump_instance(&env);
+    }
+
+    /// One-shot setup, gated to the constructor-set `admin` (SCF #7 + front-run-proof). Wires the
+    /// strategy + PT/YT SACs + maturity. Must be the legit admin (set atomically at deploy).
+    ///
     /// * `strategy` — the `YieldStrategy` adapter (Blend). Its `underlying()` becomes our USDC.
     /// * `pt_token` / `yt_token` — pre-deployed SACs whose **admin is this wrapper** (so we can
     ///   mint/burn). The deploy script wires these up; the contract asserts it can mint.
     /// * `maturity` — unix seconds; PT redeems 1:1 only at/after this.
     pub fn initialize(
         env: Env,
-        admin: Address,
         strategy: Address,
         pt_token: Address,
         yt_token: Address,
@@ -59,21 +100,32 @@ impl Wrapper {
         if storage::is_initialized(&env) {
             panic_with_error!(&env, Error::AlreadyInitialized);
         }
-        admin.require_auth();
+        // Only the admin bound atomically at deploy may finish setup.
+        storage::get_admin(&env).require_auth();
 
         let underlying = YieldStrategyClient::new(&env, &strategy).underlying();
+        // Assert the underlying's decimals match what the fixed-point math expects (don't assume).
+        let dec = token::Client::new(&env, &underlying).decimals();
+        if dec != EXPECTED_UNDERLYING_DECIMALS {
+            panic_with_error!(&env, Error::UnexpectedDecimals);
+        }
 
         storage::set_initialized(&env);
-        storage::set_admin(&env, &admin);
         storage::set_strategy(&env, &strategy);
         storage::set_underlying(&env, &underlying);
         storage::set_pt(&env, &pt_token);
         storage::set_yt(&env, &yt_token);
         storage::set_maturity(&env, maturity);
-        storage::set_paused(&env, false);
-        storage::set_total_principal(&env, 0);
-        governance::init(&env);
         storage::bump_instance(&env);
+
+        events::initialized(
+            &env,
+            &storage::get_admin(&env),
+            &strategy,
+            &pt_token,
+            &yt_token,
+            maturity,
+        );
     }
 
     /// Deposit `amount` USDC; supply it to the yield source; mint `amount` PT + `amount` YT to
@@ -120,6 +172,7 @@ impl Wrapper {
         };
         storage::save_position(&env, id, &pos);
         storage::set_total_principal(&env, storage::total_principal(&env) + amount);
+        storage::inc_open_positions(&env); // new open position (bounds the dust tolerance)
         storage::bump_instance(&env);
 
         events::minted(&env, &user, id, amount, entry_rate);
@@ -201,7 +254,9 @@ impl Wrapper {
         if pos.shares < 0 {
             pos.shares = 0;
         }
-        Self::close_if_empty(&mut pos);
+        if Self::close_if_empty(&mut pos) {
+            storage::dec_open_positions(&env);
+        }
         storage::save_position(&env, position_id, &pos);
         storage::set_total_principal(&env, storage::total_principal(&env) - amount);
         storage::bump_withdraw_ops(&env);
@@ -241,7 +296,9 @@ impl Wrapper {
         if pos.shares < 0 {
             pos.shares = 0;
         }
-        Self::close_if_empty(&mut pos);
+        if Self::close_if_empty(&mut pos) {
+            storage::dec_open_positions(&env);
+        }
         storage::save_position(&env, position_id, &pos);
         storage::set_total_principal(&env, storage::total_principal(&env) - amount);
         storage::bump_withdraw_ops(&env);
@@ -378,8 +435,17 @@ impl Wrapper {
         events::paused(&env, false);
     }
 
+    /// Human-readable semver of the source build (informational; an upgrade can't rewrite this, so
+    /// for *verifiable* on-chain identity use [`Self::code_hash`]).
     pub fn version(env: Env) -> String {
         String::from_str(&env, "spield-wrapper-0.1.0")
+    }
+
+    /// The live deployed WASM hash (32-byte SHA-256) of the code actually running — read from the
+    /// host, so it always reflects the current build even across upgrades. Lets anyone verify on
+    /// chain which build is live and confirm an upgrade landed.
+    pub fn code_hash(env: Env) -> BytesN<32> {
+        governance::code_hash(&env)
     }
 
     // ---------- governance: admin rotation (two-step) + upgrade timelock ----------
@@ -473,10 +539,14 @@ impl Wrapper {
         storage::get_position(env, id).unwrap_or_else(|e| panic_with_error!(env, e))
     }
 
-    fn close_if_empty(pos: &mut Position) {
-        if pos.pt_amount == 0 && pos.yt_amount == 0 {
+    /// Close the position if it's fully drained. Returns `true` if this call transitioned it from
+    /// open→closed (so the caller decrements the open-position count exactly once).
+    fn close_if_empty(pos: &mut Position) -> bool {
+        if pos.open && pos.pt_amount == 0 && pos.yt_amount == 0 {
             pos.open = false;
+            return true;
         }
+        false
     }
 
     fn pt_admin(env: &Env) -> token::StellarAssetClient<'_> {
@@ -515,20 +585,27 @@ impl Wrapper {
     /// holds after every correct operation. We assert it so any accounting bug fails loudly.
     ///
     /// The only legitimate gaps are bounded floor/ceil rounding from Blend's own share math:
-    ///  * **at mint** — Blend credits `floor(amount/rate)` shares, so each position's initial
-    ///    backing can sit up to ~1 stroop under its principal (bounded by #positions);
+    ///  * **at mint** — Blend credits `floor(amount/rate)` shares, so each *currently-open* position
+    ///    can sit up to ~1 stroop under its principal (bounded by `open_positions`);
     ///  * **at withdraw** — Blend burns `ceil(amount/rate)` shares, removing up to ~1 stroop of
-    ///    backing beyond the amount paid (bounded by #withdrawing operations).
-    /// We allow exactly that many stroops of tolerance. This is sound (it tracks the maximum
-    /// possible rounding dust, which is microscopic) and far below any real shortfall: a genuine
-    /// accounting bug — e.g. minting unbacked PT/YT — moves backing by whole units, tripping this.
+    ///    backing beyond the amount paid. A single transaction performs only a small, fixed number
+    ///    of withdraws (one per claim/redeem/combine in the call), so this is a small CONSTANT, not
+    ///    something that grows with history.
+    ///
+    /// **Bounded by construction (mainnet-readiness).** The tolerance is
+    /// `open_positions + WITHDRAW_SLACK` — it tracks only the dust that can exist in *live* positions
+    /// right now. The earlier form used the monotonic `next_position_id + withdraw_ops`, which grow
+    /// forever with churn and could be inflated by an attacker doing many tiny mint/withdraw cycles
+    /// to widen the band. Closed positions carry zero dust (their principal is gone too), so anchoring
+    /// to `open_positions` is both tighter and ungameable. A real accounting bug — e.g. minting
+    /// unbacked PT/YT — moves backing by whole units, far past this microscopic band.
     fn assert_solvent(env: &Env) {
         let strategy = YieldStrategyClient::new(env, &storage::get_strategy(env));
         let total_shares = strategy.total_shares();
         let backing = strategy.position_value(&total_shares);
         let principal = storage::total_principal(env);
         let dust_tolerance =
-            storage::peek_next_position_id(env) as i128 + storage::withdraw_ops(env) as i128 + 2;
+            storage::open_positions(env) as i128 + WITHDRAW_SLACK;
         if backing + dust_tolerance < principal {
             panic_with_error!(env, Error::SolvencyViolation);
         }

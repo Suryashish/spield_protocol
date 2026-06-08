@@ -160,10 +160,9 @@ fn setup_blend() -> BlendEnv {
 /// Deploy + initialize our strategy adapter against a Blend env, owned by `wrapper`.
 fn deploy_strategy<'a>(b: &'a BlendEnv, wrapper: &Address) -> BlendStrategyClient<'a> {
     let admin = Address::generate(&b.env);
-    let strategy_id = b.env.register(BlendStrategy, ());
+    let strategy_id = b.env.register(BlendStrategy, (admin.clone(),)); // constructor binds admin
     let client = BlendStrategyClient::new(&b.env, &strategy_id);
     client.initialize(
-        &admin,
         wrapper,
         &b.pool,
         &b.usdc,
@@ -301,9 +300,9 @@ fn deploy_strategy_with_bound<'a>(
     admin: &Address,
     max_apr_bps: u32,
 ) -> BlendStrategyClient<'a> {
-    let strategy_id = b.env.register(BlendStrategy, ());
+    let strategy_id = b.env.register(BlendStrategy, (admin.clone(),)); // constructor binds admin
     let client = BlendStrategyClient::new(&b.env, &strategy_id);
-    client.initialize(admin, wrapper, &b.pool, &b.usdc, &max_apr_bps);
+    client.initialize(wrapper, &b.pool, &b.usdc, &max_apr_bps);
     client
 }
 

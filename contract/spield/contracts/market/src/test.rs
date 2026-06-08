@@ -164,21 +164,22 @@ fn setup(maturity_secs_from_now: u64) -> World {
     pool_client.submit(&whale, &whale, &whale, &reqs);
 
     // Wrapper first (so we can admin PT/YT to it), then strategy, then PT/YT SACs, then init.
-    let wrapper = env.register(Wrapper, ());
-    let strategy = env.register(BlendStrategy, ());
-    BlendStrategyClient::new(&env, &strategy).initialize(&admin, &wrapper, &pool, &usdc, &30_000u32);
+    // Each contract's admin is bound atomically by its constructor (front-run-proof).
+    let wrapper = env.register(Wrapper, (admin.clone(),));
+    let strategy = env.register(BlendStrategy, (admin.clone(),));
+    BlendStrategyClient::new(&env, &strategy).initialize(&wrapper, &pool, &usdc, &30_000u32);
 
     let pt = register_sac(&env, &wrapper);
     let yt = register_sac(&env, &wrapper);
 
     let maturity = env.ledger().timestamp() + maturity_secs_from_now;
-    WrapperClient::new(&env, &wrapper).initialize(&admin, &strategy, &pt, &yt, &maturity);
+    WrapperClient::new(&env, &wrapper).initialize(&strategy, &pt, &yt, &maturity);
 
     // The market trades PT against USDC. It's told the SACs + maturity explicitly (the deploy
     // script reads them from the wrapper), exactly like the vault is told `underlying`.
-    let market = env.register(Market, ());
+    let market = env.register(Market, (admin.clone(),));
     MarketClient::new(&env, &market).initialize(
-        &admin, &pt, &usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+        &pt, &usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
     );
 
     World { env, pool, usdc, oracle_id, wrapper, market, pt, maturity }
@@ -214,9 +215,8 @@ fn init_sets_market_params() {
 #[should_panic(expected = "Error(Contract, #1)")] // AlreadyInitialized
 fn double_initialize_panics() {
     let w = setup(YEAR);
-    let admin = Address::generate(w.env());
     w.market().initialize(
-        &admin, &w.pt, &w.usdc, &w.maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+        &w.pt, &w.usdc, &w.maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
     );
 }
 
@@ -819,4 +819,71 @@ fn market_upgrade_timelock_schedule_and_default() {
         w.market().try_apply_upgrade(),
         Err(Ok(spield_shared::Error::TimelockNotElapsed.into()))
     );
+}
+
+// ===========================================================================
+// Mainnet-readiness: init asserts the USDC token has 7 decimals (no assumption),
+// and code_hash() returns the live deployed wasm hash.
+// ===========================================================================
+
+mod mock6 {
+    use soroban_sdk::{contract, contractimpl, Address, Env, String};
+    /// A minimal token stub whose only meaningful method is `decimals()` = 6, used to prove the
+    /// market refuses a non-7-decimal settlement asset at init.
+    #[contract]
+    pub struct Token6;
+    #[contractimpl]
+    impl Token6 {
+        pub fn decimals(_env: Env) -> u32 {
+            6
+        }
+        pub fn name(env: Env) -> String {
+            String::from_str(&env, "M6")
+        }
+        pub fn symbol(env: Env) -> String {
+            String::from_str(&env, "M6")
+        }
+        pub fn balance(_env: Env, _id: Address) -> i128 {
+            0
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")] // UnexpectedDecimals
+fn init_rejects_non_seven_decimal_usdc() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_700_000_000);
+    let admin = Address::generate(&env);
+    let pt = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let bad_usdc = env.register(mock6::Token6, ());
+    let market = env.register(Market, (admin.clone(),));
+    let maturity = env.ledger().timestamp() + YEAR;
+    // 6-decimal usdc must be rejected at init.
+    MarketClient::new(&env, &market).initialize(
+        &pt,
+        &bad_usdc,
+        &maturity,
+        &FEE_BPS,
+        &MAX_FEE_BPS,
+        &SCALAR_ROOT,
+        &RATE_ANCHOR,
+    );
+}
+
+#[test]
+fn code_hash_returns_live_wasm_hash() {
+    let w = setup(YEAR);
+    let h = w.market().code_hash();
+    // 32-byte hash, not all-zero.
+    assert_eq!(h.len(), 32);
+    let mut nonzero = false;
+    for b in h.iter() {
+        if b != 0 {
+            nonzero = true;
+            break;
+        }
+    }
+    assert!(nonzero, "code_hash must be a real, non-zero wasm hash");
 }

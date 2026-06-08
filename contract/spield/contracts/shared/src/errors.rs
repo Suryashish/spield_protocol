@@ -29,6 +29,9 @@ pub enum Error {
     TimelockNotElapsed = 9,
     /// `set_timelock` value outside the allowed `[MIN_TIMELOCK_SECS, MAX_TIMELOCK_SECS]` range.
     TimelockOutOfBounds = 10,
+    /// The underlying token's `decimals()` is not the value the fixed-point math is calibrated for
+    /// (7 on Stellar USDC). Asserted at init rather than assumed.
+    UnexpectedDecimals = 11,
 
     // --- Wrapper accounting (20–39) ---
     /// The referenced position id does not exist.

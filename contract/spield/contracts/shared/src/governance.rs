@@ -301,3 +301,19 @@ pub fn pending_upgrade(env: &Env) -> Option<PendingUpgrade> {
 fn bump(env: &Env) {
     env.storage().instance().extend_ttl(BUMP_LO, BUMP_HI);
 }
+
+// ----------------------------------------------------------------------------
+// On-chain code-hash (verifiable versioning)
+// ----------------------------------------------------------------------------
+
+/// The **live deployed WASM hash** of the calling contract — the 32-byte SHA-256 of the code that is
+/// actually running right now. Unlike a hardcoded `version()` string (which an upgrade can't update),
+/// this is read straight from the host via `Address::executable()`, so anyone can verify on-chain
+/// exactly which build is live and confirm an `apply_upgrade` actually swapped the code. Panics only
+/// if the address is somehow not a Wasm contract (impossible from inside a running Wasm contract).
+pub fn code_hash(env: &Env) -> BytesN<32> {
+    match env.current_contract_address().executable() {
+        Some(soroban_sdk::Executable::Wasm(hash)) => hash,
+        _ => panic_with_error!(env, Error::NotInitialized),
+    }
+}

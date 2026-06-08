@@ -52,6 +52,39 @@ pub struct PausedEvent {
     pub paused: bool,
 }
 
+/// Emitted once when `initialize` wires the vault to its wrapper market.
+#[contractevent]
+#[derive(Clone)]
+pub struct Initialized {
+    #[topic]
+    pub admin: Address,
+    pub wrapper: Address,
+    pub underlying: Address,
+    pub rate_bps: u32,
+    pub max_rate_bps: u32,
+    pub maturity: u64,
+}
+
+pub fn initialized(
+    env: &Env,
+    admin: &Address,
+    wrapper: &Address,
+    underlying: &Address,
+    rate_bps: u32,
+    max_rate_bps: u32,
+    maturity: u64,
+) {
+    Initialized {
+        admin: admin.clone(),
+        wrapper: wrapper.clone(),
+        underlying: underlying.clone(),
+        rate_bps,
+        max_rate_bps,
+        maturity,
+    }
+    .publish(env);
+}
+
 pub fn deposited(env: &Env, user: &Address, id: u64, principal: i128, payout: i128, rate_bps: u32) {
     Deposit {
         user: user.clone(),

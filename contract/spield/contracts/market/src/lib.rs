@@ -40,6 +40,9 @@ use soroban_sdk::{
 };
 use spield_shared::{governance, math, Error};
 
+/// The USDC reserve token must have exactly 7 decimals (Stellar USDC, testnet + mainnet).
+const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
+
 /// Integer square root (Newton) for the first LP's share seeding (`sqrt(pt*usdc)`), mirroring
 /// Uniswap-V2's initial-mint. Operates on the host i128; inputs are non-negative.
 fn isqrt(n: i128) -> i128 {
@@ -76,7 +79,6 @@ impl Market {
     ///   target opening PT price so the pool opens at ~the vault's fixed rate. Must be > 0.
     pub fn initialize(
         env: Env,
-        admin: Address,
         pt: Address,
         usdc: Address,
         maturity: u64,
@@ -88,15 +90,19 @@ impl Market {
         if storage::is_initialized(&env) {
             panic_with_error!(&env, Error::AlreadyInitialized);
         }
-        admin.require_auth();
+        // Only the admin bound atomically at deploy (constructor) may finish setup — front-run-proof.
+        storage::get_admin(&env).require_auth();
         if fee_bps > max_fee_bps {
             panic_with_error!(&env, Error::FeeNotAllowed);
         }
         if scalar_root <= 0 || rate_anchor <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
+        // The USDC reserve token must have the decimals the curve math expects (don't assume).
+        if token::Client::new(&env, &usdc).decimals() != EXPECTED_UNDERLYING_DECIMALS {
+            panic_with_error!(&env, Error::UnexpectedDecimals);
+        }
         storage::set_initialized(&env);
-        storage::set_admin(&env, &admin);
         storage::set_pt(&env, &pt);
         storage::set_underlying(&env, &usdc);
         storage::set_maturity(&env, maturity);
@@ -104,10 +110,28 @@ impl Market {
         storage::set_max_fee_bps(&env, max_fee_bps);
         storage::set_scalar_root(&env, scalar_root);
         storage::set_rate_anchor(&env, rate_anchor);
-        storage::set_paused(&env, false);
         storage::set_pt_reserve(&env, 0);
         storage::set_usdc_reserve(&env, 0);
         storage::set_total_shares(&env, 0);
+        storage::bump_instance(&env);
+
+        events::initialized(
+            &env,
+            &storage::get_admin(&env),
+            &pt,
+            &usdc,
+            maturity,
+            fee_bps,
+            scalar_root,
+            rate_anchor,
+        );
+    }
+
+    /// **Atomic deploy-time constructor (no deploy→init front-run).** Binds `admin` the moment the
+    /// market exists; the remaining [`Self::initialize`] is then gated to this admin.
+    pub fn __constructor(env: Env, admin: Address) {
+        storage::set_admin(&env, &admin);
+        storage::set_paused(&env, false);
         governance::init(&env);
         storage::bump_instance(&env);
     }
@@ -424,8 +448,16 @@ impl Market {
         (storage::get_scalar_root(&env), storage::get_rate_anchor(&env))
     }
 
+    /// Human-readable semver of the source build (informational; for verifiable identity use
+    /// [`Self::code_hash`]).
     pub fn version(env: Env) -> String {
         String::from_str(&env, "spield-market-0.1.0-stageC-curve")
+    }
+
+    /// The live deployed WASM hash (32-byte SHA-256) of the running code — reflects the current
+    /// build even across upgrades.
+    pub fn code_hash(env: Env) -> BytesN<32> {
+        governance::code_hash(&env)
     }
 
     // ---------- admin / circuit breaker ----------

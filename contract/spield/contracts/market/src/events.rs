@@ -47,6 +47,42 @@ pub struct PausedEvent {
     pub paused: bool,
 }
 
+/// Emitted once when `initialize` configures the market (curve params + maturity).
+#[contractevent]
+#[derive(Clone)]
+pub struct Initialized {
+    #[topic]
+    pub admin: Address,
+    pub pt: Address,
+    pub usdc: Address,
+    pub maturity: u64,
+    pub fee_bps: u32,
+    pub scalar_root: i128,
+    pub rate_anchor: i128,
+}
+
+pub fn initialized(
+    env: &Env,
+    admin: &Address,
+    pt: &Address,
+    usdc: &Address,
+    maturity: u64,
+    fee_bps: u32,
+    scalar_root: i128,
+    rate_anchor: i128,
+) {
+    Initialized {
+        admin: admin.clone(),
+        pt: pt.clone(),
+        usdc: usdc.clone(),
+        maturity,
+        fee_bps,
+        scalar_root,
+        rate_anchor,
+    }
+    .publish(env);
+}
+
 pub fn added(env: &Env, lp: &Address, pt_in: i128, usdc_in: i128, shares_minted: i128) {
     AddLiquidity {
         lp: lp.clone(),

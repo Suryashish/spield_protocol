@@ -61,6 +61,9 @@ enum DataKey {
 const INSTANCE_BUMP_LO: u32 = 30 * 24 * 60 * 60 / 5; // ~30 days in ledgers (5s close)
 const INSTANCE_BUMP_HI: u32 = 60 * 24 * 60 * 60 / 5; // ~60 days
 
+/// The supplied asset (USDC) must have exactly 7 decimals (Stellar USDC, testnet + mainnet).
+const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
+
 #[contract]
 pub struct BlendStrategy;
 
@@ -77,7 +80,6 @@ impl BlendStrategy {
     ///   (e.g. `30_000` = 300%) so honest reads always pass while a wild read is still caught.
     pub fn initialize(
         env: Env,
-        admin: Address,
         wrapper: Address,
         pool: Address,
         underlying: Address,
@@ -87,7 +89,13 @@ impl BlendStrategy {
         if storage.has(&DataKey::Initialized) {
             panic_with_error!(&env, Error::AlreadyInitialized);
         }
-        admin.require_auth();
+        // Only the admin bound atomically at deploy (constructor) may finish setup — front-run-proof.
+        Self::current_admin(&env).require_auth();
+
+        // The supplied asset must have the decimals the share/rate math expects (don't assume).
+        if token::Client::new(&env, &underlying).decimals() != EXPECTED_UNDERLYING_DECIMALS {
+            panic_with_error!(&env, Error::UnexpectedDecimals);
+        }
 
         // Discover & cache the reserve index for `underlying` from the live pool.
         let pool_client = PoolClient::new(&env, &pool);
@@ -95,7 +103,6 @@ impl BlendStrategy {
         let reserve_index = reserve.config.index;
 
         storage.set(&DataKey::Initialized, &true);
-        storage.set(&DataKey::Admin, &admin);
         storage.set(&DataKey::Wrapper, &wrapper);
         storage.set(&DataKey::Pool, &pool);
         storage.set(&DataKey::Underlying, &underlying);
@@ -108,8 +115,17 @@ impl BlendStrategy {
                 max_apr_bps,
             },
         );
-        governance::init(&env);
         storage.extend_ttl(INSTANCE_BUMP_LO, INSTANCE_BUMP_HI);
+    }
+
+    /// **Atomic deploy-time constructor (no deploy→init front-run).** Binds `admin` the moment the
+    /// strategy exists; the remaining [`Self::initialize`] is then gated to this admin.
+    pub fn __constructor(env: Env, admin: Address) {
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        governance::init(&env);
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_LO, INSTANCE_BUMP_HI);
     }
 
     /// Pull `amount` USDC from `from` (the wrapper) and supply it to Blend. Returns shares minted.
@@ -330,8 +346,16 @@ impl BlendStrategy {
         Self::current_admin(&env)
     }
 
+    /// Human-readable semver of the source build (informational; for verifiable identity use
+    /// [`Self::code_hash`]).
     pub fn version(env: Env) -> String {
         String::from_str(&env, "spield-strategy-0.1.0")
+    }
+
+    /// The live deployed WASM hash (32-byte SHA-256) of the running code — reflects the current
+    /// build even across upgrades.
+    pub fn code_hash(env: Env) -> BytesN<32> {
+        governance::code_hash(&env)
     }
 
     // ---- internals ----

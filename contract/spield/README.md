@@ -175,3 +175,35 @@ swap solver are the riskiest components, so they get the deepest validation:
   halt, no pause gate), so an LP exits in full under **every** combination of matured + paused.
   Conservation holds: summed LP withdrawals equal the reserves (down to flooring dust) and all shares
   burn. Proven by `lp_exit_works_even_when_matured_and_paused`, `full_lp_exit_conserves_reserves`.
+
+## Production-readiness & security hardening
+
+- **Verifiable versioning.** Alongside the human `version()` string, every contract exposes
+  `code_hash() -> BytesN<32>` — the **live deployed WASM hash** read from the host
+  (`Address::executable()`), so anyone can confirm on-chain exactly which build is running and that an
+  `apply_upgrade` actually swapped the code.
+- **Atomic deploy (no init front-run).** Each contract has a `__constructor(admin)` that binds the
+  admin the instant the contract is created. The remaining `initialize(...)` is gated to that admin,
+  so even though setup is a second call, a front-runner can never hijack a freshly-deployed contract.
+- **Decimals asserted, not assumed.** Init reads the underlying token's `decimals()` and rejects
+  anything other than 7 (`UnexpectedDecimals`) — the fixed-point math is calibrated to 7-dec USDC.
+- **Bounded, ungameable solvency tolerance.** The dust band is now `open_positions + 4` (a small
+  constant), not the old monotonic `next_position_id + withdraw_ops`. It tracks only the rounding dust
+  that can exist in *live* positions, so it can't be inflated by an attacker churning tiny
+  mint/withdraw cycles. Proven by `dust_tolerance_does_not_grow_with_churn`.
+- **Checks-effects-interactions.** Soroban forbids reentrancy by default; on top of that every mutating
+  path loads the position once, computes effects in memory, and persists exactly once after the
+  external Blend/SAC calls, with `assert_solvent` re-checking against Blend's real position last. The
+  counterparty tokens (USDC SAC, Blend pool) are fixed trusted addresses. Documented in the wrapper
+  module doc.
+- **Complete events.** Every economic state change emits a `#[contractevent]` (mint/claim/redeem/
+  combine/transfer, deposit/redeem/harvest/seed, add/remove/swap, fee/rate/pause, all governance ops),
+  plus an `Initialized` event per contract — enough for a dashboard/indexer to reconstruct full state.
+- **Off-chain solvency monitor.** `scripts/solvency_monitor.mjs` polls the wrapper's `solvency()` and
+  pages (exit 2 / optional webhook) if backing ever falls below principal — an out-of-band watchtower
+  independent of the on-chain `assert_solvent`.
+- **Blend dependency, stated.** Spield inherits Blend's availability: if the Blend pool freezes
+  withdrawals, payouts wait on it. The solvency view stays readable through a frozen pool (proven by
+  `solvency_view_survives_blend_pool_frozen`); it does not paper over Blend being down.
+- **Mainnet-scale fuzz.** The share/yield/coupon math is fuzzed at up to ~1e17 base units across wide
+  rate ranges (`*_no_overflow_at_mainnet_scale_fuzz`) — the i256 intermediates never overflow i128.
