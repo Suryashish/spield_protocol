@@ -22,6 +22,7 @@ import TradePanel from '@/components/dashboard/sections/TradePanel';
 import LpPanel from '@/components/dashboard/sections/LpPanel';
 import LpStatsStrip from '@/components/dashboard/sections/LpStatsStrip';
 import LpPositionPanel from '@/components/dashboard/sections/LpPositionPanel';
+import BridgeSection from '@/components/dashboard/sections/BridgeSection';
 import { navById } from '@/components/dashboard/data';
 
 import { useWallet } from '@/context/WalletContext';
@@ -216,6 +217,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   deposit: DepositSection,
   markets: MarketsSection,
   liquidity: LiquiditySection,
+  bridge: BridgeSection,
   solvency: SolvencySection,
   activity: ActivitySection,
 };

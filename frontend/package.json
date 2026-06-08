@@ -10,14 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@allbridge/bridge-core-sdk": "^3.31.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@lobstrco/signer-extension-api": "^2.0.0",
     "@lottiefiles/dotlottie-react": "^0.19.4",
+    "@solana/web3.js": "^1.98.4",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^15.1.0",
     "@tailwindcss/vite": "^4.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "ethers": "^6.16.0",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.17.0",
     "ogl": "^1.0.11",

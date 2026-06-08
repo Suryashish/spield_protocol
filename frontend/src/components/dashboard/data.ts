@@ -6,6 +6,7 @@ import {
   History,
   TrendingUp,
   Droplets,
+  ArrowRightLeft,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -64,6 +65,13 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'liquidity',
     title: 'Liquidity',
     subtitle: 'Provide PT + USDC to the time-decay pool and earn the swap fee.',
+  },
+  {
+    icon: ArrowRightLeft,
+    label: 'Bridge',
+    id: 'bridge',
+    title: 'Bridge Assets',
+    subtitle: 'Cross-chain swap assets to and from Stellar via Allbridge Core.',
   },
   {
     icon: ShieldCheck,
