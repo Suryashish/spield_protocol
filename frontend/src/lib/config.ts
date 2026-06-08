@@ -181,17 +181,22 @@ export const BRIDGE_ENABLED = NETWORK_KEY === 'mainnet';
 export const REOWN_PROJECT_ID = env('VITE_REOWN_PROJECT_ID', '');
 
 /**
- * RPC endpoints the Allbridge SDK uses to read/build txs on each non-Stellar chain
- * it can bridge from. EVM chains work without a custom RPC (the SDK falls back to
- * the injected wallet provider), but Solana REQUIRES one. All overridable via env.
+ * RPC endpoints the Allbridge SDK uses to read balances and build/simulate txs on
+ * each non-Stellar chain it can bridge from.
+ *
+ * IMPORTANT: the SDK's bundled `nodeRpcUrlsDefault` ships RPCs for SOL/TRX/etc. but
+ * NOT for any EVM chain — so an EVM-source transfer fails with "Node RPC URL not
+ * initialized" unless we supply one. We therefore ship public defaults for the EVM
+ * chains we support. These public endpoints can rate-limit; for production set your
+ * own (Infura/Alchemy/QuickNode…) via the `VITE_BRIDGE_RPC_*` env vars.
  */
 export const BRIDGE_RPC = {
   SOL: env('VITE_BRIDGE_RPC_SOL', 'https://api.mainnet-beta.solana.com'),
-  ETH: env('VITE_BRIDGE_RPC_ETH', ''),
-  BSC: env('VITE_BRIDGE_RPC_BSC', ''),
-  POL: env('VITE_BRIDGE_RPC_POL', ''),
-  ARB: env('VITE_BRIDGE_RPC_ARB', ''),
-  TRX: env('VITE_BRIDGE_RPC_TRX', ''),
+  ETH: env('VITE_BRIDGE_RPC_ETH', 'https://eth.llamarpc.com'),
+  BSC: env('VITE_BRIDGE_RPC_BSC', 'https://binance.llamarpc.com'),
+  POL: env('VITE_BRIDGE_RPC_POL', 'https://polygon.llamarpc.com'),
+  ARB: env('VITE_BRIDGE_RPC_ARB', 'https://arbitrum.llamarpc.com'),
+  TRX: env('VITE_BRIDGE_RPC_TRX', 'https://api.trongrid.io'),
 } as const;
 
 /** Token display metadata, keyed by contract address. */

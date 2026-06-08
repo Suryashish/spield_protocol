@@ -34,9 +34,10 @@ import { signWithWallet } from './stellar';
  */
 
 /**
- * Build the SDK with any custom RPCs the user configured. The SDK only *requires*
- * an RPC for Solana; EVM chains fall back to the injected wallet provider, so we
- * only pass the EVM entries that are actually set.
+ * Build the SDK with our RPCs merged over the SDK's bundled defaults. The defaults
+ * cover SOL/TRX/Stellar but NOT EVM chains, so we MUST supply EVM RPCs here or any
+ * EVM-source operation throws "Node RPC URL not initialized" (see `BRIDGE_RPC` in
+ * config for the public defaults + how to override them).
  */
 const rpcUrls: Record<string, string> = { ...nodeRpcUrlsDefault };
 if (BRIDGE_RPC.SOL) rpcUrls.SOL = BRIDGE_RPC.SOL;
