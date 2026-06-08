@@ -17,8 +17,8 @@ import { signWithWallet } from './stellar';
  * Horizon, not the Soroban RPC.
  */
 
-const HORIZON_URL = 'https://horizon-testnet.stellar.org';
-export const horizon = new Horizon.Server(HORIZON_URL);
+// Horizon endpoint for the active network (testnet vs mainnet), from config.
+export const horizon = new Horizon.Server(NETWORK.horizonUrl);
 
 export type TrustlineStatus = {
   /** True if the account trusts SPLDPT. */

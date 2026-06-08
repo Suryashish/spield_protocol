@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# `*.local` covers .env.local / .env.*.local (personal env overrides).
+# The tracked .env / .env.production hold only PUBLIC on-chain addresses + the
+# network selector, so they are intentionally committed (not secrets).
 *.local
 
 # Editor directories and files

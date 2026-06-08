@@ -1,53 +1,137 @@
 import { Networks } from '@stellar/stellar-sdk';
 
 /**
- * Spield v2 — on-chain configuration.
+ * Spield v2 — on-chain configuration (env-driven, multi-network).
  *
- * These are the LIVE testnet deployments verified on 2026-06-05 against the real
- * Blend TestnetV2 pool (see `contract/spield/TESTNET.md`). The frontend reads
- * position/solvency state from the wrapper and submits mint/claim/redeem via
- * Freighter. Everything is testnet — no mainnet money is at risk.
+ * The active network is chosen by the `VITE_NETWORK` build-time env var
+ * (`testnet` | `mainnet`, default `testnet`). For each network we ship the known
+ * deployed addresses as defaults, and every value can be overridden via `VITE_*`
+ * env vars (see `.env.example`) — so the same build supports both testnet (staging)
+ * and mainnet (production) just by changing the env.
+ *
+ * Everything below keeps the SAME export names/shapes the rest of the app already
+ * imports (`NETWORK`, `CONTRACTS`, `ASSETS`, `DECIMALS`, `VAULT_DEPLOYED`,
+ * `MARKET_DEPLOYED`, `explorerTx`, …) — only how the values are sourced changed.
  */
 
-export const NETWORK = {
-  /** Human-readable network name (matches what Freighter reports). */
-  name: 'TESTNET',
+/** Supported networks. The string also drives explorer paths + wallet checks. */
+export type NetworkKey = 'testnet' | 'mainnet';
+
+type NetworkMeta = {
+  /** Key used internally + for env selection. */
+  key: NetworkKey;
+  /**
+   * Network name as the WALLET reports it (Freighter et al. return `PUBLIC` /
+   * `TESTNET`). `WalletContext.onCorrectNetwork` compares against this exactly, so
+   * it MUST match the wallet's value — mainnet is `PUBLIC`, not `MAINNET`.
+   */
+  name: 'PUBLIC' | 'TESTNET';
   /** Passphrase the wallet must be on to sign our transactions. */
-  passphrase: Networks.TESTNET,
+  passphrase: string;
   /** Soroban RPC endpoint used to simulate reads and submit writes. */
-  rpcUrl: 'https://soroban-testnet.stellar.org',
-  /** Block explorer for linking out to transactions / contracts. */
-  explorer: 'https://stellar.expert/explorer/testnet',
+  rpcUrl: string;
+  /** Horizon endpoint used for classic ops (trustlines). */
+  horizonUrl: string;
+  /** Block explorer base for linking out to txs / contracts. */
+  explorer: string;
+};
+
+type ContractSet = {
+  wrapper: string;
+  strategy: string;
+  vault: string;
+  market: string;
+  pt: string;
+  yt: string;
+  usdc: string;
+};
+
+type NetworkProfile = NetworkMeta & {
+  contracts: ContractSet;
+  /** PT/YT classic-asset issuer (G-address) for this network's trustlines. */
+  ptYtIssuer: string;
+};
+
+/** Read a `VITE_*` env var, falling back to a default when unset/empty. */
+const env = (key: string, fallback: string): string => {
+  const v = import.meta.env[key as keyof ImportMetaEnv] as string | undefined;
+  return v && v.length > 0 ? v : fallback;
+};
+
+/** Per-network defaults (the verified live deployments). Overridable via env. */
+const PROFILES: Record<NetworkKey, NetworkProfile> = {
+  testnet: {
+    key: 'testnet',
+    name: 'TESTNET',
+    passphrase: Networks.TESTNET,
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+    explorer: 'https://stellar.expert/explorer/testnet',
+    ptYtIssuer: 'GAG6EBUM6ERD5OIAJA53GEFRGS6UYUXHQBTPFTJDAY732Z5ERRRFNU24',
+    // Live testnet deployment (verified 2026-06-05/06 vs the real Blend TestnetV2 pool).
+    contracts: {
+      wrapper: 'CB32IGGJ4PKLUBMXJD2VSS3U55XX2U4AQCSKA6QPFGGWZDQBJXMIYZU5',
+      strategy: 'CBYFCJVZFGX7BIUQMWQ4WXOYC6HZYF7RLC3ZENY5GG6TL37QY5K5KMNA',
+      vault: 'CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZPSFZFK',
+      market: 'CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2',
+      pt: 'CAIC4Z6SUN4QGLIQ3CFS4447GMTBV3WJHWZLIDDAZFMUYWZXOIBPV4G2',
+      yt: 'CDMEEJDXMKR7OH2JLX5OPXLRAGB3UBVEEH6NPTZOBYUPAINNH665V2H3',
+      usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
+    },
+  },
+  mainnet: {
+    key: 'mainnet',
+    name: 'PUBLIC',
+    passphrase: Networks.PUBLIC,
+    rpcUrl: 'https://mainnet.sorobanrpc.com',
+    horizonUrl: 'https://horizon.stellar.org',
+    explorer: 'https://stellar.expert/explorer/public',
+    ptYtIssuer: 'GA4R5M7ZWOQZWIYCW246YC5WJ4QHT3H74CAUSTCEUUWIELCWI7IP3MKB',
+    // Live MAINNET deployment (2026-06-08 vs the real Blend FixedV2 pool + Circle USDC).
+    // See contract/spield/MAINNETCONTRACTADDRESSES.md.
+    contracts: {
+      wrapper: 'CDLQY72EFRTNGNXT4PSINHGA4ET5CW3I6FHUSYUOL2HIWV6I55WW46WW',
+      strategy: 'CCTRXF5U2P2IMANRH5B54UJGV53APU4IID2QTINFQBZZWOPB765QZVW4',
+      vault: 'CDWNGJDYZ7VUYRG73WOU6PR6HCYPHO77UICJO642OWSP7LQGRRYPFLX6',
+      market: 'CBTO72XLCM2HV2MW64GMGWQB57NQFDXO3BZJTW3Y5ENTXBAJQ7Z7G5FV',
+      pt: 'CDDYIUGAZBSJNYAR2WYPRNHEGOFS25GPY22W7SHHQHIMTMKX5WQ25IXD',
+      yt: 'CDGQLIJVMKRFTYUXOMQAG4YFUN22OKXMOT2K4JA33KDM6P2FCBZTV6CU',
+      usdc: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+    },
+  },
+};
+
+/** Which network this build targets — `VITE_NETWORK`, defaulting to testnet. */
+export const NETWORK_KEY: NetworkKey =
+  env('VITE_NETWORK', 'testnet').toLowerCase() === 'mainnet' ? 'mainnet' : 'testnet';
+
+const profile = PROFILES[NETWORK_KEY];
+
+/** Active network metadata (passphrase, RPC, Horizon, explorer, wallet name). */
+export const NETWORK = {
+  name: profile.name,
+  passphrase: env('VITE_NETWORK_PASSPHRASE', profile.passphrase),
+  rpcUrl: env('VITE_RPC_URL', profile.rpcUrl),
+  horizonUrl: env('VITE_HORIZON_URL', profile.horizonUrl),
+  explorer: env('VITE_EXPLORER_URL', profile.explorer),
 } as const;
 
-/** Deployed Spield contract + asset addresses (testnet). */
+/** Deployed Spield contract + asset addresses for the active network. */
 export const CONTRACTS = {
   /** The tokenization engine — the wrapper the dashboard calls for raw PT/YT flows. */
-  wrapper: 'CB32IGGJ4PKLUBMXJD2VSS3U55XX2U4AQCSKA6QPFGGWZDQBJXMIYZU5',
+  wrapper: env('VITE_WRAPPER', profile.contracts.wrapper),
   /** Blend strategy adapter (read indirectly via the wrapper). */
-  strategy: 'CBYFCJVZFGX7BIUQMWQ4WXOYC6HZYF7RLC3ZENY5GG6TL37QY5K5KMNA',
-  /**
-   * Fixed-Rate Vault — the flagship "deposit USDC, lock a fixed %" product (PT-passthrough).
-   * Sits on top of the wrapper. Deployed + initialized + seeded + exercised on testnet 2026-06-05
-   * (5% fixed APR, 20% ceiling), inheriting the wrapper's PT/YT and maturity. It holds real PT
-   * coupon capacity, so `deposit` works end-to-end (proven on-chain — receipt #0 for a 10.0408 USDC
-   * fixed payout). See `contract/spield/TESTNET.md`.
-   */
-  vault: 'CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZPSFZFK',
-  /**
-   * Market — the Phase-3 PT/USDC time-decay AMM (the trading venue). Sits on top of the wrapper.
-   * Deployed + initialized + seeded + exercised on testnet 2026-06-06 (Pendle-style log curve,
-   * 0.30% fee, anchored at par, same maturity as the wrapper). A balanced 2 PT / 2 USDC pool is
-   * live; a real `swap_exact_usdc_for_pt` moved `pt_price` 1.0000 → 1.0022 on-chain (price discovery
-   * proven). See `contract/spield/TESTNET.md`.
-   */
-  market: 'CAZ2DA5NVFRF66ST27QCOKJWY5JW2IB53AMDNFKIHUT2JQYVEULEURZ2',
+  strategy: env('VITE_STRATEGY', profile.contracts.strategy),
+  /** Fixed-Rate Vault — the flagship "deposit USDC, lock a fixed %" product. */
+  vault: env('VITE_VAULT', profile.contracts.vault),
+  /** Market — the PT/USDC time-decay AMM (trading venue). */
+  market: env('VITE_MARKET', profile.contracts.market),
   /** Principal Token SAC — the fixed-rate bond leg. */
-  pt: 'CAIC4Z6SUN4QGLIQ3CFS4447GMTBV3WJHWZLIDDAZFMUYWZXOIBPV4G2',
+  pt: env('VITE_PT', profile.contracts.pt),
   /** Yield Token SAC — the variable yield leg. */
-  yt: 'CDMEEJDXMKR7OH2JLX5OPXLRAGB3UBVEEH6NPTZOBYUPAINNH665V2H3',
-  /** The underlying deposit asset: Blend testnet USDC (SAC). */
-  usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
+  yt: env('VITE_YT', profile.contracts.yt),
+  /** The underlying deposit asset: USDC (SAC). */
+  usdc: env('VITE_USDC', profile.contracts.usdc),
 } as const;
 
 /** Whether the Fixed-Rate Vault has been deployed + wired (gates the vault UI). */
@@ -56,7 +140,7 @@ export const VAULT_DEPLOYED = CONTRACTS.vault.length > 0;
 /** Whether the Market (PT/USDC AMM) has been deployed + wired (gates the Markets/Trade/LP UI). */
 export const MARKET_DEPLOYED = CONTRACTS.market.length > 0;
 
-/** USDC, PT and YT all use 7 decimals (Stellar standard / Blend testnet USDC). */
+/** USDC, PT and YT all use 7 decimals (Stellar standard / Circle USDC / Blend USDC). */
 export const DECIMALS = 7;
 
 /**
@@ -64,15 +148,15 @@ export const DECIMALS = 7;
  * establish a trustline to each before the wrapper can mint them — otherwise the
  * first `mint` fails. The dashboard offers a one-click trustline setup using these.
  */
-export const PT_YT_ISSUER = 'GAG6EBUM6ERD5OIAJA53GEFRGS6UYUXHQBTPFTJDAY732Z5ERRRFNU24';
+export const PT_YT_ISSUER = env('VITE_PT_YT_ISSUER', profile.ptYtIssuer);
 
 export const ASSETS = {
   pt: { code: 'SPLDPT', issuer: PT_YT_ISSUER },
   yt: { code: 'SPLDYT', issuer: PT_YT_ISSUER },
 } as const;
 
-/** Waitlist API URL */
-export const BACKEND_URL = 'https://spield-protocol-waitlistbackend.vercel.app';
+/** Waitlist API URL (same for both networks unless overridden). */
+export const BACKEND_URL = env('VITE_BACKEND_URL', 'https://spield-protocol-waitlistbackend.vercel.app');
 
 /** Token display metadata, keyed by contract address. */
 export const TOKEN_META: Record<string, { symbol: string; label: string }> = {
@@ -81,8 +165,8 @@ export const TOKEN_META: Record<string, { symbol: string; label: string }> = {
   [CONTRACTS.yt]: { symbol: 'YT', label: 'Yield Token' },
 };
 
-/** Link to a contract on the testnet explorer. */
+/** Link to a contract on the active network's explorer. */
 export const explorerContract = (id: string) => `${NETWORK.explorer}/contract/${id}`;
 
-/** Link to a transaction on the testnet explorer. */
+/** Link to a transaction on the active network's explorer. */
 export const explorerTx = (hash: string) => `${NETWORK.explorer}/tx/${hash}`;
