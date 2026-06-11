@@ -10,7 +10,7 @@ import {
   type TokenWithChainDetails,
 } from '@allbridge/bridge-core-sdk';
 import { Connection, VersionedTransaction } from '@solana/web3.js';
-import { BrowserProvider, type Eip1193Provider } from 'ethers';
+import { BrowserProvider, Contract, formatUnits, type Eip1193Provider } from 'ethers';
 
 import { BRIDGE_RPC, NETWORK } from './config';
 import { signWithWallet } from './stellar';
@@ -71,19 +71,121 @@ export const getAmountToReceive = (amount: string, source: BridgeToken, dest: Br
 export const getGasFee = (source: BridgeToken, dest: BridgeToken) =>
   sdk.getGasFeeOptions(source, dest, MESSENGER);
 
+/**
+ * Average time (in milliseconds) the bridge takes to deliver funds for this route,
+ * via our messenger. This is the same estimate Allbridge's own UI shows. Returns
+ * null when the SDK has no estimate for the chosen token pair / messenger.
+ */
+export const getAverageTransferTimeMs = (source: BridgeToken, dest: BridgeToken): number | null =>
+  sdk.getAverageTransferTime(source, dest, MESSENGER);
+
 /** Look up the cross-chain transfer status by the SOURCE chain + source tx id. */
 export const getTransferStatus = (sourceChainSymbol: string, txId: string) =>
   sdk.getTransferStatus(sourceChainSymbol, txId);
 
 /**
- * The connected account's balance of `token` (float string), read via the SDK's
- * configured/default RPC for that chain. EVM balance reads therefore need a
- * `VITE_BRIDGE_RPC_*` for the chain (Solana uses the configured Solana RPC; the
- * default mainnet endpoint works for the common chains). Returns the SDK's
- * float-formatted balance.
+ * A normalized, UI-friendly snapshot of a cross-chain transfer's progress.
+ *
+ * Allbridge transfers are async: the source tx confirms first (`send`), then the
+ * messenger collects signatures, then the funds are claimed on the destination
+ * (`receive`). We map that to three states the UI cares about, and surface the
+ * DESTINATION block time as the completion timestamp — that's the moment the USDC
+ * actually landed on Stellar, which is what "completion time" means to a user.
  */
-export const getTokenBalance = (account: string, token: BridgeToken): Promise<string> =>
-  sdk.getTokenBalance({ account, token });
+export type BridgeProgress = {
+  /** `pending` = source confirmed, awaiting delivery; `completed` = funds received. */
+  state: 'pending' | 'completed';
+  /** Validator signatures collected so far (progress within the pending phase). */
+  signaturesCount: number;
+  /** Signatures needed before the destination claim can happen. */
+  signaturesNeeded: number;
+  /** Unix ms the funds landed on Stellar, or null while still pending. */
+  completedAt: number | null;
+  /** Destination-chain tx hash once received, else null. */
+  receiveHash: string | null;
+};
+
+/**
+ * Poll a transfer's status and normalize it. Returns null when the SDK has no
+ * record yet (very recently submitted, or indexer lag) so callers can keep polling
+ * without treating "not found" as an error.
+ *
+ * `receive.blockTime` is reported in SECONDS (chain block time); we convert to ms
+ * so it composes with the rest of the app's unix-ms timestamps.
+ */
+export const getBridgeProgress = async (
+  sourceChainSymbol: string,
+  txId: string,
+): Promise<BridgeProgress | null> => {
+  let status;
+  try {
+    status = await sdk.getTransferStatus(sourceChainSymbol, txId);
+  } catch {
+    // The core API 404s for an as-yet-unindexed tx — treat as "not known yet".
+    return null;
+  }
+  if (!status) return null;
+
+  const received = status.receive;
+  return {
+    state: received ? 'completed' : 'pending',
+    signaturesCount: status.signaturesCount ?? 0,
+    signaturesNeeded: status.signaturesNeeded ?? 0,
+    completedAt: received?.blockTime ? received.blockTime * 1000 : null,
+    receiveHash: received?.hash ?? null,
+  };
+};
+
+/** Minimal ERC-20 ABI — just the reads we need for a balance. */
+const ERC20_BALANCE_ABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+];
+
+/**
+ * The connected account's balance of `token` (float string).
+ *
+ * For EVM sources we read the balance through the CONNECTED WALLET's EIP-1193
+ * provider via ethers, not the SDK. The SDK's balance read uses our public
+ * `VITE_BRIDGE_RPC_*` endpoints (llamarpc et al.), which routinely rate-limit and
+ * fail — so the balance came back blank ("—"). The wallet's own provider is
+ * reliable and reads the exact chain the user is on. We pass the token's declared
+ * `decimals` (Allbridge already gives us this) to format the raw integer balance.
+ *
+ * For Solana (no EIP-1193 provider) we fall back to the SDK, which uses the
+ * configured Solana RPC.
+ */
+export const getTokenBalance = async (
+  account: string,
+  token: BridgeToken,
+  evmProvider?: Eip1193Provider,
+): Promise<string> => {
+  if (token.chainType === ChainType.EVM && evmProvider) {
+    try {
+      const provider = new BrowserProvider(evmProvider);
+
+      // The wallet reads from whatever chain it's CURRENTLY on. If that doesn't
+      // match the token's chain (e.g. wallet on Ethereum, source picked = Polygon),
+      // a balanceOf would query the wrong network — so only trust the wallet read
+      // when the chains line up; otherwise fall through to the chain-specific RPC.
+      if (token.chainId) {
+        const net = await provider.getNetwork();
+        const walletChainId = `0x${net.chainId.toString(16)}`;
+        if (walletChainId.toLowerCase() !== token.chainId.toLowerCase()) {
+          return sdk.getTokenBalance({ account, token });
+        }
+      }
+
+      const erc20 = new Contract(token.tokenAddress, ERC20_BALANCE_ABI, provider);
+      const raw: bigint = await erc20.balanceOf(account);
+      return formatUnits(raw, token.decimals);
+    } catch {
+      // Wallet read failed for any reason — fall back to the SDK's RPC path.
+      return sdk.getTokenBalance({ account, token });
+    }
+  }
+  return sdk.getTokenBalance({ account, token });
+};
 
 // ── Chain classification ──────────────────────────────────────────────────────
 

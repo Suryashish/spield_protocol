@@ -44,8 +44,29 @@ export type BridgeWallets = {
   solanaSigner: SolanaSigner | undefined;
 };
 
-/** Access the EVM + Solana bridge wallets (Reown AppKit). */
-export const useBridgeWallets = (): BridgeWallets => {
+/**
+ * Inert wallet state used when no Reown project id is configured.
+ *
+ * AppKit's hooks (`useAppKit` et al.) THROW if `createAppKit` was never called —
+ * and `createAppKit` only runs when a project id is set (see `lib/reown`). So when
+ * unconfigured we must NOT call those hooks at all, or the whole bridge panel
+ * crashes with "Please call createAppKit before using useAppKit hook". This stub
+ * lets the UI render in its degraded (EVM/Solana-disabled) state instead.
+ */
+const DISCONNECTED: BridgeWallets = {
+  configured: false,
+  evmAddress: null,
+  solanaAddress: null,
+  connectEvm: () => {},
+  connectSolana: () => {},
+  disconnectEvm: async () => {},
+  disconnectSolana: async () => {},
+  evmProvider: undefined,
+  solanaSigner: undefined,
+};
+
+/** The real implementation — only safe to mount when AppKit has been created. */
+const useConfiguredBridgeWallets = (): BridgeWallets => {
   const { open } = useAppKit();
   const { disconnect } = useDisconnect();
   const evm = useAppKitAccount({ namespace: 'eip155' });
@@ -54,7 +75,7 @@ export const useBridgeWallets = (): BridgeWallets => {
   const { walletProvider: solanaProvider } = useAppKitProvider<SolanaProvider>('solana');
 
   return {
-    configured: isReownConfigured,
+    configured: true,
     evmAddress: evm.isConnected ? evm.address ?? null : null,
     solanaAddress: sol.isConnected ? sol.address ?? null : null,
     connectEvm: () => open({ view: 'Connect', namespace: 'eip155' }),
@@ -65,3 +86,15 @@ export const useBridgeWallets = (): BridgeWallets => {
     solanaSigner: solanaProvider as unknown as SolanaSigner | undefined,
   };
 };
+
+/**
+ * Access the EVM + Solana bridge wallets (Reown AppKit).
+ *
+ * `isReownConfigured` is a module-level constant fixed at load time, so branching
+ * on it here never changes between renders — the Rules of Hooks are satisfied even
+ * though only ONE of the two paths ever calls AppKit's hooks. When unconfigured we
+ * return an inert stub so the bridge UI degrades gracefully instead of crashing.
+ */
+export const useBridgeWallets: () => BridgeWallets = isReownConfigured
+  ? useConfiguredBridgeWallets
+  : () => DISCONNECTED;

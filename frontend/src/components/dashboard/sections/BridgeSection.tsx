@@ -10,6 +10,10 @@ import {
   Pencil,
   X,
   Check,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  History,
 } from 'lucide-react';
 import { AmountFormat, type ChainDetailsWithTokens } from '@allbridge/bridge-core-sdk';
 import { StrKey } from '@stellar/stellar-sdk';
@@ -30,12 +34,14 @@ import { useBridgeWallets } from '@/context/ReownContext';
 import { useToast } from '@/context/ToastContext';
 import { shortenAddress } from '@/lib/stellar';
 import { NetworkIcon } from './networkIcons';
-import { BRIDGE_ENABLED, NETWORK_KEY } from '@/lib/config';
+import { BRIDGE_ENABLED, NETWORK_KEY, explorerTx } from '@/lib/config';
+import { useBridgeHistory, type BridgeTransfer } from '@/lib/bridgeHistory';
 import {
   bridgeFromEvm,
   bridgeFromSolana,
   findStellarUsdc,
   getAmountToReceive,
+  getAverageTransferTimeMs,
   getBridgeChains,
   getGasFee,
   getTokenBalance,
@@ -49,6 +55,23 @@ import {
 const isValidStellarAddress = (address: string): boolean =>
   StrKey.isValidEd25519PublicKey(address.trim());
 
+/** Callback the panel invokes to start tracking a submitted transfer. */
+type BridgeHistoryTracker = ReturnType<typeof useBridgeHistory>['track'];
+
+/**
+ * Human-friendly duration for an ESTIMATE in ms (e.g. "2 min", "45 sec",
+ * "1 hr 10 min"). Used for the bridge's expected time of arrival.
+ */
+const fmtEstimate = (ms: number): string => {
+  const totalSec = Math.max(1, Math.round(ms / 1000));
+  if (totalSec < 60) return `${totalSec} sec`;
+  const mins = Math.round(totalSec / 60);
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  const remMin = mins % 60;
+  return remMin ? `${hrs} hr ${remMin} min` : `${hrs} hr`;
+};
+
 /** Small monogram disc for a token symbol (USDC, USDT, …). */
 const TokenDisc = ({ symbol, size = 20 }: { symbol: string; size?: number }) => (
   <span
@@ -60,7 +83,7 @@ const TokenDisc = ({ symbol, size = 20 }: { symbol: string; size?: number }) => 
   </span>
 );
 
-const BridgePanel = () => {
+const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
   const { address: stellarAddress } = useWallet();
   const reown = useBridgeWallets();
   const { push, update } = useToast();
@@ -89,6 +112,17 @@ const BridgePanel = () => {
 
   const [busy, setBusy] = useState(false);
 
+  // Bumped to re-trigger the chain fetch (e.g. when the user clicks "Try again").
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Reset to the loading state and re-run the fetch. `loadingChains` already starts
+  // true for the first mount, so this is only needed for user-triggered retries.
+  const retryLoadChains = useCallback(() => {
+    setChainsError(null);
+    setLoadingChains(true);
+    setReloadKey((k) => k + 1);
+  }, []);
+
   // Fetch chains on mount (mainnet liquidity — Allbridge has no testnet).
   useEffect(() => {
     let active = true;
@@ -108,7 +142,14 @@ const BridgePanel = () => {
         }
       } catch (err) {
         console.error('Failed to fetch Allbridge chains:', err);
-        if (active) setChainsError('Could not load bridge networks. Check your connection and retry.');
+        if (active) {
+          const detail = err instanceof Error ? err.message : '';
+          setChainsError(
+            detail
+              ? `Could not load bridge networks: ${detail}`
+              : 'Could not load bridge networks. Check your connection and retry.',
+          );
+        }
       } finally {
         if (active) setLoadingChains(false);
       }
@@ -116,7 +157,7 @@ const BridgePanel = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   // Only chains we can sign a transfer FROM appear in the source picker.
   const sourceChains = useMemo(() => chains.filter(isSupportedSource), [chains]);
@@ -134,6 +175,16 @@ const BridgePanel = () => {
 
   // The fixed destination: Stellar USDC.
   const destToken = useMemo(() => findStellarUsdc(chains), [chains]);
+
+  // Average time this route takes to settle — the same estimate Allbridge shows.
+  // Synchronous (no network), depends only on the chosen token pair.
+  const transferTimeMs = useMemo(
+    () =>
+      selectedSourceToken && destToken
+        ? getAverageTransferTimeMs(selectedSourceToken, destToken)
+        : null,
+    [selectedSourceToken, destToken],
+  );
 
   const srcFamily = sourceFamily(sourceChainData);
 
@@ -202,7 +253,9 @@ const BridgePanel = () => {
       }
       setLoadingBalance(true);
       try {
-        const b = await getTokenBalance(sourceAddress, selectedSourceToken);
+        // For EVM, read through the connected wallet's provider (reliable); the SDK
+        // ignores the provider for Solana and uses its configured RPC.
+        const b = await getTokenBalance(sourceAddress, selectedSourceToken, reown.evmProvider);
         if (!cancelled) setBalance(b);
       } catch (err) {
         console.error('Failed to fetch balance:', err);
@@ -215,7 +268,7 @@ const BridgePanel = () => {
     return () => {
       cancelled = true;
     };
-  }, [sourceAddress, selectedSourceToken]);
+  }, [sourceAddress, selectedSourceToken, reown.evmProvider]);
 
   const connectSource = useCallback(() => {
     if (srcFamily === 'evm') reown.connectEvm();
@@ -260,12 +313,28 @@ const BridgePanel = () => {
       } else {
         throw new Error('Unsupported source chain.');
       }
+      const eta = transferTimeMs !== null ? ` Expected arrival ~${fmtEstimate(transferTimeMs)}.` : '';
       update(id, {
         kind: 'success',
         title: 'Bridge initiated',
-        message: `Transfer submitted on ${sourceChainData?.name}. USDC will arrive on Stellar shortly.`,
+        message: `Transfer submitted on ${sourceChainData?.name}. USDC will arrive on Stellar shortly.${eta}`,
         hash,
       });
+      // Start tracking this transfer so its completion time shows up below. We
+      // record what the user sees (chain, token, amount, recipient) plus the
+      // source-chain symbol the status poller needs and the ETA for the wait.
+      if (sourceChainData) {
+        onTracked({
+          hash,
+          sourceChainSymbol: sourceChainData.chainSymbol,
+          sourceChainName: sourceChainData.name,
+          sourceSymbol: selectedSourceToken.symbol,
+          amount,
+          recipient: recipient.trim(),
+          startedAt: Date.now(),
+          etaMs: transferTimeMs,
+        });
+      }
       setAmount('');
     } catch (err) {
       update(id, {
@@ -319,9 +388,17 @@ const BridgePanel = () => {
             <Loader2 className="animate-spin text-muted-foreground" />
           </div>
         ) : chainsError ? (
-          <div className="flex h-40 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+          <div className="flex h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <AlertTriangle size={20} className="text-amber-500" />
-            {chainsError}
+            <span className="px-2">{chainsError}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-2 text-xs font-semibold"
+              onClick={retryLoadChains}
+            >
+              Try again
+            </Button>
           </div>
         ) : (
           <>
@@ -507,12 +584,21 @@ const BridgePanel = () => {
             </div>
 
             {/* Summary */}
-            {(quote || fee) && (
+            {(quote || fee || transferTimeMs !== null) && (
               <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
                 <div className="flex justify-between text-xs font-medium">
                   <span className="text-muted-foreground">Estimated Network Fee</span>
                   <span className="text-foreground">{fee ? `${fee.amount} ${fee.symbol}` : '—'}</span>
                 </div>
+                {transferTimeMs !== null && (
+                  <div className="flex justify-between text-xs font-medium">
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <Clock size={11} />
+                      Estimated time of arrival
+                    </span>
+                    <span className="text-foreground">~{fmtEstimate(transferTimeMs)}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -718,39 +804,162 @@ const RecipientEditor = ({
   );
 };
 
-const BridgeSection = () => (
-  <div className="space-y-6">
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-      <div className="lg:col-span-6">
-        <BridgePanel />
+/** "in 4m 12s" / "in 45s" elapsed between two unix-ms instants. */
+const fmtDuration = (fromMs: number, toMs: number): string => {
+  const secs = Math.max(0, Math.round((toMs - fromMs) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  return rem ? `${mins}m ${rem}s` : `${mins}m`;
+};
+
+/** Absolute local time for a unix-ms instant (e.g. "14:32:05"). */
+const fmtTime = (ms: number): string =>
+  new Date(ms).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+
+/** One transfer row — shows live progress while pending, completion time when done. */
+const TransferRow = ({ transfer }: { transfer: BridgeTransfer }) => {
+  const done = transfer.completedAt !== null;
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+      <div className="mt-0.5 shrink-0">
+        {done ? (
+          <CheckCircle2 size={16} className="text-emerald-500" />
+        ) : (
+          <Loader2 size={16} className="animate-spin text-primary" />
+        )}
       </div>
-      <div className="space-y-6 lg:col-span-6">
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <h3 className="flex items-center gap-2 text-base font-semibold">
-            <ShieldCheck size={17} className="text-emerald-500" />
-            Powered by Allbridge Core
-          </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Allbridge Core provides a seamless way to bridge native stablecoins across different ecosystems.
-          </p>
-          <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-            <li className="flex items-center gap-2">
-              <div className="h-1 w-1 rounded-full bg-primary" />
-              Native-to-native swaps
-            </li>
-            <li className="flex items-center gap-2">
-              <div className="h-1 w-1 rounded-full bg-primary" />
-              No wrapped assets
-            </li>
-            <li className="flex items-center gap-2">
-              <div className="h-1 w-1 rounded-full bg-primary" />
-              Low slippage and fees
-            </li>
-          </ul>
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <span className="tabular-nums">
+            {Number(transfer.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+          </span>
+          <span>{transfer.sourceSymbol}</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="truncate text-muted-foreground">{transfer.sourceChainName} → Stellar</span>
+        </div>
+
+        {done ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-emerald-500">
+            <span className="inline-flex items-center gap-1">
+              <Clock size={11} />
+              Completed {fmtTime(transfer.completedAt!)}
+            </span>
+            <span className="text-muted-foreground">
+              · in {fmtDuration(transfer.startedAt, transfer.completedAt!)}
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span>
+              {transfer.signaturesNeeded > 0
+                ? `Awaiting delivery · ${transfer.signaturesCount}/${transfer.signaturesNeeded} signatures`
+                : 'Awaiting delivery on Stellar…'}
+            </span>
+            {transfer.etaMs !== null && (
+              <span className="inline-flex items-center gap-1">
+                <Clock size={11} />
+                ETA ~{fmtEstimate(transfer.etaMs)}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {done && transfer.receiveHash && (
+        <a
+          href={explorerTx(transfer.receiveHash)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+          title="View destination transaction"
+        >
+          <ExternalLink size={14} />
+        </a>
+      )}
+    </div>
+  );
+};
+
+/** Recent-transfers panel — surfaces each bridge's live status + completion time. */
+const TransferHistory = ({
+  transfers,
+  onClear,
+}: {
+  transfers: BridgeTransfer[];
+  onClear: () => void;
+}) => {
+  if (transfers.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-base font-semibold">
+          <History size={17} className="text-primary" />
+          Recent transfers
+        </h3>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={onClear}
+        >
+          Clear
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Bridges take a few minutes to settle on Stellar. We track each one and show when it lands.
+      </p>
+      <div className="mt-4 space-y-2">
+        {transfers.map((t) => (
+          <TransferRow key={t.hash} transfer={t} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const BridgeSection = () => {
+  const { transfers, track, clear } = useBridgeHistory();
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-6">
+          <BridgePanel onTracked={track} />
+        </div>
+        <div className="space-y-6 lg:col-span-6">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h3 className="flex items-center gap-2 text-base font-semibold">
+              <ShieldCheck size={17} className="text-emerald-500" />
+              Powered by Allbridge Core
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Allbridge Core provides a seamless way to bridge native stablecoins across different ecosystems.
+            </p>
+            <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+              <li className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-primary" />
+                Native-to-native swaps
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-primary" />
+                No wrapped assets
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-primary" />
+                Low slippage and fees
+              </li>
+            </ul>
+          </div>
+
+          <TransferHistory transfers={transfers} onClear={clear} />
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default BridgeSection;
