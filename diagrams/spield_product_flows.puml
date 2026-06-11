@@ -1,0 +1,156 @@
+@startuml Spield_Product_Flows
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam ranksep 55
+skinparam nodesep 35
+
+skinparam package {
+  BorderColor      #3E8A4A
+  BorderThickness  1.5
+  FontColor        #1A4A22
+  FontSize         12
+  FontStyle        bold
+  BackgroundColor  transparent
+}
+skinparam component {
+  BorderThickness  1.3
+  FontSize         11
+  FontColor        #1A1A1A
+}
+skinparam arrow {
+  FontSize  10
+  Color     #444440
+  Thickness 1.4
+}
+skinparam note {
+  BackgroundColor #EDFAEF
+  BorderColor     #3E8A4A
+  FontSize        10
+}
+skinparam actor {
+  BorderColor #888780
+  FontSize    11
+}
+
+title Spield v2 — Product Layer Flows (Vault + Market + YT Routing)
+
+actor "Saver"           as Saver  #FFFFFF
+actor "Yield Trader"    as Trader #FFFFFF
+actor "LP Provider"     as LP     #FFFFFF
+
+' ============ VAULT ============
+package "spield-vault  (Fixed-Rate Flagship)" {
+  [deposit(user, amount)\nReturns receipt_id\nLocks payout at current rate\nOnly promises what it can back] as VDeposit #D4F5DC
+  [redeem(receipt_id)\nAt or after maturity\nPays full locked payout in USDC] as VRedeem  #D4F5DC
+  [seed(from, amount)\nAdd PT inventory capacity\nCreates no user liability] as VSeed    #D4F5DC
+  [harvest(max_positions)\nClaim retained YT yield\nReinvest as PT capacity\nPageinated; permissionless] as VHarvest #D4F5DC
+  [quote(amount)\nReturns (payout, coupon, rate_bps)\nNo tx required; free simulation] as VQuote  #D4F5DC
+
+  package "Receipt Store  (Persistent)" {
+    [Receipt\n{\n  owner:     Address\n  principal: i128\n  payout:    i128\n  rate_bps:  u32\n  maturity:  u64\n  open:      bool\n}] as Receipt #D4F5DC
+  }
+
+  package "Coupon Capacity Manager" {
+    [PT Inventory\n(PT held by Vault for backing)\nDeclines deposit if inventory\ncannot cover locked payout.\nThis is the safety mechanism\nkeeping every receipt fully covered.] as CouponMgr #D4F5DC
+  }
+}
+
+' ============ MARKET ============
+package "spield-market  (Time-Decay AMM — Phase 3)" {
+  [swap_exact_usdc_for_pt(trader, usdc_in, min_pt_out)\nBuy PT at time-decay price\nEmits: swap event] as SwapBuyPT  #C8EFDA
+  [swap_exact_pt_for_usdc(trader, pt_in, min_usdc_out)\nSell PT at time-decay price\nEmits: swap event] as SwapSellPT #C8EFDA
+  [add_liquidity(lp, pt_in, usdc_in)\nReturns LP shares minted\nEmits: add_liquidity event] as AddLiq    #C8EFDA
+  [remove_liquidity(lp, shares)\nReturns (pt_out, usdc_out)\nAllowed any time incl. post-maturity] as RemLiq    #C8EFDA
+
+  package "AMM Curve Engine  (Pendle-style log curve)" {
+    [rateScalar = scalarRoot / yearsToMaturity\nrateAnchor  = tracked in state\nproportion  = PT / (PT + USDC_in_PT_terms)\nexchangeRate = ln(p/(1-p)) / rateScalar + rateAnchor\nPT_price = 1 / exchangeRate\nimplied_apy = exchangeRate^(1/years) - 1\n\nCurve STEEPENS as maturity nears.\nPT price -> 1.0; YT price -> 0.0 as t -> 0.\nIL for LPs holding to maturity ~ 0.] as AMMCurve #C8EFDA
+  }
+
+  package "Price & State Views  (free simulation)" {
+    [pt_price()       12-dp fixed point\nimplied_apy()     12-dp fraction\nquote_usdc_for_pt\nquote_pt_for_usdc\nreserves()\nlp_position(lp)\nfee_bps() / maturity()] as PriceView #C8EFDA
+  }
+}
+
+' ============ YT ROUTING ============
+package "YT Routing  (frontend multi-step; no extra contract)" {
+  [Long Yield Flow\n\"Buy YT\"\nStep 1: wrapper.mint(USDC -> PT + YT)\nStep 2: market.swap_pt_for_usdc(PT)\nResult: user holds YT at small net cost\nLeveraged exposure to yield rate] as LongYield #B8F0C8
+  [Sell YT Flow\n\"Exit YT\"\nStep 1: market.swap_usdc_for_pt(USDC)\nStep 2: wrapper.combine_and_redeem(PT+YT)\nResult: user exits full YT position into USDC] as SellYT    #B8F0C8
+  [Earn Fixed Flow\n\"Buy PT\"\nSingle step: market.swap_usdc_for_pt\nResult: user holds PT at discount;\nholds to maturity for fixed return] as EarnFixed  #B8F0C8
+}
+
+' ============ EXTERNAL DEPS ============
+package "Dependencies" {
+  [spield-wrapper\nmint / claim_yield\nredeem_pt / combine_and_redeem] as WrapperDep #E6F1FB
+  [PT SAC  (SPLDPT)\ntransfer in/out of reserves] as PTDep  #D0EAF8
+  [USDC SAC\ntransfer in/out of reserves\nand to/from users] as USDCDep #D8F0E8
+}
+
+' ============ ACTOR -> PRODUCTS ============
+Saver  --> VDeposit  : deposit USDC
+Saver  --> VRedeem   : redeem receipt at maturity
+Trader --> EarnFixed : buy PT on market
+Trader --> LongYield : get leveraged YT exposure
+Trader --> SellYT    : exit YT position
+LP     --> AddLiq    : provide PT + USDC
+LP     --> RemLiq    : withdraw LP shares
+
+' ============ VAULT FLOWS ============
+VDeposit --> Receipt    : create receipt
+VDeposit --> CouponMgr  : check PT inventory
+VDeposit --> USDCDep    : receive USDC from user
+VDeposit ..> WrapperDep : authorize seed -> mint PT
+VRedeem  --> Receipt    : close receipt
+VRedeem  --> USDCDep    : pay payout to owner
+VHarvest ..> WrapperDep : claim_yield per held position
+VHarvest --> CouponMgr  : add harvested yield as PT capacity
+VSeed    ..> WrapperDep : mint PT into inventory
+
+' ============ MARKET FLOWS ============
+SwapBuyPT  --> AMMCurve   : compute price via log curve
+SwapSellPT --> AMMCurve   : compute price via log curve
+AMMCurve   --> PriceView  : feeds pt_price / implied_apy
+SwapBuyPT  --> PTDep      : transfer PT to buyer
+SwapBuyPT  --> USDCDep    : receive USDC from buyer
+SwapSellPT --> PTDep      : receive PT from seller
+SwapSellPT --> USDCDep    : transfer USDC to seller
+AddLiq     --> PTDep      : receive PT from LP
+AddLiq     --> USDCDep    : receive USDC from LP
+RemLiq     --> PTDep      : return PT to LP
+RemLiq     --> USDCDep    : return USDC to LP
+
+' ============ YT ROUTING ============
+LongYield ..> WrapperDep : Step 1: mint(USDC)
+LongYield ..> SwapSellPT : Step 2: sell PT on market
+SellYT    ..> SwapBuyPT  : Step 1: buy PT on market
+SellYT    ..> WrapperDep : Step 2: combine_and_redeem
+
+note right of AMMCurve
+  This is the hard, differentiating math.
+  It is its own multi-week phase.
+  Fixed-Rate Vault ships WITHOUT the AMM
+  (PT redeems at maturity against Blend).
+  The AMM is the TRADING layer —
+  not required for the BOND product.
+  (Direct response to SCF finding #11.)
+end note
+
+note right of CouponMgr
+  The Vault never over-promises.
+  It can only issue a receipt if it
+  already holds (or can mint) the PT
+  to back the payout. If capacity is
+  exhausted -> deposit is declined.
+  This is what makes the rate "truly fixed."
+end note
+
+note right of LongYield
+  YT trading is a 2-transaction flow
+  orchestrated by the frontend router.
+  The Market contract only ever sees
+  PT and USDC — simpler attack surface.
+  YT exposure is achieved via routing,
+  not a second pool. (Pendle approach.)
+end note
+
+@enduml
