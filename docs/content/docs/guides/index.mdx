@@ -1,0 +1,28 @@
+---
+title: Guides & tutorials
+description: Step-by-step walkthroughs for the most common Spield tasks — earning a fixed yield, going long on yield, providing liquidity, and bridging USDC.
+icon: GraduationCap
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card';
+import { Lock, TrendingUp, Droplets, ArrowRightLeft } from 'lucide-react';
+
+Practical, click-by-click walkthroughs. Each guide assumes you've already
+[connected a wallet](/docs/getting-started/connect-a-wallet) and
+[funded it with USDC](/docs/getting-started/funding-your-wallet).
+
+<Cards>
+  <Card icon={<Lock />} title="Earn a fixed yield" href="/docs/guides/earn-fixed-yield" description="Lock a guaranteed return using the Fixed-Rate Vault or by buying PT." />
+  <Card icon={<TrendingUp />} title="Go long on yield" href="/docs/guides/long-yield" description="Get leveraged exposure to the rate by holding YT." />
+  <Card icon={<Droplets />} title="Provide liquidity" href="/docs/guides/provide-liquidity" description="Earn swap fees by supplying PT + USDC to the market." />
+  <Card icon={<ArrowRightLeft />} title="Bridge USDC to Stellar" href="/docs/guides/bridge-usdc" description="Bring USDC from another chain using the built-in bridge." />
+</Cards>
+
+## Choosing a guide
+
+| Your goal | Guide | Risk |
+| --- | --- | :---: |
+| A predictable, guaranteed return | [Earn a fixed yield](/docs/guides/earn-fixed-yield) | Low |
+| Bet that yields will rise | [Go long on yield](/docs/guides/long-yield) | Higher |
+| Earn income from trading activity | [Provide liquidity](/docs/guides/provide-liquidity) | Medium |
+| Just get USDC onto Stellar | [Bridge USDC](/docs/guides/bridge-usdc) | — |

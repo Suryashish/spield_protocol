@@ -1,0 +1,97 @@
+---
+title: Tokens & units
+description: How Spield's tokens work as Stellar assets — PT, YT, and USDC as SACs, their 7-decimal base units, and the fixed-point convention for rates.
+icon: Coins
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Spield's tokens are ordinary **Stellar assets**, wrapped as **Stellar Asset Contracts (SACs)**
+so contracts can hold and move them. If you can work with a Stellar token, you can work with
+PT and YT.
+
+## The three tokens
+
+| Token | Symbol | What it is |
+| --- | --- | --- |
+| **USDC** | `USDC` | Circle's USD-backed stablecoin, native on Stellar. The asset users deposit and PT redeems into. |
+| **Principal Token** | `SPLDPT` | The fixed-rate bond leg. Redeems 1:1 for USDC at maturity. |
+| **Yield Token** | `SPLDYT` | The variable yield leg. A claim on all yield to maturity. |
+
+PT and YT are minted and burned only by Spield's tokenization engine (it holds their asset
+admin rights). As a holder you can transfer them, trade them, or supply them as liquidity like
+any other Stellar asset.
+
+## Decimals and base units
+
+All three tokens use **7 decimals**. On-chain, amounts are integers in **base units**:
+
+```
+1.0 USDC  = 10_000_000 base units
+1.0 PT    = 10_000_000 base units
+0.5 YT    =  5_000_000 base units
+```
+
+Always pass and interpret token amounts as base-unit integers (`i128`). Convert at the UI
+edge:
+
+```ts
+const DECIMALS = 7;
+
+// human → base units
+const toBaseUnits = (human: string): bigint =>
+  BigInt(Math.round(parseFloat(human) * 10 ** DECIMALS));
+
+// base units → human
+const fromBaseUnits = (base: bigint): number =>
+  Number(base) / 10 ** DECIMALS;
+```
+
+<Callout type="warn" title="Don't use floating point for value math">
+  Keep amounts as `bigint` end to end. Only convert to a float for display. Rounding a value
+  through a JS `number` can silently lose precision on large balances.
+</Callout>
+
+## Rates and prices: 12-decimal fixed point
+
+Rates and prices (the yield-source `current_rate`, the market's `pt_price` and `implied_apy`)
+use a **12-decimal fixed-point** representation — a plain integer scaled by 10¹².
+
+```
+1_000_000_000_000  = 1.0   (par price, or a rate of 1.0)
+  80_000_000_000   = 0.08  (an implied APY of 8%)
+1_055_750_028_382  ≈ 1.05575…  (a yield-source rate)
+```
+
+To read one as a human number, divide by 10¹²:
+
+```ts
+const SCALAR_12 = 10n ** 12n;
+const impliedApyPct = (raw: bigint): number =>
+  (Number(raw) / Number(SCALAR_12)) * 100; // raw 80_000_000_000 → 8
+```
+
+<Callout title="Why 12 decimals for rates">
+  The yield-source rate moves in the 9th–11th decimal place over short windows. A 12-decimal
+  fixed-point integer captures that precisely; a divided float would collapse tiny changes to
+  zero. Keep rate values as `bigint` until display.
+</Callout>
+
+## Trustlines
+
+Because PT and YT are real Stellar assets, an account must hold a **trustline** to each before
+receiving them. The Spield app sets these up automatically on a user's first deposit. If
+you're building your own flow, ensure the recipient has trustlines to `SPLDPT` / `SPLDYT`
+before a mint — otherwise it fails.
+
+## Discovering the asset addresses
+
+Rather than hard-coding addresses, read them from the tokenization engine at runtime:
+
+- `pt_token()` → the PT SAC address
+- `yt_token()` → the YT SAC address
+- `underlying()` → the USDC SAC address
+
+This keeps your integration correct across networks and any future redeployment.
+
+Next: [reading protocol state](/docs/developers/reading-state).

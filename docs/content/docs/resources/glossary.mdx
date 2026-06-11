@@ -1,0 +1,116 @@
+---
+title: Glossary
+description: Plain-language definitions of every key term used across Spield and the Stellar ecosystem.
+icon: BookA
+---
+
+Every term you'll meet in these docs, defined simply. Linked to the page where each is used in
+context.
+
+### AMM (Automated Market Maker)
+A smart contract that lets people trade against a pool of assets at an algorithmic price,
+instead of matching buyers and sellers directly. Spield's [market](/docs/features/yield-market)
+is a time-decay AMM.
+
+### Backing
+The live value of the protocol's yield position — the real assets standing behind PT and YT.
+Spield keeps backing ≥ everything it owes. See [Solvency](/docs/how-it-works/solvency).
+
+### Base units
+The integer representation of a token amount on-chain. Spield's tokens use 7 decimals, so
+`10_000_000` base units = `1.0`. See [Tokens & units](/docs/developers/tokens).
+
+### Blend
+Stellar's primary lending market, where Spield sources its yield by supplying USDC. See
+[The yield source](/docs/how-it-works/yield-source).
+
+### Bridge
+Infrastructure for moving assets between blockchains. Spield offers an optional
+[cross-chain bridge](/docs/features/cross-chain-bridge) to bring USDC to Stellar; the core
+protocol itself uses no bridge.
+
+### Coupon
+The fixed extra amount a Fixed-Rate Vault deposit earns on top of principal — the "interest"
+portion of your guaranteed payout.
+
+### Discount
+How far below par (1.0) a PT trades today. The discount is the source of PT's fixed return.
+
+### Fixed APY
+The annualized return you lock in by buying PT (or depositing in the vault) and holding to
+maturity. It doesn't change after you commit.
+
+### Fixed-Rate Vault
+Spield's flagship product: deposit USDC, receive a receipt for a guaranteed payout at maturity.
+See [Fixed-Rate Vault](/docs/features/fixed-rate-vault).
+
+### Implied APY
+The market's *current* expectation of future yield, read off the PT price. Buying YT is a bet
+that **realized** yield will beat the **implied** APY.
+
+### Impermanent loss (IL)
+The opportunity cost an LP can face when pool asset prices move. Spield's time-decay design
+makes IL **near zero** for LPs who hold to maturity. See [Liquidity](/docs/features/liquidity).
+
+### LP / LP shares
+A liquidity provider supplies assets to the market; **LP shares** represent their proportional
+claim on the pool and its accrued fees.
+
+### Maturity
+The fixed date when PT becomes redeemable 1:1 for USDC and YT stops earning. Every Spield
+market has one.
+
+### Par
+The face value of a PT — exactly 1 USDC. PT prices drift up toward par as maturity nears.
+
+### Position
+A single deposit, tracked with its own starting point for measuring yield. Precise
+per-position accounting is why transferring/trading PT and YT is safe.
+
+### PT (Principal Token)
+The fixed-rate bond leg. Redeems 1:1 for USDC at maturity; bought at a discount today. Symbol
+`SPLDPT`. See [PT and YT explained](/docs/how-it-works/pt-and-yt).
+
+### Realized APY / yield
+The yield that actually accrued (as opposed to the *implied* expectation). Reconstructable from
+the yield-source rate over time.
+
+### Redeem
+To exchange a token for what it's owed: PT → 1 USDC at maturity, or a vault receipt → its full
+payout.
+
+### SAC (Stellar Asset Contract)
+The smart-contract wrapper that lets a Stellar asset be used by Soroban contracts. PT, YT, and
+USDC are all SACs. See [Tokens & units](/docs/developers/tokens).
+
+### Slippage
+The difference between a quoted price and the executed price on a trade. You set a tolerance so
+trades only execute within an acceptable range.
+
+### Solvency
+The property that backing ≥ everything owed. Spield is solvent by construction and lets you
+[verify it live](/docs/features/solvency-dashboard).
+
+### Soroban
+Stellar's smart-contract platform, on which Spield's contracts run.
+
+### Stellar
+The fast, low-fee blockchain Spield is built on. See [Why Stellar?](/docs/introduction/why-stellar).
+
+### Stripping (yield stripping)
+Splitting a yield-bearing position into a fixed leg (PT) and a variable leg (YT). The core
+model behind Spield.
+
+### Trustline
+A Stellar account's declaration that it's willing to hold a particular asset. The app sets up
+PT/YT trustlines for you automatically.
+
+### USDC
+Circle's USD-backed stablecoin, native on Stellar. The asset you deposit and PT redeems into.
+
+### XLM
+Stellar's native asset, used to pay small network fees and reserves.
+
+### YT (Yield Token)
+The variable yield leg — a claim on all yield to maturity. Cheap and leveraged; can decay to
+zero. Symbol `SPLDYT`. See [PT and YT explained](/docs/how-it-works/pt-and-yt).

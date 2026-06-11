@@ -1,0 +1,51 @@
+---
+title: Key benefits
+description: The concrete advantages of using Spield — predictable returns, leveraged yield, fee income, and verifiable safety.
+icon: Star
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card';
+import { ShieldCheck, Lock, TrendingUp, Droplets, Eye, Network } from 'lucide-react';
+
+Here's what Spield actually gives you, grouped by what you might want.
+
+## For savers: certainty
+
+<Cards>
+  <Card icon={<Lock />} title="Lock a fixed return" description="Choose a guaranteed APY for a set term. Once you deposit, your return is fixed — it doesn't move with the market." />
+  <Card icon={<ShieldCheck />} title="No liquidation risk" description="PT is a bond, not a leveraged position. There's nothing to get liquidated; held to maturity it returns principal plus the locked yield." />
+</Cards>
+
+## For traders: leverage and views
+
+<Cards>
+  <Card icon={<TrendingUp />} title="Leveraged yield exposure" description="YT lets a small amount of capital capture the yield of a much larger position. If yields beat the implied rate, YT captures the upside." />
+  <Card icon={<TrendingUp />} title="Express a rate view" description="Buy YT if you think yield will rise; buy PT (lock a fixed rate) if you think it'll fall. Two clean instruments, one market." />
+</Cards>
+
+## For liquidity providers: income
+
+<Cards>
+  <Card icon={<Droplets />} title="Earn swap fees" description="Provide PT + USDC to the market and collect a fee on every trade that flows through the pool." />
+  <Card icon={<Droplets />} title="Near-zero IL at maturity" description="The market's time-decay design means PT drifts to par and YT to zero predictably — so an LP who holds to maturity faces minimal impermanent loss." />
+</Cards>
+
+## For everyone: trust you can verify
+
+<Cards>
+  <Card icon={<ShieldCheck />} title="Solvent by construction" description="Backing is a real, growing on-chain position. The protocol can always pay every PT holder principal and every YT holder yield." />
+  <Card icon={<Eye />} title="Live solvency proof" description="A public solvency view shows, on-chain and in real time, that backing covers everything owed. You don't have to take anyone's word for it." />
+  <Card icon={<Network />} title="Stellar-native, bridge-free core" description="No wrapped assets, no relayers in the value path — an entire class of cross-chain risk simply isn't present." />
+</Cards>
+
+## At a glance
+
+| Benefit | PT | YT | LP |
+| --- | :---: | :---: | :---: |
+| Predictable, fixed return | ✅ | — | — |
+| Leveraged yield upside | — | ✅ | — |
+| Earns trading fees | — | — | ✅ |
+| Tradable any time before maturity | ✅ | ✅ | ✅ |
+| Backed by real on-chain yield | ✅ | ✅ | ✅ |
+
+Ready to try it? Head to [Getting Started](/docs/getting-started).

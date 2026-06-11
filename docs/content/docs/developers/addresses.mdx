@@ -1,0 +1,74 @@
+---
+title: Contract addresses
+description: The live Spield contract and token addresses on Stellar testnet (live now) and mainnet (coming soon), with explorer links.
+icon: BookMarked
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The live, deployed Spield contract and token addresses. Wire your integration to these (or,
+better, read the token addresses from the engine at runtime — see [Tokens](/docs/developers/tokens#discovering-the-asset-addresses)).
+
+<DevPhaseNote />
+
+## Live addresses
+
+Click any address to open it on Stellar Expert.
+
+<ContractTables />
+
+<Callout type="info" title="Testnet is live today">
+  Spield is fully functional on **testnet** right now — use the testnet addresses above to try
+  every feature with free test funds. The **mainnet** contracts are deployed and listed here for
+  reference; the public mainnet launch is coming soon.
+</Callout>
+
+## Notes
+
+- **Decimals.** USDC, PT, and YT all use **7 decimals** (base units). See [Tokens & units](/docs/developers/tokens).
+- **PT/YT are SACs.** The Principal and Yield tokens are Stellar assets wrapped as Stellar Asset Contracts; only the wrapper (tokenization engine) can mint or burn them.
+- **Yield source.** The strategy adapter supplies USDC to Stellar's Blend lending market; on mainnet it uses Blend's deep, blue-chip USDC pool.
+- **Verify what's running.** Each contract exposes `code_hash()` and `version()` on-chain, so you can confirm exactly which build is live — see [reading state](/docs/developers/reading-state).
+
+<Callout type="warn" title="Addresses can change before mainnet launch">
+  While Spield is in development, contracts may be redeployed (especially on testnet) as the
+  protocol is refined. Always confirm against the current deployment in the app, and prefer
+  reading token addresses from the engine over hard-coding them.
+</Callout>
+
+## Wiring your app
+
+A minimal config block (mirrors the app's own):
+
+```ts
+// Testnet (live)
+export const TESTNET = {
+  rpcUrl: 'https://soroban-testnet.stellar.org',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+  explorer: 'https://stellar.expert/explorer/testnet',
+  wrapper: 'CDH7ZGX7QJYIIAUW6Z6LORTLJ7VW7KR4B2INITTSUZL4O22QTMVSYIV4',
+  strategy: 'CCTSIOSOVXPACHX2E4KXK4QH2CJKVFFWJHBBVLPB6X3XE3EQXKS3KYIT',
+  vault: 'CDEPQKWCBW4Z7XGKPDG2GHNBQ54MOCMCF6PXJFJ5EJM4VJPP6Y4A3ECN',
+  market: 'CBY7LGWONKPIRRFSK4BFHK2YLDFPYJ4SLMQJIDVKVXCQZFHYUKJXUFNU',
+  pt: 'CCT4VJ32RBT2Q6UH5UH5QCCCZIRYKXYJX44IDLXUMVFUTLZDXBPBJLUW',
+  yt: 'CA2QLQDSJUR6H5QNZSYURGGMZPGJI7D4WEYPXBSXWDLX7FCFZF7FD2OU',
+  usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
+};
+
+// Mainnet (coming soon)
+export const MAINNET = {
+  rpcUrl: 'https://mainnet.sorobanrpc.com',
+  networkPassphrase: 'Public Global Stellar Network ; September 2015',
+  explorer: 'https://stellar.expert/explorer/public',
+  wrapper: 'CDLQY72EFRTNGNXT4PSINHGA4ET5CW3I6FHUSYUOL2HIWV6I55WW46WW',
+  strategy: 'CCTRXF5U2P2IMANRH5B54UJGV53APU4IID2QTINFQBZZWOPB765QZVW4',
+  vault: 'CDWNGJDYZ7VUYRG73WOU6PR6HCYPHO77UICJO642OWSP7LQGRRYPFLX6',
+  market: 'CBTO72XLCM2HV2MW64GMGWQB57NQFDXO3BZJTW3Y5ENTXBAJQ7Z7G5FV',
+  pt: 'CDDYIUGAZBSJNYAR2WYPRNHEGOFS25GPY22W7SHHQHIMTMKX5WQ25IXD',
+  yt: 'CDGQLIJVMKRFTYUXOMQAG4YFUN22OKXMOT2K4JA33KDM6P2FCBZTV6CU',
+  usdc: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+};
+```
+
+For how to call these, see [reading state](/docs/developers/reading-state) and
+[integrating](/docs/developers/integrating).

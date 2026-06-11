@@ -1,0 +1,114 @@
+---
+title: Understanding the risks
+description: An honest overview of the risks in using Spield — smart-contract, yield-source, market, and YT-specific risk — and how the protocol mitigates each.
+icon: ShieldAlert
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Spield is engineered to be safe by construction, but **no DeFi protocol is risk-free**. This
+page lays out the real risks plainly, and what Spield does to reduce each. Read it before
+committing significant funds.
+
+<Callout type="warn" title="The golden rule">
+  Only deposit what you can afford to put at risk. Spield is a young protocol; start small,
+  understand each product, and verify solvency yourself.
+</Callout>
+
+## Smart-contract risk
+
+Like any on-chain protocol, Spield runs on code. A bug could in principle affect funds.
+
+**Mitigations.** The protocol is built defensively: solvency is re-checked on every operation;
+contracts follow checks-effects-interactions; reentrancy is prevented by the platform and by
+design; amounts are bounded; and each contract publishes its live code hash so you can verify
+exactly what's running. Upgrades are **timelocked**, giving users a window to exit before code
+under their funds changes.
+
+**Your part.** Prefer the official app and verified addresses, and check the current audit
+status before depositing large amounts.
+
+## Yield-source risk
+
+Spield sources yield from an external lending market (Blend). Spield inherits that market's
+health.
+
+**What it means.** If the lending market functions normally, Spield works as designed. If it
+were to pause withdrawals or suffer a problem, payouts would wait on it, and in a severe
+adverse event the backing could be affected.
+
+**Mitigations.** Spield uses a deep, blue-chip lending pool; it only **supplies** USDC (never
+borrows), minimizing direct exposure; and it states this dependency openly. The solvency view
+remains readable even if the underlying pool were frozen — Spield doesn't paper over a
+yield-source outage.
+
+## Market risk (PT before maturity)
+
+A PT held **to maturity** returns par (1.0). But its **market price before maturity** moves
+with interest rates, like any bond.
+
+**What it means.** If you sell PT early when rates have risen, you may receive less than you
+paid. Held to maturity, you get the full fixed return.
+
+**Mitigations.** None needed for hold-to-maturity savers — the fixed outcome is guaranteed at
+maturity. If you might exit early, size accordingly and watch the market price.
+
+## YT-specific risk
+
+YT is the **higher-risk** leg. It's a leveraged claim on yield and can **decay to zero** by
+maturity if the position earns little.
+
+**What it means.** If realized yield underperforms the implied APY, YT can lose most or all of
+its value. That's the trade-off for its upside leverage.
+
+**Mitigations.** This is inherent to the instrument — it isn't a flaw to be fixed. Only go
+[long yield](/docs/guides/long-yield) if you understand and accept this. You can claim accrued
+yield along the way and exit any time.
+
+## Liquidity & slippage risk
+
+Trades on the market are subject to available liquidity and slippage.
+
+**What it means.** Large trades on a thin pool get worse prices, and a trade can exceed
+available liquidity.
+
+**Mitigations.** Every trade shows a live quote and respects a **slippage tolerance** you set;
+if a trade would exceed liquidity, the app tells you rather than executing a bad fill. LPs can
+always withdraw, so liquidity isn't trapped.
+
+## Admin / governance risk
+
+Spield has an operational admin during its early phase.
+
+**What the admin can do.** Pause *new* inflows, adjust rates/fees within on-chain ceilings, and
+schedule **timelocked** upgrades.
+
+**What the admin cannot do.** Move user funds, mint unbacked tokens, drain reserves, or bypass
+the upgrade timelock — those capabilities don't exist. A pause can never trap funds: exits
+(claims, redemptions, recombine, LP withdrawals) always stay open.
+
+**Mitigations.** Bounded powers by design, two-step admin rotation, and a timelock on upgrades.
+The admin is pathed toward a multisig as the protocol matures. See
+[Architecture: trust model](/docs/developers/architecture#trust-model-honest-summary).
+
+## Bridge risk (only if you use it)
+
+The optional [cross-chain bridge](/docs/features/cross-chain-bridge) is separate
+infrastructure with its own risk profile.
+
+**Mitigations.** Spield integrates a reputable provider (Allbridge Core), and the bridge is
+purely a convenience for getting USDC onto Stellar — it's never part of how your position is
+held. If you'd rather avoid it, withdraw USDC directly on Stellar from an exchange.
+
+## How to stay safe
+
+- Verify you're on the **official app URL**; never enter your recovery phrase into a website.
+- **Simulate / review** every transaction before signing — the app shows you what will happen.
+- Check the **[Solvency dashboard](/docs/features/solvency-dashboard)** any time you want reassurance.
+- Start with **small amounts**, and only scale up once you're comfortable.
+- Keep your wallet's recovery phrase **offline and private**.
+
+<Callout title="Transparency is the point">
+  Spield exposes its solvency, its code hashes, its pause/admin state, and all its events
+  on-chain so you can verify rather than trust. Use that — it's there for you.
+</Callout>

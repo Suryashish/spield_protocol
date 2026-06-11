@@ -1,0 +1,127 @@
+---
+title: Contracts reference
+description: The public function surface of Spield's contracts — the reads and writes you call to integrate with the tokenization engine, vault, and market.
+icon: FileCode
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+This is the **public interface** of each Spield contract — the entry points you call. Reads
+are free simulations; writes require the caller to authorize. Function names are shown exactly
+as they appear on-chain.
+
+<Callout title="Units">
+  Token amounts (`amount`, `payout`, balances) are integers in **base units** (7 decimals).
+  Rates/prices (`pt_price`, `implied_apy`, `current_rate`) are **12-decimal fixed point**.
+  See [Tokens](/docs/developers/tokens).
+</Callout>
+
+<Tabs items={['Tokenization engine', 'Fixed-Rate Vault', 'Market', 'Yield adapter']}>
+
+<Tab value="Tokenization engine">
+
+The core contract: mints PT + YT against USDC, manages positions, and enforces solvency.
+
+**Writes**
+
+| Function | Description |
+| --- | --- |
+| `mint(user, amount) -> u64` | Deposit `amount` USDC; mint `amount` PT + `amount` YT to `user`; returns the new position id. |
+| `claim_yield(position_id) -> i128` | Claim a position's accrued yield (paid in USDC). Keeps the YT. Returns USDC paid. |
+| `redeem_pt(position_id, amount) -> i128` | At/after maturity, redeem `amount` PT 1:1 for USDC. |
+| `combine_and_redeem(position_id, amount) -> (i128, i128)` | Any time: burn equal PT + YT to redeem principal (auto-claims yield first). Returns `(principal, yield_claimed)`. |
+| `transfer_position(position_id, to)` | Transfer a whole position (and its PT/YT) to a new owner. |
+| `bump_position(position_id)` | Permissionless: extend a position's storage lifetime. |
+
+**Reads**
+
+| Function | Returns |
+| --- | --- |
+| `position_value(position_id)` | A position's live value: principal, claimable yield, PT/YT amounts, open flag. |
+| `get_position(position_id)` | The raw position record (incl. owner). |
+| `solvency()` | `(backing, principal, unclaimed_yield)` — the protocol-wide solvency figures. |
+| `maturity()` | The market maturity (unix seconds). |
+| `is_paused()` | Whether inflows are paused. |
+| `pt_token()` / `yt_token()` / `underlying()` | The PT, YT, and USDC asset addresses. |
+| `version()` / `code_hash()` | Human-readable version and the live deployed code hash. |
+
+</Tab>
+
+<Tab value="Fixed-Rate Vault">
+
+A product on top of the engine: deposit USDC, lock a guaranteed payout.
+
+**Writes**
+
+| Function | Description |
+| --- | --- |
+| `deposit(user, amount) -> u64` | Deposit `amount` USDC, lock the current fixed rate, and issue a receipt. Returns the receipt id. |
+| `redeem(receipt_id) -> i128` | At/after maturity, redeem a receipt for its full payout in USDC. |
+| `seed(from, amount) -> u64` | Add coupon capacity (mints PT inventory). Creates no liability. |
+| `harvest(max_positions) -> (i128, i128)` | Permissionless upkeep: claim retained YT yield and reinvest as PT capacity (paginated). |
+
+**Reads**
+
+| Function | Returns |
+| --- | --- |
+| `quote(amount)` | `(payout, coupon, rate_bps)` — what a deposit of `amount` would lock in right now. |
+| `stats()` | Vault health: PT inventory, YT inventory, total liability, coupon capacity, rate, maturity. |
+| `get_receipt(receipt_id)` | A receipt's details (owner, principal, payout, rate, maturity, open). |
+| `rate_bps()` / `maturity()` / `is_paused()` | Current quoted rate, maturity, pause state. |
+
+</Tab>
+
+<Tab value="Market">
+
+The time-decay AMM for trading PT against USDC.
+
+**Writes**
+
+| Function | Description |
+| --- | --- |
+| `add_liquidity(lp, pt_in, usdc_in) -> i128` | Provide PT + USDC; returns LP shares minted. |
+| `remove_liquidity(lp, shares) -> (i128, i128)` | Burn shares; returns `(pt_out, usdc_out)`. Allowed any time. |
+| `swap_exact_pt_for_usdc(trader, pt_in, min_usdc_out) -> i128` | Sell PT for USDC, with a slippage floor. |
+| `swap_exact_usdc_for_pt(trader, usdc_in, min_pt_out) -> i128` | Buy PT with USDC, with a slippage floor. |
+
+**Reads** (all panic-free — return `0` for an undefined/empty state)
+
+| Function | Returns |
+| --- | --- |
+| `quote_pt_for_usdc(pt_in)` / `quote_usdc_for_pt(usdc_in)` | USDC/PT out for a hypothetical swap. |
+| `pt_price()` | PT price in USDC (12-dp fixed point); drifts to par near maturity. |
+| `implied_apy()` | The headline implied APY (12-dp fraction; `0.08` = 8%). |
+| `reserves()` | `(pt_reserve, usdc_reserve)`. |
+| `lp_position(lp)` | `(shares, pt_claim, usdc_claim)`. |
+| `fee_bps()` / `maturity()` / `is_paused()` | Fee, maturity, pause state. |
+
+</Tab>
+
+<Tab value="Yield adapter">
+
+The translator to the external yield source. You rarely call this directly — the engine does —
+but it exposes useful read-only views.
+
+**Reads**
+
+| Function | Returns |
+| --- | --- |
+| `current_rate()` | The live yield-source exchange rate (12-dp fixed point). Its growth over time is the realized yield. |
+| `position_value(shares)` | The USDC value of `shares` at the live rate. |
+| `total_shares()` | The protocol's total position in the yield source. |
+| `underlying()` / `pool()` | The USDC asset and the yield-source pool address. |
+| `rate_bound()` | `(last_rate, last_ts, max_apr_bps)` — the rate sanity-bound state (for monitoring). |
+
+</Tab>
+
+</Tabs>
+
+## Common patterns
+
+- **Governance & safety reads** are available on every contract: `admin()`, `pending_admin()`, `pending_upgrade()`, `timelock()`, `code_hash()`, `version()` — useful for monitoring dashboards.
+- **Authorization.** Write calls require the relevant party (`user`, `lp`, `trader`, owner) to authorize — i.e. the user's wallet signs. There are no functions that let a third party move someone else's funds.
+- **Pause semantics.** When paused, *inflows* (`mint`, `deposit`, `seed`, `add_liquidity`, swaps) are blocked; *exits* (`claim_yield`, `redeem_pt`, `combine_and_redeem`, vault `redeem`, `remove_liquidity`) always remain open.
+
+Next: how to actually [read this state](/docs/developers/reading-state) and
+[submit transactions](/docs/developers/integrating).

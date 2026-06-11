@@ -1,0 +1,57 @@
+---
+title: Why Stellar?
+description: Why Spield is built on Stellar — real institutional yield, low fees, fast finality, and a native lending market to source yield from.
+icon: Orbit
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A yield-stripping protocol is only as good as the yield it can strip. Spield is built on
+**Stellar** because Stellar offers something rare: **real, high-quality yield** plus the
+performance characteristics that make a fixed-income product practical.
+
+## Real yield to strip
+
+Stellar has become a leading home for **regulated, real-world-asset (RWA) yield** and a
+healthy native lending market. That matters because Spield's whole job is to *restructure*
+yield — so the quality and realness of the underlying yield is the foundation everything
+sits on.
+
+Spield sources its yield from **Blend**, Stellar's primary lending market, where USDC
+earns genuine borrower-paid interest that accrues on-chain. There's no synthetic or
+"promised" rate involved — see [The Yield Source](/docs/how-it-works/yield-source).
+
+## The right performance profile
+
+Fixed-income products involve lots of small, frequent operations — deposits, claims,
+redemptions, trades, liquidity moves. That only works on a chain that is:
+
+| Property | Why it matters for Spield |
+| --- | --- |
+| **Low fees** | Claiming a few cents of yield or rebalancing a small position has to be economical. |
+| **Fast finality** | Trades and redemptions confirm in seconds, so the UX feels instant. |
+| **Native USDC** | Circle's USDC lives on Stellar directly — the asset users deposit *and* the asset PT redeems into, with no wrapping. |
+| **Smart contracts (Soroban)** | Stellar's contract platform runs the protocol logic securely and cheaply. |
+
+## No bridges in the core
+
+Many cross-chain "yield" products inherit risk from bridges and relayers — the parts that
+have historically been the most exploited in crypto. Spield's **core protocol is
+Stellar-native only**:
+
+- The asset you deposit (USDC) is native to Stellar.
+- The asset PT redeems into is the same native USDC.
+- There is no cross-chain message-passing or single-signer relayer anywhere in the value path.
+
+<Callout type="info" title="Bridging is optional, and only at the edge">
+  Spield *does* offer an optional [cross-chain bridge](/docs/features/cross-chain-bridge)
+  so you can bring USDC over from other chains. But that bridge only moves funds **to the
+  doorstep** — once your USDC is on Stellar, everything Spield does is native. The bridge
+  is a convenience for getting in, never part of how the protocol holds or grows your money.
+</Callout>
+
+## In short
+
+Stellar gives Spield **real yield to work with**, **fees low enough** for fixed-income
+mechanics to make sense, **fast settlement**, and a **bridge-free core**. That combination
+is what makes a credible on-chain bond market possible.

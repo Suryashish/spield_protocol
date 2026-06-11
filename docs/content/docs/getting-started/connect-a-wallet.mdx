@@ -1,0 +1,90 @@
+---
+title: Connect a wallet
+description: How to install a Stellar wallet and connect it to Spield. Supports Freighter, xBull, Rabet, Hana, LOBSTR, and Albedo.
+icon: Wallet
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+To use Spield you connect a **Stellar wallet** — a browser extension (or web wallet) that
+holds your keys and signs transactions. You stay in control: Spield never has access to your
+secret key, and every action requires your approval in the wallet.
+
+## Supported wallets
+
+Spield works with the major Stellar wallets:
+
+| Wallet | Type | Notes |
+| --- | --- | --- |
+| **Freighter** | Browser extension | The most widely used Stellar wallet; a great default. |
+| **xBull** | Extension / web | Feature-rich, supports hardware wallets. |
+| **Rabet** | Browser extension | Lightweight and simple. |
+| **Hana** | Browser extension | Multi-chain wallet with Stellar support. |
+| **LOBSTR** | Extension (signer) | Popular mobile-first wallet; uses its signer extension on desktop. |
+| **Albedo** | Web-based | Nothing to install — signs in a popup window. |
+
+<Callout type="info">
+  Don't have one yet? **Freighter** is the simplest place to start. Install it, create a
+  wallet, and back up your recovery phrase somewhere safe.
+</Callout>
+
+## Connect to Spield
+
+<Steps>
+
+<Step>
+### Install a wallet
+
+Add a wallet extension from its official source and create (or import) an account. Write
+down your recovery phrase and keep it offline.
+</Step>
+
+<Step>
+### Open the Spield app
+
+Go to the Spield app and click **Connect Wallet** in the top-right corner.
+</Step>
+
+<Step>
+### Choose your wallet
+
+Pick your wallet from the list. Installed wallets are highlighted; web wallets like Albedo
+always work.
+</Step>
+
+<Step>
+### Approve the connection
+
+Your wallet pops up asking to connect. Approve it. Spield now shows your address and
+balances — you're connected.
+</Step>
+
+</Steps>
+
+## Make sure you're on the right network
+
+<DevPhaseNote />
+
+Spield is currently **live on Stellar testnet**, with **mainnet launching soon**. Set your
+wallet to the network the app is on (today: **Testnet**), so you can try everything with free
+test funds. Most wallets switch networks from their settings in one click, and Spield will
+prompt you if your wallet is on the wrong one.
+
+When mainnet goes live, the same flow applies on the **Stellar public network** — just switch
+your wallet to it.
+
+<Callout type="warn" title="Always verify the URL">
+  Before connecting, double-check you're on the official Spield app domain. Bookmark it.
+  Wallet phishing usually relies on look-alike URLs — never enter your recovery phrase into
+  any website, ever. A legitimate site will only ask you to *approve transactions* in your
+  wallet's own popup.
+</Callout>
+
+## Disconnecting
+
+Click your address in the top-right and choose **Disconnect**. This just forgets the session
+in your browser — your funds and wallet are unaffected.
+
+Next: [Funding your wallet with USDC](/docs/getting-started/funding-your-wallet).

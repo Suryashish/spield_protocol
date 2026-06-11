@@ -1,0 +1,34 @@
+---
+title: Features overview
+description: The complete set of Spield features — the Fixed-Rate Vault, PT/YT tokens, the yield market, liquidity provision, the cross-chain bridge, and the live solvency dashboard.
+icon: Library
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card';
+import { Lock, Split, LineChart, Droplets, ArrowRightLeft, ShieldCheck } from 'lucide-react';
+
+Spield is one protocol with several products built on top of the same solvent core. Use the
+one that matches what you want.
+
+<Cards>
+  <Card icon={<Lock />} title="Fixed-Rate Vault" href="/docs/features/fixed-rate-vault" description="The flagship product: deposit USDC, lock a guaranteed return by a set date. No PT/YT knowledge needed." />
+  <Card icon={<Split />} title="PT & YT tokens" href="/docs/features/pt-yt-tokens" description="The building blocks — a fixed-rate bond (PT) and a leveraged yield token (YT), as real, composable assets." />
+  <Card icon={<LineChart />} title="The yield market" href="/docs/features/yield-market" description="A time-decay AMM for trading PT and YT, with a live implied-APY headline." />
+  <Card icon={<Droplets />} title="Liquidity" href="/docs/features/liquidity" description="Provide PT + USDC to the market and earn swap fees with near-zero IL at maturity." />
+  <Card icon={<ArrowRightLeft />} title="Cross-chain bridge" href="/docs/features/cross-chain-bridge" description="Bring USDC to Stellar from Ethereum, BSC, Polygon, Arbitrum, Solana, or Tron." />
+  <Card icon={<ShieldCheck />} title="Solvency dashboard" href="/docs/features/solvency-dashboard" description="Live, on-chain proof that the protocol is fully backed — verify it yourself." />
+</Cards>
+
+## Which product is right for me?
+
+| If you want to… | Use… |
+| --- | --- |
+| Lock a guaranteed return, simplest possible | **Fixed-Rate Vault** |
+| Hold the bond directly, or trade it | **PT** (via Deposit / the market) |
+| Take a leveraged view on yield | **YT** (via the market's Long Yield flow) |
+| Earn fees from trading activity | **Liquidity** |
+| Move USDC over from another chain | **Cross-chain bridge** |
+| Verify the protocol is safe | **Solvency dashboard** |
+
+Each feature page explains what it does and how to use it — without exposing how it's built
+internally. For the mechanics, see [How It Works](/docs/how-it-works).
