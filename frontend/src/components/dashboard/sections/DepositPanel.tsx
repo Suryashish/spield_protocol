@@ -163,12 +163,21 @@ const DepositPanel = () => {
         )}
 
         {needsTrustlines && (
-          <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2.5 text-xs text-foreground">
-            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
-            <span>
-              One-time setup: your wallet needs trustlines to receive PT &amp; YT. This is a single,
-              free transaction — approve it, then deposit.
-            </span>
+          <div className="space-y-2 rounded-xl border border-primary/25 bg-primary/[0.07] p-4 text-xs">
+            <div className="flex items-center gap-2 font-semibold text-foreground">
+              <ShieldCheck size={15} className="shrink-0 text-primary" />
+              One-time wallet setup — takes 5 seconds
+            </div>
+            <p className="text-muted-foreground leading-relaxed">
+              Before you can receive PT &amp; YT tokens, your wallet needs to &quot;trust&quot; them.
+              This is a <span className="font-semibold text-foreground">free, one-click step</span> — no USDC
+              will leave your wallet. After you approve it, you can deposit immediately.
+            </p>
+            <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+              <li>Click <span className="font-medium text-foreground">Enable PT &amp; YT</span> below</li>
+              <li>Approve the transaction in Freighter (no cost)</li>
+              <li>Come back here and deposit your USDC</li>
+            </ol>
           </div>
         )}
 

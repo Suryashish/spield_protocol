@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, RefreshCw, ShieldCheck, Coins, TrendingUp, Lock, Droplets, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ import LpPanel from '@/components/dashboard/sections/LpPanel';
 import LpStatsStrip from '@/components/dashboard/sections/LpStatsStrip';
 import LpPositionPanel from '@/components/dashboard/sections/LpPositionPanel';
 import BridgeSection from '@/components/dashboard/sections/BridgeSection';
-import { navById } from '@/components/dashboard/data';
+import { navById, NAV_ITEMS } from '@/components/dashboard/data';
 
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
@@ -468,9 +469,24 @@ const WhySolvency = () => {
 /* ----------------------------------------------------------------- page */
 
 const DashboardPage = () => {
+  const [searchParams] = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
-  const [activeNav, setActiveNav] = useState('overview');
+  // Initialise the active section from the URL ?section= param so links from
+  // the landing page (e.g. /dashboard?section=deposit) open the right view.
+  const [activeNav, setActiveNav] = useState(() => {
+    const param = searchParams.get('section') ?? 'overview';
+    // Guard against unknown section ids — fall back to overview.
+    return NAV_ITEMS.some((n) => n.id === param) ? param : 'overview';
+  });
   const { refresh, refreshing, stale } = useProtocol();
+
+  // If the URL param changes (e.g. user navigates via browser back/forward), sync.
+  useEffect(() => {
+    const param = searchParams.get('section');
+    if (param && NAV_ITEMS.some((n) => n.id === param)) {
+      setActiveNav(param);
+    }
+  }, [searchParams]);
 
   const nav = navById(activeNav);
   const Section = SECTIONS[nav.id] ?? OverviewSection;

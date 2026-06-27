@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, TrendingUp, Wallet, Droplets } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { Reveal, Section, SectionGlow, SectionHeading } from '@/components/ui/Section';
 
@@ -75,31 +76,34 @@ const PRODUCTS = [
     badge: 'Fixed',
     title: 'Earn fixed yield',
     body: 'Buy PT at a discount and redeem 1:1 at maturity — your rate is locked the moment you buy.',
-    metric: { value: '8.4%', label: 'Fixed APY' },
+    metric: { value: '8.4%', label: 'Fixed APY', note: 'illustrative' },
     risk: 1,
     visual: <FixedVisual />,
     points: ['Predictable returns', 'No liquidation risk'],
+    href: '/dashboard?section=vault',
   },
   {
     icon: TrendingUp,
     badge: 'Leverage',
     title: 'Lever up on yield',
     body: 'Buy YT cheap for amplified exposure. If yields beat the implied APY, YT captures the upside.',
-    metric: { value: '~9×', label: 'Rate exposure' },
+    metric: { value: '~9×', label: 'Rate exposure', note: 'illustrative' },
     risk: 3,
     visual: <LeverageVisual />,
     points: ['Capital efficient', 'Claim yield anytime'],
     featured: true,
+    href: '/dashboard?section=deposit',
   },
   {
     icon: Droplets,
     badge: 'LP',
     title: 'Provide liquidity',
     body: 'Supply the time-decay AMM and earn swap fees. Fixed maturity means near-zero IL if you hold.',
-    metric: { value: '3.2%', label: 'Fee APR' },
+    metric: { value: '3.2%', label: 'Fee APR', note: 'illustrative' },
     risk: 2,
     visual: <LpVisual />,
     points: ['Earn trading fees', 'IL-free at maturity'],
+    href: '/dashboard?section=liquidity',
   },
 ];
 
@@ -174,8 +178,11 @@ const Products = () => {
                       <div className="font-display text-2xl leading-none text-white tabular-nums">
                         {p.metric.value}
                       </div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/35">
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-white/35">
                         {p.metric.label}
+                        <span className="rounded-full border border-white/10 px-1.5 py-0.5 text-[8px] normal-case tracking-normal text-white/25">
+                          {p.metric.note}
+                        </span>
                       </div>
                     </div>
                     <RiskMeter level={p.risk} />
@@ -194,7 +201,8 @@ const Products = () => {
                 </ul>
 
                 {/* CTA pinned to bottom */}
-                <button
+                <Link
+                  to={p.href}
                   className={`mt-7 flex items-center justify-between gap-1.5 rounded-xl px-4 py-3 text-[11px] font-bold uppercase tracking-[0.18em] transition-colors ${
                     p.featured
                       ? 'bg-brand-primary text-[#021511] hover:bg-brand-primary/90'
@@ -203,7 +211,7 @@ const Products = () => {
                 >
                   Explore
                   <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" />
-                </button>
+                </Link>
               </div>
             </div>
           </Reveal>

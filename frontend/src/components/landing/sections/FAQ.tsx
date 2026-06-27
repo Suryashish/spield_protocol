@@ -6,20 +6,58 @@ import { Reveal, Section, SectionGlow, SectionHeading } from '@/components/ui/Se
 
 const QA = [
   {
+    q: 'How do I set up a wallet and get started?',
+    a: (
+      <span className="block space-y-2">
+        <span>Getting started with Spield is simple and takes less than a minute:</span>
+        <span className="block pl-4 border-l border-brand-primary/30 space-y-1">
+          <span className="block">
+            1. Install the official Stellar wallet extension,{' '}
+            <a
+              href="https://www.freighter.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-primary hover:underline font-medium"
+            >
+              Freighter
+            </a>.
+          </span>
+          <span className="block">
+            2. Open the Freighter extension, switch the network to <strong>Testnet</strong>, and copy your public address.
+          </span>
+          <span className="block">
+            3. Visit the{' '}
+            <a
+              href="https://friendbot.stellar.org/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-primary hover:underline font-medium"
+            >
+              Stellar Friendbot
+            </a>, paste your address, and fund your wallet with free test XLM.
+          </span>
+          <span className="block">
+            4. Go to the Spield Dashboard, click <strong>Connect Wallet</strong>, and start depositing or trading!
+          </span>
+        </span>
+      </span>
+    ),
+  },
+  {
     q: 'What exactly is a PT and a YT?',
-    a: 'When you deposit, Spield mints equal amounts of a Principal Token (PT) and a Yield Token (YT). PT is a zero-coupon bond that redeems 1:1 for your principal at maturity. YT is a claim on all the yield that position generates until maturity. Together they always equal the value of the original position.',
+    a: 'When you deposit, Spield mints equal amounts of a Principal Token (PT) and a Yield Token (YT). PT is a zero-coupon bond — like a government savings bond — that redeems 1:1 for your principal at maturity. YT is a claim on all the yield that position generates until maturity. Together they always equal the value of the original position.',
   },
   {
     q: 'Where does the yield actually come from?',
     a: 'From Blend — a native Stellar lending market. Your USDC becomes a Blend supply position whose bToken exchange rate genuinely rises on-chain. There is no invented index and no bridged asset; the backing grows with the real rate.',
   },
   {
-    q: 'How is this different from v1?',
-    a: 'v1 used an off-chain index with nothing backing the rising value, plus a fake fixed-price orderbook and broken accounting. v2 sources yield from an asset that accrues on-chain, prices PT/YT through a real time-decay AMM, and uses per-position accounting that never loses or fabricates yield.',
+    q: 'Is there any bridge or cross-chain risk?',
+    a: 'No. Spield is Stellar-native only. Both the underlying asset and settlement currency (USDC) live on Stellar. There is no EVM bridge and no single-signer relayer — you are not exposed to cross-chain security risks.',
   },
   {
-    q: 'Is there any bridge or cross-chain risk?',
-    a: 'No. Spield is Stellar-native only. Both the underlying and settlement (USDC) live on Stellar as SACs. There is no EVM bridge and no single-signer relayer — an entire class of v1 trust holes is deleted.',
+    q: 'What is the minimum and maximum deposit?',
+    a: 'There is no enforced minimum — you can deposit any positive USDC amount. The practical floor is whatever covers Stellar transaction fees (a fraction of a cent). On the upper end, the vault has a configurable capacity limit set by the protocol admin; the current capacity is displayed on the Deposit page. Deposits revert if the cap is reached, so check the available capacity before depositing a large amount.',
   },
   {
     q: 'Can I lose money holding PT?',
@@ -77,7 +115,7 @@ const FAQ = () => {
                       transition={{ duration: 0.3, ease: 'easeOut' }}
                       className="overflow-hidden"
                     >
-                      <p className="px-6 pb-5 text-sm leading-relaxed text-white/45">{item.a}</p>
+                      <div className="px-6 pb-5 text-sm leading-relaxed text-white/45">{item.a}</div>
                     </motion.div>
                   )}
                 </AnimatePresence>
