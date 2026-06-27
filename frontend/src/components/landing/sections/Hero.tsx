@@ -233,7 +233,7 @@ const Hero = () => {
                 <iframe
                   width="100%"
                   height="100%"
-                  src="https://www.youtube.com/embed/CPBsyChmcT4?autoplay=1"
+                  src="https://drive.google.com/file/d/1qbdGYqC91zDo-nQdYDWT2lJGanPNXNon/preview"
                   title="Understanding Spield Protocol"
                   frameBorder="0"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
