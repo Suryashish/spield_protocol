@@ -12,9 +12,10 @@ invented index.
 
 [![Live App](https://img.shields.io/badge/Live_App-spield--protocol.vercel.app-7c3aed?style=for-the-badge)](https://spield-protocol.vercel.app/)
 [![Demo Video](https://img.shields.io/badge/▶_Demo_Video-Drive-ff0000?style=for-the-badge)](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY)
+[![Pitch Deck](https://img.shields.io/badge/📊_Pitch_Deck-Drive-2ea44f?style=for-the-badge)](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing)
 [![X / Twitter](https://img.shields.io/badge/Follow-@spield__-000000?style=for-the-badge&logo=x)](https://x.com/spield_)
 
-**🌐 [Live App](https://spield-protocol.vercel.app/) · ▶️ [Demo Walkthrough](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · 🐦 [@spield_](https://x.com/spield_) · 💻 [GitHub](https://github.com/Suryashish/spield_protocol)**
+**🌐 [Live App](https://spield-protocol.vercel.app/) · ▶️ [Demo Walkthrough](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · 📊 [Pitch Deck](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) · 🐦 [@spield_](https://x.com/spield_) · 💻 [GitHub](https://github.com/Suryashish/spield_protocol)**
 
 </div>
 
@@ -288,7 +289,7 @@ and [`contract/spield/README.md`](./contract/spield/README.md).
 | Proof of 50+ users | ✅ | [User addresses & feedback sheet](https://docs.google.com/spreadsheets/d/1zb5vYk3DO7ArHHYuLLj-_hXUoXemz4GD0q-6TFErQaU/edit?usp=sharing) |
 | User feedback iteration summary | ✅ | [Feedback section](#-user-feedback--what-we-shipped) · commit [`cb278c2`](https://github.com/Suryashish/spield_protocol/commit/cb278c26ef7b1e4db94bcbc3f72309938b65b145) |
 | User addresses & feedback | ✅ | [Sheet](https://docs.google.com/spreadsheets/d/1zb5vYk3DO7ArHHYuLLj-_hXUoXemz4GD0q-6TFErQaU/edit?gid=0#gid=0) · [Form](https://docs.google.com/forms/d/e/1FAIpQLSfw1iGi2I3E-c8o2LxzeQZf51Hl5aamt07GNglS_JXdNRQOkw/viewform?usp=publish-editor) |
-| PPT / Pitch deck | ⏳ | _to be attached_ |
+| PPT / Pitch deck | ✅ | [Pitch deck (Drive)](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) |
 
 ---
 
@@ -296,6 +297,6 @@ and [`contract/spield/README.md`](./contract/spield/README.md).
 
 **Spield Protocol** — fixed income, bonds, and a yield market for Stellar.
 
-[🌐 App](https://spield-protocol.vercel.app/) · [▶️ Demo](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · [🐦 X](https://x.com/spield_) · [💻 GitHub](https://github.com/Suryashish/spield_protocol)
+[🌐 App](https://spield-protocol.vercel.app/) · [▶️ Demo](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · [📊 Pitch Deck](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) · [🐦 X](https://x.com/spield_) · [💻 GitHub](https://github.com/Suryashish/spield_protocol)
 
 </div>

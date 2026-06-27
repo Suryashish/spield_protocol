@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import LandingPage from '@/pages/LandingPage';
 import DashboardPage from '@/pages/DashboardPage';
 import { WalletProvider } from '@/context/WalletContext';
@@ -20,6 +21,7 @@ function App() {
                   <Route path="/dashboard" element={<DashboardPage />} />
                 </Routes>
               </Router>
+              <Analytics />
             </ProtocolProvider>
           </ToastProvider>
         </WalletProvider>
