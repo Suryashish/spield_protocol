@@ -24,7 +24,7 @@ const STEPS = [
     n: '03',
     icon: LineChart,
     title: 'Trade or hold',
-    body: 'Lock a fixed APY by holding PT, lever up on the rate with YT, or LP the time-decay AMM — IL-free if you stay to maturity.',
+    body: 'Lock a fixed APY by holding PT, lever up on the rate with YT, or LP the time-decay AMM, IL-free if you stay to maturity.',
     chip: 'Fixed · Lever · LP',
   },
 ];

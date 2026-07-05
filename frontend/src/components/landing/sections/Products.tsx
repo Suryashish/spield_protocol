@@ -75,7 +75,7 @@ const PRODUCTS = [
     icon: Wallet,
     badge: 'Fixed',
     title: 'Earn fixed yield',
-    body: 'Buy PT at a discount and redeem 1:1 at maturity — your rate is locked the moment you buy.',
+    body: 'Buy PT at a discount and redeem 1:1 at maturity. Your rate is locked the moment you buy.',
     metric: { value: '8.4%', label: 'Fixed APY', note: 'illustrative' },
     risk: 1,
     visual: <FixedVisual />,
@@ -130,7 +130,7 @@ const Products = () => {
       <SectionHeading
         eyebrow="Products"
         title={<>Choose your exposure to yield</>}
-        subtitle="Certainty, leverage, or fees — Spield turns one yield stream into three distinct strategies."
+        subtitle="Certainty, leverage, or fees: Spield turns one yield stream into three distinct strategies."
       />
 
       <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-4">

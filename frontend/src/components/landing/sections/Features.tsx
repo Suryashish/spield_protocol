@@ -23,7 +23,7 @@ const SolvencyGraphic = () => {
     { label: 'Obligations', value: 0.82, display: '82%', tone: 'muted' as const },
   ];
   return (
-    <div className="flex w-full max-w-[280px] flex-col gap-4">
+    <div className="flex w-full max-w-115 flex-col gap-4">
       {rows.map((r, i) => (
         <div key={r.label}>
           <div className="mb-1.5 flex items-center justify-between">
@@ -63,23 +63,24 @@ const SolvencyGraphic = () => {
   );
 };
 
-// One position splitting into PT + YT.
+// One position splitting into PT + YT. On hover the source nudges left and the
+// two claims fan out, dramatising the "split".
 const SplitGraphic = () => (
   <div className="flex items-center justify-center gap-3">
-    <div className="grid place-items-center w-14 h-14 rounded-2xl border border-white/10 bg-white/[0.03] text-[10px] font-bold tracking-wider text-white/70">
+    <div className="grid place-items-center w-14 h-14 rounded-2xl border border-white/10 bg-white/[0.03] text-[10px] font-bold tracking-wider text-white/70 transition-transform duration-300 group-hover:-translate-x-0.5">
       USDC
     </div>
-    <svg width="30" height="50" viewBox="0 0 30 50" fill="none" className="text-brand-primary/60">
+    <svg width="30" height="50" viewBox="0 0 30 50" fill="none" className="text-brand-primary/60 transition-colors duration-300 group-hover:text-brand-primary">
       <path d="M2 25h10M12 25l8-12M12 25l8 12M20 13h8M20 37h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
     <div className="flex flex-col gap-2">
       {['PT', 'YT'].map((t) => (
         <div
           key={t}
-          className={`grid place-items-center w-12 h-9 rounded-xl text-[11px] font-bold ${
+          className={`grid place-items-center w-12 h-9 rounded-xl text-[11px] font-bold transition-transform duration-300 ${
             t === 'YT'
-              ? 'bg-brand-primary/15 text-brand-primary ring-1 ring-brand-primary/25'
-              : 'bg-white/[0.05] text-white/80 ring-1 ring-white/10'
+              ? 'bg-brand-primary/15 text-brand-primary ring-1 ring-brand-primary/25 group-hover:translate-y-0.5'
+              : 'bg-white/[0.05] text-white/80 ring-1 ring-white/10 group-hover:-translate-y-0.5'
           }`}
         >
           {t}
@@ -135,8 +136,10 @@ const CurveGraphic = () => {
         <text x={x1} y={yBot + 16} textAnchor="end" fill="rgba(255,255,255,0.45)" fontSize="9">maturity</text>
       </svg>
 
-      {/* legend — top-right, inside the stage padding */}
-      <div className="absolute right-3 top-2 flex flex-col gap-1.5 text-[9px]">
+      {/* legend — top-left corner. PT starts low (y=96) and YT crosses down to
+          the right, so the upper-left is the one region clear of both curves,
+          the PT endpoint (top-right) and the "maturity" tick (bottom-right). */}
+      <div className="absolute left-11 top-1 flex flex-col gap-1 text-[9px]">
         <span className="flex items-center gap-1.5 text-white/70"><span className="h-[2px] w-4 rounded bg-white/80" />PT price</span>
         <span className="flex items-center gap-1.5 text-brand-primary"><span className="h-[2px] w-4 rounded bg-brand-primary" />YT price</span>
       </div>
@@ -144,19 +147,23 @@ const CurveGraphic = () => {
   );
 };
 
-// Stellar-native: central node, orbit ring, zero bridges badge.
+// Stellar-native: central node, orbit ring, zero bridges badge. On hover the
+// whole orbit (rings + satellite dots) rotates and the core node pulses up.
 const NativeGraphic = () => (
   <div className="relative grid h-full w-full place-items-center">
-    <div className="absolute h-28 w-28 rounded-full border border-white/[0.08]" />
-    <div className="absolute h-20 w-20 rounded-full border border-white/[0.06]" />
-    {[0, 120, 240].map((deg) => (
-      <span
-        key={deg}
-        className="absolute h-2 w-2 rounded-full bg-brand-primary/70 shadow-[0_0_8px_var(--color-brand-glow)]"
-        style={{ transform: `rotate(${deg}deg) translateX(56px)` }}
-      />
-    ))}
-    <div className="relative grid place-items-center h-12 w-12 rounded-full bg-brand-primary/15 ring-1 ring-brand-primary/30 text-brand-primary">
+    {/* rings + dots share one wrapper so they rotate as a rigid system */}
+    <div className="stage-orbit absolute inset-0 grid place-items-center">
+      <div className="absolute h-28 w-28 rounded-full border border-white/[0.08]" />
+      <div className="absolute h-20 w-20 rounded-full border border-white/[0.06]" />
+      {[0, 120, 240].map((deg) => (
+        <span
+          key={deg}
+          className="absolute h-2 w-2 rounded-full bg-brand-primary/70 shadow-[0_0_8px_var(--color-brand-glow)]"
+          style={{ transform: `rotate(${deg}deg) translateX(56px)` }}
+        />
+      ))}
+    </div>
+    <div className="stage-node relative grid place-items-center h-12 w-12 rounded-full bg-brand-primary/15 ring-1 ring-brand-primary/30 text-brand-primary">
       <Zap size={18} />
     </div>
     <span className="absolute bottom-1 inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] px-2.5 py-1 text-[9px] font-semibold text-white/55 ring-1 ring-white/10">
@@ -179,10 +186,14 @@ const PositionsGraphic = () => (
         whileInView={{ opacity: 1, x: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.5, delay: i * 0.1, ease }}
-        className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2"
       >
-        <span className="text-[10px] font-bold tracking-wider text-white/70">{p.id}</span>
-        <span className="font-mono text-[10px] text-brand-primary">idx {p.idx}</span>
+        <div
+          className="stage-row flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2"
+          style={{ transitionDelay: `${i * 40}ms` }}
+        >
+          <span className="text-[10px] font-bold tracking-wider text-white/70">{p.id}</span>
+          <span className="font-mono text-[10px] text-brand-primary">idx {p.idx}</span>
+        </div>
       </motion.div>
     ))}
   </div>
@@ -219,7 +230,7 @@ const CARDS = [
   {
     icon: ShieldCheck,
     title: 'Solvent by construction',
-    caption: 'Real backing grows above obligations — no invented index.',
+    caption: 'Real backing grows above obligations, with no invented index.',
     graphic: <SolvencyGraphic />,
     span: 'lg:col-span-2',
   },
@@ -239,7 +250,7 @@ const CARDS = [
   {
     icon: Repeat,
     title: 'Per-position accounting',
-    caption: 'Every deposit keeps its own index — no lost yield.',
+    caption: 'Every deposit keeps its own index, so no yield is lost.',
     graphic: <PositionsGraphic />,
   },
   {
@@ -252,22 +263,24 @@ const CARDS = [
   {
     icon: Zap,
     title: 'Stellar-native only',
-    caption: 'No bridge, no relayer — settled on one chain.',
+    caption: 'No bridge, no relayer, settled on one chain.',
     graphic: <NativeGraphic />,
   },
 ];
 
 const Card = ({ card, delay }: { card: (typeof CARDS)[number]; delay: number }) => (
   <Reveal delay={delay} className={`${card.span ?? ''} h-full`}>
-    <div className="group flex h-full flex-col rounded-2xl liquid-glass p-5 transition-transform duration-300 hover:-translate-y-1">
+    <div className="feature-card group relative flex h-full flex-col overflow-hidden rounded-2xl liquid-glass p-5">
+      {/* cursor-tracking sheen — a soft brand highlight that fades in on hover */}
+      <span className="feature-card__sheen pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
       <Stage>{card.graphic}</Stage>
-      <div className="mt-5 flex items-center gap-3">
-        <div className="grid place-items-center w-9 h-9 shrink-0 rounded-lg bg-brand-primary/10 text-brand-primary ring-1 ring-brand-primary/20 transition-colors group-hover:bg-brand-primary/15">
-          <card.icon size={16} strokeWidth={2} />
+      <div className="relative mt-5 flex items-center gap-3">
+        <div className="feature-chip grid place-items-center w-9 h-9 shrink-0 rounded-lg text-brand-primary">
+          <card.icon size={16} strokeWidth={1.75} />
         </div>
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-white leading-tight truncate">{card.title}</h3>
-          <p className="mt-0.5 text-xs leading-snug text-white/40">{card.caption}</p>
+          <h3 className="text-sm font-semibold text-white leading-tight transition-colors duration-300 group-hover:text-white">{card.title}</h3>
+          <p className="mt-0.5 text-xs leading-snug text-white/55 transition-colors duration-300 group-hover:text-white/70">{card.caption}</p>
         </div>
       </div>
     </div>
@@ -280,7 +293,7 @@ const Features = () => {
       <SectionHeading
         eyebrow="Why Spield"
         title={<>Fixed income, engineered right</>}
-        subtitle="Every choice answers a real failure mode. Solvency, accounting, and trust — shown, not just stated."
+        subtitle="Every choice answers a real failure mode. Solvency, accounting, and trust: shown, not just stated."
       />
 
       {/* 2-row bento: row 1 = wide solvency + 2 squares · row 2 = 1 square + wide AMM */}

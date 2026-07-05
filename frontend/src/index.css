@@ -226,6 +226,73 @@
   }
 }
 
+/* ---------- Feature cards (Why Spield bento) ---------- */
+/* The card lifts, its border catches more light, and a brand glow blooms.
+   All driven off :hover so it stays cheap and works without JS. */
+.feature-card {
+  transition:
+    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.4s ease;
+  will-change: transform;
+}
+.feature-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+/* faint neutral lift sheen from the top of the card — no brand glow */
+.feature-card__sheen {
+  background: radial-gradient(80% 45% at 50% -10%, rgba(255, 255, 255, 0.025), transparent 65%);
+}
+
+/* Icon chip — a crisp, engineered mark rather than a flat filled square.
+   Beveled inner ring + faint grid feel, and it lifts/brightens with the card. */
+.feature-chip {
+  position: relative;
+  background:
+    linear-gradient(155deg, rgba(0, 255, 204, 0.16), rgba(0, 255, 204, 0.04));
+  border: 1px solid rgba(0, 255, 204, 0.22);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.25);
+  transition:
+    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.35s ease,
+    background 0.35s ease;
+}
+.feature-chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.18), transparent 55%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.group:hover .feature-chip {
+  transform: translateY(-2px);
+  background: linear-gradient(155deg, rgba(0, 255, 204, 0.22), rgba(0, 255, 204, 0.05));
+  border-color: rgba(0, 255, 204, 0.32);
+}
+.group:hover .feature-chip svg {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: rotate(-4deg);
+}
+
+/* Stage-level hover cues, applied to the mini-graphics inside each card.
+   Movement only — no glows. */
+.group:hover .stage-orbit { animation: spin-slow 14s linear infinite; }
+.group:hover .stage-node { transform: scale(1.06); }
+.group:hover .stage-row {
+  transform: translateX(3px);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.stage-node,
+.stage-row { transition: transform 0.35s cubic-bezier(0.16,1,0.3,1), border-color 0.35s ease; }
+
 /* ---------- Keyframes ---------- */
 @keyframes spin-slow {
   to { transform: rotate(360deg); }
@@ -250,6 +317,17 @@
 @media (prefers-reduced-motion: reduce) {
   .glow-ring, .shimmer, .animate-float, .animate-marquee { animation: none; }
   html { scroll-behavior: auto; }
+  /* Feature-card hover motion: keep the subtle color/glow cues, drop movement. */
+  .feature-card,
+  .feature-chip,
+  .stage-node,
+  .stage-row { transition: box-shadow 0.3s ease, border-color 0.3s ease, background 0.3s ease; }
+  .feature-card:hover { transform: none; }
+  .group:hover .feature-chip { transform: none; }
+  .group:hover .feature-chip svg { transform: none; }
+  .group:hover .stage-orbit { animation: none; }
+  .group:hover .stage-node,
+  .group:hover .stage-row { transform: none; }
 }
 
 

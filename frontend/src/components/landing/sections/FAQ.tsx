@@ -45,23 +45,23 @@ const QA = [
   },
   {
     q: 'What exactly is a PT and a YT?',
-    a: 'When you deposit, Spield mints equal amounts of a Principal Token (PT) and a Yield Token (YT). PT is a zero-coupon bond — like a government savings bond — that redeems 1:1 for your principal at maturity. YT is a claim on all the yield that position generates until maturity. Together they always equal the value of the original position.',
+    a: 'When you deposit, Spield mints equal amounts of a Principal Token (PT) and a Yield Token (YT). PT is a zero-coupon bond, like a government savings bond, that redeems 1:1 for your principal at maturity. YT is a claim on all the yield that position generates until maturity. Together they always equal the value of the original position.',
   },
   {
     q: 'Where does the yield actually come from?',
-    a: 'From Blend — a native Stellar lending market. Your USDC becomes a Blend supply position whose bToken exchange rate genuinely rises on-chain. There is no invented index and no bridged asset; the backing grows with the real rate.',
+    a: 'From Blend, a native Stellar lending market. Your USDC becomes a Blend supply position whose bToken exchange rate genuinely rises on-chain. There is no invented index and no bridged asset; the backing grows with the real rate.',
   },
   {
     q: 'Is there any bridge or cross-chain risk?',
-    a: 'No. Spield is Stellar-native only. Both the underlying asset and settlement currency (USDC) live on Stellar. There is no EVM bridge and no single-signer relayer — you are not exposed to cross-chain security risks.',
+    a: 'No. Spield is Stellar-native only. Both the underlying asset and settlement currency (USDC) live on Stellar. There is no EVM bridge and no single-signer relayer, so you are not exposed to cross-chain security risks.',
   },
   {
     q: 'What is the minimum and maximum deposit?',
-    a: 'There is no enforced minimum — you can deposit any positive USDC amount. The practical floor is whatever covers Stellar transaction fees (a fraction of a cent). On the upper end, the vault has a configurable capacity limit set by the protocol admin; the current capacity is displayed on the Deposit page. Deposits revert if the cap is reached, so check the available capacity before depositing a large amount.',
+    a: 'There is no enforced minimum: you can deposit any positive USDC amount. The practical floor is whatever covers Stellar transaction fees (a fraction of a cent). On the upper end, the vault has a configurable capacity limit set by the protocol admin; the current capacity is displayed on the Deposit page. Deposits revert if the cap is reached, so check the available capacity before depositing a large amount.',
   },
   {
     q: 'Can I lose money holding PT?',
-    a: 'PT redeems 1:1 for principal at maturity, so held to maturity it returns your principal plus the locked discount as fixed yield. Before maturity its market price moves with rates, like any bond. YT carries more risk — it can decay to zero if realized yield underperforms the implied APY.',
+    a: 'PT redeems 1:1 for principal at maturity, so held to maturity it returns your principal plus the locked discount as fixed yield. Before maturity its market price moves with rates, like any bond. YT carries more risk: it can decay to zero if realized yield underperforms the implied APY.',
   },
   {
     q: 'Do LPs suffer impermanent loss?',

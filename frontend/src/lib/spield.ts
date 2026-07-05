@@ -42,53 +42,105 @@ const toBig = (v: unknown): bigint => {
 
 // ---------------------------------------------------------------- reads
 
-/** Read a position's live value. Returns `null` if the position doesn't exist. */
-export const getPositionValue = async (positionId: number): Promise<PositionValue | null> => {
-  try {
-    const raw = await readContract<Record<string, unknown>>(CONTRACTS.wrapper, 'position_value', [
-      u64(positionId),
-    ]);
-    if (!raw) return null;
-    return {
-      positionId,
-      principal: toBig(raw.principal),
-      claimableYield: toBig(raw.claimable_yield),
-      ptAmount: toBig(raw.pt_amount),
-      ytAmount: toBig(raw.yt_amount),
-      open: Boolean(raw.open),
-    };
-  } catch {
-    // A non-existent position id makes the contract panic — treat as "no position".
-    return null;
+/**
+ * A read for a position id that doesn't exist panics with `PositionNotFound`
+ * (error #20). That's a *genuine* "no position here" signal and must be told
+ * apart from a transient RPC/network failure — otherwise a network blip looks
+ * identical to an empty slot and silently drops or truncates real positions.
+ * Anything that isn't a not-found panic is treated as transient.
+ */
+const isPositionNotFound = (err: unknown): boolean => {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('PositionNotFound') || /Error\(Contract, ?#20\)/.test(msg);
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Read a position's live value. Returns `null` only if the position genuinely
+ * doesn't exist (`PositionNotFound`). A transient RPC error is retried and, if it
+ * still fails, thrown — so a network blip never masquerades as "no position" and
+ * silently drops a real holding from the list.
+ */
+export const getPositionValue = async (
+  positionId: number,
+  retries = 2,
+): Promise<PositionValue | null> => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const raw = await readContract<Record<string, unknown>>(CONTRACTS.wrapper, 'position_value', [
+        u64(positionId),
+      ]);
+      if (!raw) return null;
+      return {
+        positionId,
+        principal: toBig(raw.principal),
+        claimableYield: toBig(raw.claimable_yield),
+        ptAmount: toBig(raw.pt_amount),
+        ytAmount: toBig(raw.yt_amount),
+        open: Boolean(raw.open),
+      };
+    } catch (err) {
+      if (isPositionNotFound(err)) return null; // real gap
+      if (attempt >= retries) throw err; // transient, out of retries
+      await sleep(150 * (attempt + 1));
+    }
+  }
+};
+
+/**
+ * Read `get_position(id)`, distinguishing three outcomes:
+ *   - `{ ...position }` — the id exists.
+ *   - `null`            — the id genuinely doesn't exist (PositionNotFound).
+ *   - throws            — a transient error persisted through retries; the
+ *                         caller must NOT treat this as "no position".
+ * Transient failures are retried with a short backoff before giving up.
+ */
+const readPositionSlot = async (
+  id: number,
+  retries = 2,
+): Promise<Record<string, unknown> | null> => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const pos = await readContract<Record<string, unknown>>(CONTRACTS.wrapper, 'get_position', [
+        u64(id),
+      ]);
+      return pos ?? null;
+    } catch (err) {
+      if (isPositionNotFound(err)) return null; // real gap, not an error
+      if (attempt >= retries) throw err; // transient, but out of retries → surface it
+      await sleep(150 * (attempt + 1));
+    }
   }
 };
 
 /**
  * Scan position ids from 0 upward, returning those owned by `owner` that still
- * hold PT or YT. We discover ids by reading the raw `Position` (which carries the
- * owner) and stop after a run of missing ids.
+ * hold PT or YT. Ids are global across all users, so this owner's positions can
+ * be interspersed with gaps and other owners' ids.
  *
  * The contract intentionally doesn't expose an owner→positions index on-chain
- * (unbounded iteration), so the dashboard scans — fine for a testnet demo.
+ * (unbounded iteration), so the dashboard scans. We stop only after a long run
+ * of *genuinely missing* ids (`PositionNotFound`), never on a transient RPC
+ * error — a network blip mid-scan throws so the caller keeps the prior list
+ * instead of rendering an empty "No open positions" state.
  */
 export const getOwnerPositions = async (
   owner: string,
-  maxScan = 64,
+  maxScan = 128,
+  /** Stop after this many consecutive genuinely-missing ids (end of the id space). */
+  missStreakLimit = 12,
 ): Promise<PositionValue[]> => {
   const positions: PositionValue[] = [];
   let misses = 0;
-  for (let id = 0; id < maxScan && misses < 5; id++) {
-    let pos: Record<string, unknown> | null;
-    try {
-      pos = await readContract<Record<string, unknown>>(CONTRACTS.wrapper, 'get_position', [
-        u64(id),
-      ]);
-    } catch {
+  for (let id = 0; id < maxScan && misses < missStreakLimit; id++) {
+    const pos = await readPositionSlot(id); // throws on persistent transient failure
+    if (pos === null) {
       misses += 1;
       continue;
     }
     misses = 0;
-    if (!pos || String(pos.owner) !== owner) continue;
+    if (String(pos.owner) !== owner) continue;
     const value = await getPositionValue(id);
     if (value && (value.ptAmount > 0n || value.ytAmount > 0n || value.open)) {
       positions.push(value);

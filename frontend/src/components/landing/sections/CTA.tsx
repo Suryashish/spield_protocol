@@ -32,7 +32,7 @@ const CTA = () => {
             </h2>
 
             <p className="mt-5 max-w-xl mx-auto text-sm md:text-base font-light text-white/45">
-              Fixed rates, leveraged yield, and IL-free liquidity — all on real,
+              Fixed rates, leveraged yield, and IL-free liquidity, all on real,
               on-chain Stellar yield. No bridges, no invented index.
             </p>
 

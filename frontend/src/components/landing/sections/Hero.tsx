@@ -68,7 +68,7 @@ const Hero = () => {
       >
         Split your Blend yield into a fixed-rate{' '}
         <span className="text-white/75 font-medium">Principal Token</span> and a leveraged{' '}
-        <span className="text-white/75 font-medium">Yield Token</span> — and trade real Stellar
+        <span className="text-white/75 font-medium">Yield Token</span>, and trade real Stellar
         yield on-chain.
       </motion.p>
 
@@ -98,7 +98,7 @@ const Hero = () => {
                 <Check size={13} strokeWidth={3} />
               </span>
               <span className="text-sm text-white/80">
-                You're on the list — we'll notify you at launch.
+                You're on the list. We'll notify you at launch.
               </span>
             </motion.div>
           ) : (
@@ -148,7 +148,7 @@ const Hero = () => {
 
         {/* Fine print */}
         <div className="mt-4 flex items-center justify-center gap-4 text-[10px] text-white/50">
-          <span>No spam — just a launch notification.</span>
+          <span>No spam, just a launch notification.</span>
           <span>·</span>
           <a href="#how-it-works" className="hover:text-white/50 transition-colors">
             How it works →

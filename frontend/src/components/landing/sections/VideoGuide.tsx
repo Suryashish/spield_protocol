@@ -7,7 +7,7 @@ const VideoGuide = () => {
       <SectionHeading
         eyebrow="Video Guide"
         title={<>See Spield in action</>}
-        subtitle="A short walkthrough of how splitting, trading, and providing liquidity works — end to end."
+        subtitle="A short walkthrough of how splitting, trading, and providing liquidity works, end to end."
       />
 
       <Reveal className="mt-14 max-w-4xl mx-auto">

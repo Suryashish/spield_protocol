@@ -46,7 +46,7 @@ const Footer = () => {
               <span className="font-heading text-base font-semibold text-white">Spield</span>
             </div>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/40">
-              The fixed-income layer for Stellar. Strip yield, lock rates, and trade time —
+              The fixed-income layer for Stellar. Strip yield, lock rates, and trade time,
               all on real, on-chain backing.
             </p>
             <p className="mt-3 text-xs text-white/30">

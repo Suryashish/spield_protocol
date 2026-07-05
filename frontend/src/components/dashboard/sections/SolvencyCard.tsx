@@ -16,6 +16,14 @@ import { CONTRACTS, explorerContract } from '@/lib/config';
  * Blend backing, the solid fill is the principal it covers, and the remainder is the
  * surplus yield buffer — so "backing ≥ principal" is obvious at a glance.
  */
+/** Surplus can be a tiny sub-cent buffer. Show 2 decimals once it's ≥ $0.01, but
+ *  keep just enough precision (up to 4 dp) for smaller amounts so it stays legible
+ *  without the 6-decimal string that overflowed the compact tile. */
+const formatSurplus = (units: bigint | number | string): string => {
+  const v = fromBaseUnits(units);
+  return v > 0 && v < 0.01 ? formatUsd(units, 4) : formatUsd(units, 2);
+};
+
 const SolvencyCard = () => {
   const { solvency, loading } = useProtocol();
 
@@ -97,15 +105,15 @@ const SolvencyCard = () => {
 
         {/* Figures — also serve as the bar legend via the colored dots. */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <Metric label="Backing (Blend)" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
+          <Metric label="Backing" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
           <Metric
             label="Principal"
             value={formatUsd(solvency?.principal ?? 0n)}
             dot={healthy ? 'bg-emerald-500' : 'bg-red-500'}
           />
           <Metric
-            label="Surplus buffer"
-            value={`+${formatUsd(solvency?.unclaimed ?? 0n, 6)}`}
+            label="Surplus"
+            value={`+${formatSurplus(solvency?.unclaimed ?? 0n)}`}
             accent="positive"
             dot="bg-emerald-500/30"
           />
@@ -146,16 +154,17 @@ const Metric = ({
   /** Optional Tailwind bg-class for a small legend swatch beside the label. */
   dot?: string;
 }) => (
-  <div className="rounded-lg border border-border/50 bg-muted/30 p-2.5 sm:p-3">
+  <div className="min-w-0 rounded-lg border border-border/50 bg-muted/30 p-2.5 sm:p-3">
     <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:gap-1.5 sm:text-xs sm:tracking-wider">
       {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
       <span className="truncate">{label}</span>
     </p>
     <p
       className={cn(
-        'mt-0.5 break-all text-sm font-bold leading-tight tabular-nums sm:mt-1 sm:break-normal sm:text-lg',
+        'mt-0.5 truncate text-sm font-bold leading-tight tabular-nums sm:mt-1 sm:text-base lg:text-lg',
         accent === 'positive' && 'text-emerald-500',
       )}
+      title={value}
     >
       {value}
     </p>

@@ -115,19 +115,42 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
           getMarketStats().catch(() => null),
         ]);
 
-        let nextPositions: PositionValue[] = [];
-        let nextBalances: Balances = EMPTY_BALANCES;
-        let nextTrustlines: TrustlineStatus = EMPTY_TRUSTLINES;
-        let nextReceipts: Receipt[] = [];
-        let nextLp: LpPosition | null = null;
+        // Wallet-specific reads. Each can fail independently; a failed read must
+        // PRESERVE the previous value, not blank it — otherwise a transient RPC
+        // error wipes the user's positions to an empty "No open positions" state.
+        // `undefined` = this read failed → keep prior state; a value (incl. `[]`)
+        // = a real answer → apply it. `anyWalletReadFailed` flags the result stale.
+        let nextPositions: PositionValue[] | undefined;
+        let nextBalances: Balances | undefined;
+        let nextTrustlines: TrustlineStatus | undefined;
+        let nextReceipts: Receipt[] | undefined;
+        let nextLp: LpPosition | null | undefined;
+        let anyWalletReadFailed = false;
         if (isConnected && address) {
-          [nextPositions, nextBalances, nextTrustlines, nextReceipts, nextLp] = await Promise.all([
-            getOwnerPositions(address).catch(() => []),
-            getWalletBalances(address).catch(() => EMPTY_BALANCES),
-            getTrustlines(address).catch(() => EMPTY_TRUSTLINES),
-            getOwnerReceipts(address).catch(() => []),
-            getLpPosition(address).catch(() => null),
+          const [posR, balR, tlR, rcptR, lpR] = await Promise.allSettled([
+            getOwnerPositions(address),
+            getWalletBalances(address),
+            getTrustlines(address),
+            getOwnerReceipts(address),
+            getLpPosition(address),
           ]);
+          if (posR.status === 'fulfilled') nextPositions = posR.value;
+          else anyWalletReadFailed = true;
+          if (balR.status === 'fulfilled') nextBalances = balR.value;
+          else anyWalletReadFailed = true;
+          if (tlR.status === 'fulfilled') nextTrustlines = tlR.value;
+          else anyWalletReadFailed = true;
+          if (rcptR.status === 'fulfilled') nextReceipts = rcptR.value;
+          else anyWalletReadFailed = true;
+          if (lpR.status === 'fulfilled') nextLp = lpR.value;
+          else anyWalletReadFailed = true;
+        } else {
+          // Disconnected: reset wallet state to empty.
+          nextPositions = [];
+          nextBalances = EMPTY_BALANCES;
+          nextTrustlines = EMPTY_TRUSTLINES;
+          nextReceipts = [];
+          nextLp = null;
         }
 
         if (id !== reqId.current) return; // a newer load superseded us
@@ -136,11 +159,15 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
         setPaused(isPaused);
         setVaultStats(vStats);
         setMarketStats(mStats);
-        setPositions(nextPositions);
-        setBalances(nextBalances);
-        setTrustlines(nextTrustlines);
-        setReceipts(nextReceipts);
-        setLpPosition(nextLp);
+        // Only overwrite wallet state when the read actually succeeded.
+        if (nextPositions !== undefined) setPositions(nextPositions);
+        if (nextBalances !== undefined) setBalances(nextBalances);
+        if (nextTrustlines !== undefined) setTrustlines(nextTrustlines);
+        if (nextReceipts !== undefined) setReceipts(nextReceipts);
+        if (nextLp !== undefined) setLpPosition(nextLp);
+        if (anyWalletReadFailed) {
+          setError('Some wallet data failed to load; showing the last known values.');
+        }
         setLastUpdated(Date.now());
       } catch (err) {
         if (id === reqId.current) {
