@@ -231,7 +231,7 @@ const TradePanel = () => {
               Bal: {isConnected ? formatAmount(inBalance) : '0.00'} {inToken}
             </button>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
             <Input
               type="number"
               inputMode="decimal"
@@ -240,7 +240,7 @@ const TradePanel = () => {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={!MARKET_DEPLOYED}
-              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0"
+              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
             <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">
               {inToken}
@@ -259,7 +259,7 @@ const TradePanel = () => {
           <div className="px-0.5 text-xs font-semibold uppercase text-muted-foreground">
             <Label>{mode === 'longYt' ? 'You receive (YT)' : 'You receive (est.)'}</Label>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
             <div className="flex flex-1 items-baseline gap-2">
               <span className="text-lg font-bold tabular-nums">
                 {amountValid && quote != null

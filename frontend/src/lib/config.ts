@@ -159,7 +159,7 @@ export const ASSETS = {
 } as const;
 
 /** Waitlist API URL (same for both networks unless overridden). */
-export const BACKEND_URL = env('VITE_BACKEND_URL', 'https://spield-protocol-waitlistbackend.vercel.app');
+export const BACKEND_URL = env('VITE_BACKEND_URL', 'http://api.spield.live');
 
 /**
  * Cross-chain bridge (Allbridge Core) configuration.

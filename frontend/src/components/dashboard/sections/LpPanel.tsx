@@ -161,7 +161,7 @@ const LpPanel = () => {
                   Bal: {isConnected ? formatAmount(balances.pt) : '0.00'} PT
                 </button>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+              <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
                 <Input
                   type="number"
                   inputMode="decimal"
@@ -170,7 +170,7 @@ const LpPanel = () => {
                   value={ptAmount}
                   onChange={(e) => setPtAmount(e.target.value)}
                   disabled={!MARKET_DEPLOYED}
-                  className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0"
+                  className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
                 />
                 <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">PT</span>
               </div>
@@ -182,7 +182,7 @@ const LpPanel = () => {
                 <Label>USDC required</Label>
                 <span className="normal-case">Bal: {isConnected ? formatAmount(balances.usdc) : '0.00'} USDC</span>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2.5">
+              <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/30 px-3.5 py-3">
                 <span className="flex-1 text-lg font-bold tabular-nums text-muted-foreground">
                   {ptValid ? usdcNeeded.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0.0'}
                 </span>

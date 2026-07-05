@@ -10,12 +10,12 @@ Deposit USDC, earn a **guaranteed fixed rate** — or split your yield-bearing p
 tradable **bond (PT)** and a **yield token (YT)**. Backed by **real, on-chain Blend yield**, not an
 invented index.
 
-[![Live App](https://img.shields.io/badge/Live_App-spield--protocol.vercel.app-7c3aed?style=for-the-badge)](https://spield-protocol.vercel.app/)
+[![Live App](https://img.shields.io/badge/Live_App-spield--protocol.vercel.app-7c3aed?style=for-the-badge)](https://www.spield.live/)
 [![Demo Video](https://img.shields.io/badge/▶_Demo_Video-Drive-ff0000?style=for-the-badge)](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY)
 [![Pitch Deck](https://img.shields.io/badge/📊_Pitch_Deck-Drive-2ea44f?style=for-the-badge)](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing)
 [![X / Twitter](https://img.shields.io/badge/Follow-@spield__-000000?style=for-the-badge&logo=x)](https://x.com/spield_)
 
-**🌐 [Live App](https://spield-protocol.vercel.app/) · ▶️ [Demo Walkthrough](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · 📊 [Pitch Deck](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) · 🐦 [@spield_](https://x.com/spield_) · 💻 [GitHub](https://github.com/Suryashish/spield_protocol)**
+**🌐 [Live App](https://www.spield.live/) · ▶️ [Demo Walkthrough](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · 📊 [Pitch Deck](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) · 🐦 [@spield_](https://x.com/spield_) · 💻 [GitHub](https://github.com/Suryashish/spield_protocol)**
 
 </div>
 
@@ -115,7 +115,7 @@ no other Stellar protocol does together:
 ## 🚀 Live Testnet Deployment
 
 **The product is live on Stellar testnet** against a **real Blend v2 pool** (not a mock). These are
-the current contract addresses the [live app](https://spield-protocol.vercel.app/) points at.
+the current contract addresses the [live app](https://www.spield.live/) points at.
 
 ### Spield Contracts
 
@@ -284,7 +284,7 @@ and [`contract/spield/README.md`](./contract/spield/README.md).
 | --- | --- | --- |
 | Public GitHub repository | ✅ | [Suryashish/spield_protocol](https://github.com/Suryashish/spield_protocol) |
 | Minimum 20+ meaningful commits | ✅ | **48 commits** |
-| Live deployed application | ✅ | [spield-protocol.vercel.app](https://spield-protocol.vercel.app/) |
+| Live deployed application | ✅ | [www.spield.live](https://www.spield.live/) |
 | Demo video | ✅ | [Demo walkthrough (Drive)](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) |
 | Proof of 50+ users | ✅ | [User addresses & feedback sheet](https://docs.google.com/spreadsheets/d/1zb5vYk3DO7ArHHYuLLj-_hXUoXemz4GD0q-6TFErQaU/edit?usp=sharing) |
 | User feedback iteration summary | ✅ | [Feedback section](#-user-feedback--what-we-shipped) · commit [`cb278c2`](https://github.com/Suryashish/spield_protocol/commit/cb278c26ef7b1e4db94bcbc3f72309938b65b145) |
@@ -297,6 +297,6 @@ and [`contract/spield/README.md`](./contract/spield/README.md).
 
 **Spield Protocol** — fixed income, bonds, and a yield market for Stellar.
 
-[🌐 App](https://spield-protocol.vercel.app/) · [▶️ Demo](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · [📊 Pitch Deck](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) · [🐦 X](https://x.com/spield_) · [💻 GitHub](https://github.com/Suryashish/spield_protocol)
+[🌐 App](https://www.spield.live/) · [▶️ Demo](https://drive.google.com/drive/folders/1VLThkc0iBk81iDd8xlMWM7JgNFQO80UY) · [📊 Pitch Deck](https://drive.google.com/drive/folders/1evM184kOeGwF2IZP6qL7cYh3vGKd2FiU?usp=sharing) · [🐦 X](https://x.com/spield_) · [💻 GitHub](https://github.com/Suryashish/spield_protocol)
 
 </div>

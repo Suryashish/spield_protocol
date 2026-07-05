@@ -94,7 +94,7 @@ const DepositPanel = () => {
               Bal: {isConnected ? formatAmount(balances.usdc) : '0.00'} USDC
             </button>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
             <Input
               type="number"
               inputMode="decimal"
@@ -102,7 +102,7 @@ const DepositPanel = () => {
               placeholder="0.0"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0"
+              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
             <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">
               USDC
@@ -122,13 +122,13 @@ const DepositPanel = () => {
             <Label>Receive</Label>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+            <div className="rounded-lg border border-input bg-muted/50 px-3.5 py-3">
               <div className="text-lg font-bold tabular-nums">
                 {amountValid ? parsed.toLocaleString() : '0.0'}
               </div>
               <div className="mt-0.5 text-xs font-semibold text-primary">PT · Principal</div>
             </div>
-            <div className="rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+            <div className="rounded-lg border border-input bg-muted/50 px-3.5 py-3">
               <div className="text-lg font-bold tabular-nums">
                 {amountValid ? parsed.toLocaleString() : '0.0'}
               </div>

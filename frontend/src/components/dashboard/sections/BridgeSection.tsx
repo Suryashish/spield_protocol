@@ -507,13 +507,13 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/50 px-3 py-2.5">
+              <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
                 <Input
                   type="number"
                   placeholder="0.0"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0"
+                  className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
                 />
               </div>
               {overBalance && (
@@ -555,7 +555,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
               <Label className="text-xs font-semibold uppercase text-muted-foreground">
                 Recipient (Stellar)
               </Label>
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-input bg-muted/30 px-3.5 py-3">
                 {recipient ? (
                   <div className="min-w-0 leading-tight">
                     <div className="truncate font-mono text-sm">{shortenAddress(recipient, 6, 6)}</div>
