@@ -6,6 +6,7 @@ import Partners from '@/components/landing/sections/Partners';
 import Features from '@/components/landing/sections/Features';
 import HowItWorks from '@/components/landing/sections/HowItWorks';
 import Products from '@/components/landing/sections/Products';
+import VideoGuide from '@/components/landing/sections/VideoGuide';
 import FAQ from '@/components/landing/sections/FAQ';
 import CTA from '@/components/landing/sections/CTA';
 import Footer from '@/components/landing/layout/Footer';
@@ -92,6 +93,7 @@ const LandingPage = () => {
           <Features />
           <HowItWorks />
           <Products />
+          <VideoGuide />
           <FAQ />
           <CTA />
           <Footer />

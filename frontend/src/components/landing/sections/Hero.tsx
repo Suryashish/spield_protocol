@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowDown, Check, Loader2, FlaskConical, Rocket, Play, X } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { ArrowDown, Check, Loader2, Rocket } from 'lucide-react';
 import { BACKEND_URL } from '@/lib/config';
 
 const ease = [0.16, 1, 0.3, 1] as const;
@@ -11,7 +10,6 @@ const Hero = () => {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openVideo, setOpenVideo] = useState(false);
 
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -68,28 +66,11 @@ const Hero = () => {
         transition={{ delay: 0.5, duration: 1, ease }}
         className="max-w-2xl text-white/45 text-sm md:text-base font-light mb-10 leading-relaxed tracking-wide"
       >
-        Split any Blend yield position into a fixed-rate{' '}
+        Split your Blend yield into a fixed-rate{' '}
         <span className="text-white/75 font-medium">Principal Token</span> and a leveraged{' '}
-        <span className="text-white/75 font-medium">Yield Token</span> — trade real, on-chain
-        Stellar yield through a purpose-built time-decay AMM.
-      </motion.p>      {/* Status badges — testnet live vs mainnet coming */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.65, duration: 0.8, ease }}
-        className="mb-8 flex flex-wrap items-center justify-center gap-2"
-      >
-        {/* Testnet: live now */}
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-primary/30 bg-brand-primary/10 px-3 py-1 text-[10px] font-semibold tracking-[0.14em] text-brand-primary">
-          <FlaskConical size={11} />
-          TESTNET — LIVE NOW
-        </span>
-        {/* Mainnet: waitlist */}
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold tracking-[0.14em] text-white/45">
-          <Rocket size={11} />
-          MAINNET — COMING SOON
-        </span>
-      </motion.div>
+        <span className="text-white/75 font-medium">Yield Token</span> — and trade real Stellar
+        yield on-chain.
+      </motion.p>
 
       {/* CTA block */}
       <motion.div
@@ -98,36 +79,10 @@ const Hero = () => {
         transition={{ delay: 0.8, duration: 1, ease }}
         className="w-full max-w-md space-y-4"
       >
-        {/* Buttons Row */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Primary: Try on testnet */}
-          <Link to="/dashboard" className="flex-1">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="w-full flex h-12 items-center justify-center gap-2 rounded-xl bg-brand-primary px-5 text-[11px] font-bold tracking-[0.2em] text-[#021511] shadow-[0_4px_16px_rgba(0,255,204,0.18)] hover:shadow-[0_6px_20px_rgba(0,255,204,0.28)] transition-shadow"
-            >
-              <FlaskConical size={13} />
-              TRY TESTNET
-            </motion.button>
-          </Link>
-
-          {/* Secondary: Play video walkthrough */}
-          <motion.button
-            onClick={() => setOpenVideo(true)}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="flex-1 flex h-12 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] px-5 text-[11px] font-bold tracking-[0.2em] text-white/80 hover:text-white transition-colors"
-          >
-            <Play size={13} className="text-brand-primary" />
-            VIDEO GUIDE
-          </motion.button>
-        </div>
-
         {/* Divider with label */}
         <div className="flex items-center gap-3 text-[9px] text-white/20 uppercase tracking-widest">
           <div className="flex-1 h-px bg-white/[0.07]" />
-          <span>Mainnet waitlist</span>
+          <span>Join the waitlist</span>
           <div className="flex-1 h-px bg-white/[0.07]" />
         </div>
 
@@ -143,7 +98,7 @@ const Hero = () => {
                 <Check size={13} strokeWidth={3} />
               </span>
               <span className="text-sm text-white/80">
-                You're on the mainnet list — we'll notify you at launch.
+                You're on the list — we'll notify you at launch.
               </span>
             </motion.div>
           ) : (
@@ -159,7 +114,7 @@ const Hero = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
-                aria-label="Email address for mainnet waitlist"
+                aria-label="Email address for launch waitlist"
                 className="w-full flex-1 bg-transparent px-3 py-2.5 text-sm text-white placeholder:text-white/50 outline-none"
                 disabled={loading}
               />
@@ -193,58 +148,13 @@ const Hero = () => {
 
         {/* Fine print */}
         <div className="mt-4 flex items-center justify-center gap-4 text-[10px] text-white/50">
-          <span>Testnet uses test tokens — no real funds at risk.</span>
+          <span>No spam — just a launch notification.</span>
           <span>·</span>
           <a href="#how-it-works" className="hover:text-white/50 transition-colors">
             How it works →
           </a>
         </div>
       </motion.div>
-
-      {/* Video Modal Overlay */}
-      <AnimatePresence>
-        {openVideo && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
-            onClick={() => setOpenVideo(false)}
-          >
-            {/* Modal Body */}
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="relative w-full max-w-4xl rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Close Button */}
-              <button
-                onClick={() => setOpenVideo(false)}
-                className="absolute -top-12 right-0 flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-3.5 py-2 text-xs font-semibold text-white/70 hover:bg-black/60 hover:text-white transition-colors"
-              >
-                <X size={14} />
-                Close
-              </button>
-
-              <div className="aspect-video w-full rounded-xl overflow-hidden bg-black">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src="https://drive.google.com/file/d/1qbdGYqC91zDo-nQdYDWT2lJGanPNXNon/preview"
-                  title="Understanding Spield Protocol"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                  className="w-full h-full"
-                />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Scroll cue */}
       <motion.a

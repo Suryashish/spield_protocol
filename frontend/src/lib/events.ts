@@ -1,6 +1,6 @@
 import { scValToNative, xdr } from '@stellar/stellar-sdk';
 
-import { CONTRACTS } from './config';
+import { BACKEND_URL, CONTRACTS, NETWORK_KEY, explorerContract, explorerTx } from './config';
 import { server } from './soroban';
 
 /**
@@ -8,11 +8,16 @@ import { server } from './soroban';
  *
  * The wrapper emits `Mint` / `Claim` / `RedeemPt` / `Combine` / `TransferPosition`
  * via `#[contractevent]`: topic[0] is the event-name symbol, the remaining topics
- * are the `#[topic]` fields (the `user` address), and the data map holds the rest
+ * are the `#[topic]` fields (the acting address), and the data map holds the rest
  * (position_id, amount, …). We decode the bits the UI needs.
  *
- * Testnet RPC only retains a window of ledgers, so we start the scan a bounded
- * number of ledgers back from the latest.
+ * TWO data sources, in order:
+ *   1. Soroban RPC `getEvents` — fast, authoritative, but only retains a ROLLING
+ *      ~7-day window of ledgers. Events older than that are silently gone.
+ *   2. Our backend `/activity` proxy — server-side-fetches stellar.expert (which
+ *      indexes FULL contract history but blocks cross-origin browser requests with
+ *      a 403). Used as a fallback when the RPC returns nothing (the common case once
+ *      a deployment is more than a week old). See website/server/index.js.
  */
 
 export type ActivityKind = 'Mint' | 'Claim' | 'RedeemPt' | 'Combine' | 'TransferPosition';
@@ -20,8 +25,8 @@ export type ActivityKind = 'Mint' | 'Claim' | 'RedeemPt' | 'Combine' | 'Transfer
 /**
  * The `#[contractevent]` macro publishes topic[0] as the *snake_case* of the event
  * struct name (e.g. `Mint` → `mint`, `RedeemPt` → `redeem_pt`). Map those wire names
- * back to our PascalCase `ActivityKind`. Without this every event is dropped and the
- * feed renders empty — which is exactly the "activity tab loads nothing" bug.
+ * back to our PascalCase `ActivityKind`. Anything not in this map (e.g. the one-off
+ * `initialized` event) is intentionally dropped from the feed.
  */
 const EVENT_NAME_TO_KIND: Record<string, ActivityKind> = {
   mint: 'Mint',
@@ -39,25 +44,10 @@ export type Activity = {
   positionId: number;
   /** Amount / payout in base units, when the event carries one. */
   amount: bigint;
-  txHash: string;
+  /** Explorer URL for this event's transaction/contract (source-dependent). */
+  explorerUrl: string;
+  /** Ledger (RPC events) or explorer paging id — used only to sort newest-first. */
   ledger: number;
-};
-
-/**
- * How far back to scan, in ledgers. The public testnet RPC only retains a bounded
- * window of event history and *silently returns no events* (rather than erroring)
- * when `startLedger` predates it — so an over-long lookback yields an empty feed.
- * We try the largest window first and fall back to shorter ones until events come
- * back. (Empirically ~16k is already past retention; ~9k works.)
- */
-const LOOKBACK_TIERS = [9000, 4000, 1000];
-
-const decodeSym = (val: xdr.ScVal): string => {
-  try {
-    return String(scValToNative(val));
-  } catch {
-    return '';
-  }
 };
 
 const toBig = (v: unknown): bigint => {
@@ -73,73 +63,188 @@ const toBig = (v: unknown): bigint => {
   return 0n;
 };
 
-export const getRecentActivity = async (limit = 25): Promise<Activity[]> => {
-  let latestSeq: number;
+const nativeOrEmpty = (val: xdr.ScVal): unknown => {
   try {
-    latestSeq = (await server.getLatestLedger()).sequence;
+    return scValToNative(val);
   } catch {
-    return [];
+    return undefined;
   }
+};
 
-  // Walk the lookback tiers from widest to narrowest, stopping at the first that
-  // returns events. A wider window is preferable (more history), but if it's past
-  // RPC retention it comes back empty, so we step down rather than show nothing.
-  let events: Awaited<ReturnType<typeof server.getEvents>>['events'] = [];
-  for (const lookback of LOOKBACK_TIERS) {
-    const startLedger = Math.max(1, latestSeq - lookback);
-    try {
-      const raw = await server.getEvents({
-        startLedger,
-        filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
-        limit: 100,
-      });
-      events = raw.events ?? [];
-      if (events.length > 0) break;
-    } catch {
-      // Start ledger outside retention (or transient RPC error): try a shorter window.
+/** Pull (positionId, amount) out of a decoded event body map. */
+const readBody = (body: Record<string, unknown>) => ({
+  positionId: Number(toBig(body.position_id)),
+  amount: toBig(body.amount ?? body.payout),
+});
+
+/**
+ * Source 1 — Soroban RPC. Scans the RPC's *actual* retention window rather than a
+ * guessed lookback. The RPC reveals its retained range in the error message it
+ * returns when `startLedger` is out of range (`"startLedger must be within the
+ * ledger range: <oldest> - <latest>"`), so we probe with `startLedger:1`, parse
+ * the oldest retained ledger, and scan from there with pagination.
+ */
+const fetchRpcEvents = async (): Promise<Activity[]> => {
+  // Discover the oldest ledger the RPC still retains by deliberately asking for one
+  // that's too old and reading the range out of the error.
+  let startLedger = 1;
+  try {
+    await server.getEvents({
+      startLedger: 1,
+      filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+      limit: 1,
+    });
+    // No error → ledger 1 is somehow in range (fresh network); start from 1.
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const m = msg.match(/ledger range:\s*(\d+)\s*-\s*(\d+)/i);
+    if (m) {
+      // Start a small margin inside the window so the boundary can't drift past us
+      // between this call and the scan below.
+      startLedger = Number(m[1]) + 5;
+    } else {
+      // Unparseable error — RPC is unavailable; let the caller fall back.
+      return [];
     }
   }
 
   const out: Activity[] = [];
-  for (const ev of events) {
-    const topics = ev.topic ?? [];
-    if (topics.length === 0) continue;
-    // topic[0] is the event name in snake_case (e.g. "mint", "redeem_pt").
-    const kind = EVENT_NAME_TO_KIND[decodeSym(topics[0])];
-    if (!kind) continue;
+  let cursor: string | undefined;
+  // Page through the whole window (each page ≤ 100 events). Bounded to avoid a
+  // runaway loop if the RPC keeps handing back cursors.
+  for (let page = 0; page < 20; page++) {
+    let raw: Awaited<ReturnType<typeof server.getEvents>>;
+    try {
+      raw = await server.getEvents(
+        cursor
+          ? {
+              filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+              cursor,
+              limit: 100,
+            }
+          : {
+              startLedger,
+              filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+              limit: 100,
+            },
+      );
+    } catch {
+      break;
+    }
+    const events = raw.events ?? [];
+    for (const ev of events) {
+      const topics = ev.topic ?? [];
+      if (topics.length === 0) continue;
+      const kind = EVENT_NAME_TO_KIND[String(nativeOrEmpty(topics[0]) ?? '')];
+      if (!kind) continue;
+      const user = topics[1] ? String(nativeOrEmpty(topics[1]) ?? '') : '';
+      const body = (nativeOrEmpty(ev.value) as Record<string, unknown>) ?? {};
+      const { positionId, amount } = readBody(body);
+      out.push({
+        id: `${ev.txHash}-${out.length}`,
+        kind,
+        user,
+        positionId,
+        amount,
+        explorerUrl: explorerTx(ev.txHash),
+        ledger: ev.ledger,
+      });
+    }
+    cursor = raw.cursor;
+    if (!cursor || events.length === 0) break;
+  }
+  return out;
+};
 
-    // topic[1] is the #[topic] user (for transfers, the `from` address).
-    let user = '';
-    if (topics[1]) {
+type ExplorerEvent = {
+  id: string;
+  ts: number;
+  topics?: string[];
+  topicsXdr?: string[];
+  bodyXdr?: string;
+};
+
+/**
+ * Source 2 — the backend `/activity` proxy (which fronts stellar.expert). Retains
+ * full contract history, so it covers events the RPC has aged out. Topics come
+ * pre-decoded (`topics`), while the struct body arrives as base64 XDR we decode
+ * with the same `scValToNative`. The proxy exists because stellar.expert refuses
+ * cross-origin browser requests (403); the server has no such constraint.
+ */
+const fetchExplorerEvents = async (limit: number): Promise<Activity[]> => {
+  const network = NETWORK_KEY === 'mainnet' ? 'public' : 'testnet';
+  let records: ExplorerEvent[] = [];
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/activity?contract=${CONTRACTS.wrapper}` +
+        `&network=${network}&limit=${Math.min(limit, 100)}`,
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as { records?: ExplorerEvent[] };
+    records = json.records ?? [];
+  } catch {
+    return [];
+  }
+
+  const out: Activity[] = [];
+  for (const rec of records) {
+    // Prefer the pre-decoded topics; fall back to decoding topicsXdr.
+    const rawName = rec.topics?.[0] ?? (rec.topicsXdr?.[0] ? decodeXdrSym(rec.topicsXdr[0]) : '');
+    const kind = EVENT_NAME_TO_KIND[rawName];
+    if (!kind) continue;
+    const user = rec.topics?.[1] ?? (rec.topicsXdr?.[1] ? decodeXdrAddr(rec.topicsXdr[1]) : '');
+
+    let positionId = 0;
+    let amount = 0n;
+    if (rec.bodyXdr) {
       try {
-        user = String(scValToNative(topics[1]));
+        const body = (scValToNative(xdr.ScVal.fromXDR(rec.bodyXdr, 'base64')) as Record<
+          string,
+          unknown
+        >) ?? {};
+        ({ positionId, amount } = readBody(body));
       } catch {
-        user = '';
+        // Leave defaults; still show the row.
       }
     }
 
-    // The event body is a struct map: { position_id, amount/payout, ... }.
-    let body: Record<string, unknown>;
-    try {
-      body = (scValToNative(ev.value) as Record<string, unknown>) ?? {};
-    } catch {
-      body = {};
-    }
-    const positionId = Number(toBig(body.position_id));
-    const amount = toBig(body.amount ?? body.payout);
-
     out.push({
-      id: `${ev.txHash}-${out.length}`,
+      id: rec.id,
       kind,
       user,
       positionId,
       amount,
-      txHash: ev.txHash,
-      ledger: ev.ledger,
+      // Explorer events don't carry a tx hash here — link to the contract page.
+      explorerUrl: explorerContract(CONTRACTS.wrapper),
+      // Use the timestamp as a monotonic sort key (newest-first).
+      ledger: rec.ts,
     });
   }
+  return out;
+};
 
-  // Most recent first.
-  out.sort((a, b) => b.ledger - a.ledger);
-  return out.slice(0, limit);
+const decodeXdrSym = (b64: string): string => {
+  try {
+    return String(scValToNative(xdr.ScVal.fromXDR(b64, 'base64')) ?? '');
+  } catch {
+    return '';
+  }
+};
+
+const decodeXdrAddr = (b64: string): string => {
+  try {
+    return String(scValToNative(xdr.ScVal.fromXDR(b64, 'base64')) ?? '');
+  } catch {
+    return '';
+  }
+};
+
+export const getRecentActivity = async (limit = 25): Promise<Activity[]> => {
+  // Prefer the RPC (authoritative, freshest). If it has nothing — the usual case
+  // once a deployment is older than the RPC's retention window — fall back to the
+  // full-history explorer index so real past transactions still show.
+  const rpc = await fetchRpcEvents();
+  const items = rpc.length > 0 ? rpc : await fetchExplorerEvents(limit);
+  items.sort((a, b) => b.ledger - a.ledger);
+  return items.slice(0, limit);
 };

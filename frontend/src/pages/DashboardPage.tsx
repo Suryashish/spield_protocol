@@ -140,7 +140,6 @@ const OverviewSection = () => (
         <SolvencyCard />
       </div>
     </div>
-    <ActivityFeed />
   </div>
 );
 
@@ -498,7 +497,7 @@ const DashboardPage = () => {
 
   return (
     <NavProvider value={navValue}>
-      <div className="dark flex h-screen overflow-hidden bg-background text-foreground">
+      <div className="app-shell dark flex h-screen overflow-hidden bg-background text-foreground">
         <Sidebar
           collapsed={collapsed}
           onToggle={setCollapsed}

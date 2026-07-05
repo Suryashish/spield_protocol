@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:wght@400..900&family=Space+Grotesk:wght@500;600;700&display=swap');
+/* Google Fonts are loaded via <link> tags in index.html (with preconnect). */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -16,6 +16,10 @@
   --font-display: "Playfair Display", serif;
   --font-heading: "Space Grotesk", sans-serif;
   --font-body: "Inter", sans-serif;
+
+  /* Main app (dashboard) typography — see .app-shell scope below. */
+  --font-app-body: "Plus Jakarta Sans", sans-serif;
+  --font-app-heading: "Space Grotesk", sans-serif;
 }
 
 @layer base {
@@ -36,7 +40,30 @@
     font-family: var(--font-heading);
     letter-spacing: -0.02em;
   }
-  
+
+  /* ---- Main app (dashboard) scope ----
+     The landing page keeps Inter / Space Grotesk / Playfair. Inside the app
+     shell, body text uses Plus Jakarta Sans and every heading uses Space
+     Grotesk.
+
+     We do this by REDEFINING the font tokens on .app-shell rather than setting
+     font-family directly: Tailwind's utilities (.font-display, .font-sans, …)
+     live in @layer utilities, which beats @layer base regardless of selector
+     specificity — so a `.app-shell .font-display { font-family: … }` rule would
+     lose. But those utilities all resolve `var(--font-*)`, and custom-property
+     values cascade by scope, not layer. Overriding the variables here therefore
+     retargets every heading, every font-* utility, and plain inherited text in
+     one shot. --font-mono is left alone, so code/addresses stay monospace. */
+  .app-shell {
+    --font-body: var(--font-app-body);
+    --font-heading: var(--font-app-heading);
+    /* Headings in the app use Space Grotesk, not Playfair — point the display
+       token at the heading font so any .font-display heading follows suit. */
+    --font-display: var(--font-app-heading);
+    --font-sans: var(--font-app-body);
+    font-family: var(--font-app-body);
+  }
+
   * {
     @apply border-border outline-ring/50;
   }

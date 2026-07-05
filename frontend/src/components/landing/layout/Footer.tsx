@@ -97,7 +97,7 @@ const Footer = () => {
             <a href="#" className="hover:text-white/60 transition-colors">Privacy</a>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-brand-primary animate-pulse" />
-              Testnet live
+              Waitlist open
             </span>
           </div>
         </div>

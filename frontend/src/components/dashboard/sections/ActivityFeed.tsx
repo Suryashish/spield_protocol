@@ -16,7 +16,6 @@ import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { getRecentActivity, type Activity, type ActivityKind } from '@/lib/events';
 import { formatAmount } from '@/lib/soroban';
-import { explorerTx } from '@/lib/config';
 import { shortenAddress } from '@/lib/stellar';
 
 const KIND_META: Record<
@@ -136,11 +135,11 @@ const ActivityFeed = () => {
                     </span>
                   )}
                   <a
-                    href={explorerTx(item.txHash)}
+                    href={item.explorerUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-muted-foreground transition-colors hover:text-foreground"
-                    title="View transaction"
+                    title="View on explorer"
                   >
                     <ExternalLink size={13} />
                   </a>
