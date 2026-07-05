@@ -80,7 +80,7 @@ const PRODUCTS = [
     risk: 1,
     visual: <FixedVisual />,
     points: ['Predictable returns', 'No liquidation risk'],
-    href: '/dashboard?section=vault',
+    href: '/dashboard/vault',
   },
   {
     icon: TrendingUp,
@@ -92,7 +92,7 @@ const PRODUCTS = [
     visual: <LeverageVisual />,
     points: ['Capital efficient', 'Claim yield anytime'],
     featured: true,
-    href: '/dashboard?section=deposit',
+    href: '/dashboard/deposit',
   },
   {
     icon: Droplets,
@@ -103,7 +103,7 @@ const PRODUCTS = [
     risk: 2,
     visual: <LpVisual />,
     points: ['Earn trading fees', 'IL-free at maturity'],
-    href: '/dashboard?section=liquidity',
+    href: '/dashboard/liquidity',
   },
 ];
 

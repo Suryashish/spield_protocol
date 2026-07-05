@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Analytics } from '@vercel/analytics/react';
 import LandingPage from '@/pages/LandingPage';
 import DashboardPage from '@/pages/DashboardPage';
@@ -18,7 +18,15 @@ function App() {
               <Router>
                 <Routes>
                   <Route path="/" element={<LandingPage />} />
-                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/dashboard" element={<Navigate to="/dashboard/overview" replace />} />
+                  <Route path="/dashboard/overview" element={<DashboardPage />} />
+                  <Route path="/dashboard/vault" element={<DashboardPage />} />
+                  <Route path="/dashboard/deposit" element={<DashboardPage />} />
+                  <Route path="/dashboard/markets" element={<DashboardPage />} />
+                  <Route path="/dashboard/liquidity" element={<DashboardPage />} />
+                  <Route path="/dashboard/bridge" element={<DashboardPage />} />
+                  <Route path="/dashboard/solvency" element={<DashboardPage />} />
+                  <Route path="/dashboard/activity" element={<DashboardPage />} />
                 </Routes>
               </Router>
               <Analytics />

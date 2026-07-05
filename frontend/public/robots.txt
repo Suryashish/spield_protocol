@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# Exclude specific dashboard state queries to prevent indexing duplicate page states
+Disallow: /dashboard?*
+
+Sitemap: https://www.spield.live/sitemap.xml

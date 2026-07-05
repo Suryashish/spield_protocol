@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
+import { useSEO } from '@/hooks/useSEO';
 import { AlertTriangle, RefreshCw, ShieldCheck, Coins, TrendingUp, Lock, Droplets, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -469,30 +470,50 @@ const WhySolvency = () => {
 
 const DashboardPage = () => {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
-  // Initialise the active section from the URL ?section= param so links from
-  // the landing page (e.g. /dashboard?section=deposit) open the right view.
-  const [activeNav, setActiveNav] = useState(() => {
-    const param = searchParams.get('section') ?? 'overview';
-    // Guard against unknown section ids — fall back to overview.
-    return NAV_ITEMS.some((n) => n.id === param) ? param : 'overview';
-  });
   const { refresh, refreshing, stale } = useProtocol();
 
-  // If the URL param changes (e.g. user navigates via browser back/forward), sync.
+  // Derive the active section from the URL path segment (e.g. /dashboard/vault -> vault)
+  const activeNav = useMemo(() => {
+    const parts = location.pathname.split('/');
+    const segment = parts[parts.length - 1];
+    return NAV_ITEMS.some((n) => n.id === segment) ? segment : 'overview';
+  }, [location.pathname]);
+
+  // Backward compatibility: redirect any legacy /dashboard?section=vault URLs to /dashboard/vault
   useEffect(() => {
-    const param = searchParams.get('section');
-    if (param && NAV_ITEMS.some((n) => n.id === param)) {
-      setActiveNav(param);
+    const sectionParam = searchParams.get('section');
+    if (sectionParam && NAV_ITEMS.some((n) => n.id === sectionParam)) {
+      navigate(`/dashboard/${sectionParam}`, { replace: true });
     }
-  }, [searchParams]);
+  }, [searchParams, navigate]);
+
+  // Redirect bare /dashboard or /dashboard/ to /dashboard/overview
+  useEffect(() => {
+    if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
+      navigate('/dashboard/overview', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   const nav = navById(activeNav);
+
+  useSEO({
+    title: `${nav.label} | Dashboard | Spield Protocol`,
+    description: nav.subtitle,
+    canonical: `https://www.spield.live/dashboard/${nav.id}`,
+  });
+
   const Section = SECTIONS[nav.id] ?? OverviewSection;
 
+  // Provide compatibility for nested dashboard components using useNav()
   const navValue = useMemo(
-    () => ({ active: activeNav, navigate: setActiveNav }),
-    [activeNav],
+    () => ({
+      active: activeNav,
+      navigate: (id: string) => navigate(`/dashboard/${id}`),
+    }),
+    [activeNav, navigate],
   );
 
   return (
@@ -502,7 +523,7 @@ const DashboardPage = () => {
           collapsed={collapsed}
           onToggle={setCollapsed}
           activeNav={activeNav}
-          onNavChange={setActiveNav}
+          onNavChange={navValue.navigate}
         />
 
         <main className="flex min-w-0 grow flex-col">

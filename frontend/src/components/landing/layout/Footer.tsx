@@ -19,9 +19,9 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     title: 'App',
     links: [
       { label: 'Launch app', to: '/dashboard' },
-      { label: 'Fixed Vault', to: '/dashboard?section=vault' },
-      { label: 'Markets', to: '/dashboard?section=markets' },
-      { label: 'Solvency', to: '/dashboard?section=solvency' },
+      { label: 'Fixed Vault', to: '/dashboard/vault' },
+      { label: 'Markets', to: '/dashboard/markets' },
+      { label: 'Solvency', to: '/dashboard/solvency' },
     ],
   },
   {

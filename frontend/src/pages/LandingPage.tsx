@@ -11,7 +11,15 @@ import FAQ from '@/components/landing/sections/FAQ';
 import CTA from '@/components/landing/sections/CTA';
 import Footer from '@/components/landing/layout/Footer';
 
+import { useSEO } from '@/hooks/useSEO';
+
 const LandingPage = () => {
+  useSEO({
+    title: 'Spield | Fixed-Rate Yield & Bonds on Stellar',
+    description: 'Spield is the fixed-income layer for Stellar. Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT) to lock in fixed rates.',
+    canonical: 'https://www.spield.live'
+  });
+
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-background">
       {/* Sleek film-grain noise over the entire page */}
