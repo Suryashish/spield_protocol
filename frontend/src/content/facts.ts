@@ -14,6 +14,7 @@
  * design guarantees are stable and safe to publish statically.
  */
 
+
 export interface ContractRef {
   name: string;
   role: string;
