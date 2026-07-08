@@ -10,18 +10,19 @@
     <!-- Primary Meta Tags -->
     <title>Spield | Fixed-Rate Yield & Bonds on Stellar</title>
     <meta name="title" content="Spield | Fixed-Rate Yield & Bonds on Stellar" />
-    <meta name="description" content="Spield is the fixed-income layer for Stellar. Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT) to lock in fixed rates." />
-    <meta name="keywords" content="Stellar, Blend, DeFi, Fixed Yield, Yield Splitting, Principal Token, Yield Token, Fixed-Rate Vault, Smart Contract, AMM, Blockchain" />
+    <meta name="description" content="Spield is the fixed-income layer for Stellar. Split real Blend yield into tradable Principal (PT) and Yield (YT) tokens to lock a fixed rate — no bridge." />
+    <meta name="keywords" content="Stellar, Blend, DeFi, Fixed Yield, Yield Splitting, Principal Token, Yield Token, Fixed-Rate Vault, Yield Tokenization, Soroban, USDC, Smart Contract, AMM, Blockchain" />
     <meta name="author" content="Spield Protocol" />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="theme-color" content="#020609" />
+    <meta property="og:locale" content="en_US" />
     <link rel="canonical" href="https://www.spield.live/" />
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://www.spield.live/" />
     <meta property="og:title" content="Spield | Fixed-Rate Yield & Bonds on Stellar" />
-    <meta property="og:description" content="Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT). Lock in guaranteed fixed rates on Stellar." />
+    <meta property="og:description" content="Split real, on-chain Blend yield into tradable Principal Tokens (PT) and Yield Tokens (YT). Lock a guaranteed fixed rate on Stellar — no bridge, no wrapped assets." />
     <meta property="og:image" content="https://www.spield.live/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -32,9 +33,11 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://www.spield.live/" />
     <meta name="twitter:title" content="Spield | Fixed-Rate Yield & Bonds on Stellar" />
-    <meta name="twitter:description" content="Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT). Lock in guaranteed fixed rates on Stellar." />
+    <meta name="twitter:description" content="Split real, on-chain Blend yield into tradable Principal Tokens (PT) and Yield Tokens (YT). Lock a guaranteed fixed rate on Stellar — no bridge, no wrapped assets." />
     <meta name="twitter:image" content="https://www.spield.live/og-image.png" />
-    <meta name="twitter:site" content="@SpieldProtocol" />
+    <meta name="twitter:image:alt" content="Spield — fixed income and yield tokenization on Stellar" />
+    <meta name="twitter:site" content="@spield_" />
+    <meta name="twitter:creator" content="@spield_" />
 
     <!--
       Structured data for the home page (Organization + WebSite + SoftwareApplication
@@ -52,9 +55,27 @@
           "name": "Spield Protocol",
           "alternateName": "Spield",
           "url": "https://www.spield.live",
-          "logo": "https://www.spield.live/logo-512.png",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://www.spield.live/logo-512.png",
+            "width": 512,
+            "height": 512
+          },
           "description": "Spield is the fixed-income and yield-tokenization layer for Stellar. Deposit USDC to lock a fixed rate, or split a yield-bearing position into tradable Principal Tokens (PT) and Yield Tokens (YT).",
-          "sameAs": ["https://x.com/spield_"]
+          "knowsAbout": [
+            "Fixed income",
+            "Yield tokenization",
+            "Principal tokens",
+            "Yield tokens",
+            "Stellar",
+            "Soroban smart contracts",
+            "Blend Capital",
+            "DeFi"
+          ],
+          "sameAs": [
+            "https://x.com/spield_",
+            "https://github.com/Suryashish/spield_protocol"
+          ]
         },
         {
           "@type": "WebSite",
@@ -62,7 +83,16 @@
           "url": "https://www.spield.live",
           "name": "Spield",
           "description": "The fixed-income layer for Stellar.",
-          "publisher": { "@id": "https://www.spield.live/#organization" }
+          "inLanguage": "en",
+          "publisher": { "@id": "https://www.spield.live/#organization" },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://www.spield.live/learn?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
         },
         {
           "@type": "SoftwareApplication",
@@ -71,6 +101,12 @@
           "operatingSystem": "Web",
           "url": "https://www.spield.live",
           "description": "Fixed-rate yield, principal/yield tokenization (PT/YT), and a time-decay market on Stellar, built on real Blend yield.",
+          "featureList": [
+            "Lock a fixed rate on USDC deposits",
+            "Split a yield-bearing position into Principal Tokens (PT) and Yield Tokens (YT)",
+            "Trade PT and YT on a Stellar-native AMM",
+            "Real on-chain Blend yield — no bridge, no wrapped assets"
+          ],
           "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
           "publisher": { "@id": "https://www.spield.live/#organization" }
         },
