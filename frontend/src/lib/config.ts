@@ -1,4 +1,14 @@
-import { Networks } from '@stellar/stellar-sdk';
+// The two Stellar network passphrases, inlined as literals rather than imported
+// from `@stellar/stellar-sdk`. These are canonical, immutable constants (see
+// .env.example / SEP-0002), and importing them from the SDK would pull the entire
+// multi-hundred-KB Stellar SDK into every module that reads a config value —
+// including the marketing landing page, which needs none of it. Keeping them as
+// strings lets `config.ts` stay dependency-free so it doesn't bloat the landing
+// bundle. If Stellar ever changes a passphrase (it won't), update here.
+const STELLAR_NETWORKS = {
+  PUBLIC: 'Public Global Stellar Network ; September 2015',
+  TESTNET: 'Test SDF Network ; September 2015',
+} as const;
 
 /**
  * Spield v2 — on-chain configuration (env-driven, multi-network).
@@ -63,7 +73,7 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
   testnet: {
     key: 'testnet',
     name: 'TESTNET',
-    passphrase: Networks.TESTNET,
+    passphrase: STELLAR_NETWORKS.TESTNET,
     rpcUrl: 'https://soroban-testnet.stellar.org',
     horizonUrl: 'https://horizon-testnet.stellar.org',
     explorer: 'https://stellar.expert/explorer/testnet',
@@ -85,7 +95,7 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
   mainnet: {
     key: 'mainnet',
     name: 'PUBLIC',
-    passphrase: Networks.PUBLIC,
+    passphrase: STELLAR_NETWORKS.PUBLIC,
     rpcUrl: 'https://mainnet.sorobanrpc.com',
     horizonUrl: 'https://horizon.stellar.org',
     explorer: 'https://stellar.expert/explorer/public',
