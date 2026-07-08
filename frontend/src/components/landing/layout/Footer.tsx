@@ -25,6 +25,18 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     ],
   },
   {
+    title: 'Learn',
+    links: [
+      // Static, prerendered content routes (served outside the SPA) — plain
+      // hrefs so they navigate to the crawler-readable static HTML, and so
+      // homepage link equity flows into the Learn hub.
+      { label: 'Learn hub', href: '/learn' },
+      { label: 'Fixed income on Stellar', href: '/learn/fixed-income-on-stellar' },
+      { label: 'How to earn yield', href: '/learn/how-to-earn-yield-on-stellar' },
+      { label: 'Glossary', href: '/glossary' },
+    ],
+  },
+  {
     title: 'Community',
     links: [
       { label: 'Twitter / X', href: 'https://x.com/spield_' },

@@ -20,9 +20,10 @@
     <meta property="og:url" content="https://www.spield.live/" />
     <meta property="og:title" content="Spield | Fixed-Rate Yield & Bonds on Stellar" />
     <meta property="og:description" content="Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT). Lock in guaranteed fixed rates on Stellar." />
-    <meta property="og:image" content="https://www.spield.live/favicon.png" />
+    <meta property="og:image" content="https://www.spield.live/og-image.png" />
     <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="675" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Spield — fixed income and yield tokenization on Stellar" />
     <meta property="og:site_name" content="Spield Protocol" />
 
     <!-- Twitter / X -->
@@ -30,8 +31,75 @@
     <meta name="twitter:url" content="https://www.spield.live/" />
     <meta name="twitter:title" content="Spield | Fixed-Rate Yield & Bonds on Stellar" />
     <meta name="twitter:description" content="Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT). Lock in guaranteed fixed rates on Stellar." />
-    <meta name="twitter:image" content="https://www.spield.live/favicon.png" />
+    <meta name="twitter:image" content="https://www.spield.live/og-image.png" />
     <meta name="twitter:site" content="@SpieldProtocol" />
+
+    <!--
+      Structured data for the home page (Organization + WebSite + SoftwareApplication
+      + the landing FAQ). Static in the shell so it's in the raw HTML for crawlers
+      and AI engines even though the app is a client-rendered SPA. The Learn hub's
+      per-page JSON-LD is injected at prerender time (see scripts/prerender.mjs).
+    -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://www.spield.live/#organization",
+          "name": "Spield Protocol",
+          "alternateName": "Spield",
+          "url": "https://www.spield.live",
+          "logo": "https://www.spield.live/favicon.png",
+          "description": "Spield is the fixed-income and yield-tokenization layer for Stellar. Deposit USDC to lock a fixed rate, or split a yield-bearing position into tradable Principal Tokens (PT) and Yield Tokens (YT).",
+          "sameAs": ["https://x.com/spield_"]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://www.spield.live/#website",
+          "url": "https://www.spield.live",
+          "name": "Spield",
+          "description": "The fixed-income layer for Stellar.",
+          "publisher": { "@id": "https://www.spield.live/#organization" }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "Spield",
+          "applicationCategory": "FinanceApplication",
+          "operatingSystem": "Web",
+          "url": "https://www.spield.live",
+          "description": "Fixed-rate yield, principal/yield tokenization (PT/YT), and a time-decay market on Stellar, built on real Blend yield.",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "publisher": { "@id": "https://www.spield.live/#organization" }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What exactly is a PT and a YT?",
+              "acceptedAnswer": { "@type": "Answer", "text": "When you deposit, Spield mints equal amounts of a Principal Token (PT) and a Yield Token (YT). PT is a zero-coupon bond that redeems 1:1 for your principal at maturity. YT is a claim on all the yield that position generates until maturity. Together they always equal the value of the original position." }
+            },
+            {
+              "@type": "Question",
+              "name": "Where does the yield actually come from?",
+              "acceptedAnswer": { "@type": "Answer", "text": "From Blend, a native Stellar lending market. Your USDC becomes a Blend supply position whose bToken exchange rate genuinely rises on-chain. There is no invented index and no bridged asset; the backing grows with the real rate." }
+            },
+            {
+              "@type": "Question",
+              "name": "Is there any bridge or cross-chain risk?",
+              "acceptedAnswer": { "@type": "Answer", "text": "No. Spield is Stellar-native only. Both the underlying asset and settlement currency (USDC) live on Stellar. There is no EVM bridge and no single-signer relayer, so you are not exposed to cross-chain security risks." }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I lose money holding PT?",
+              "acceptedAnswer": { "@type": "Answer", "text": "PT redeems 1:1 for principal at maturity, so held to maturity it returns your principal plus the locked discount as fixed yield. Before maturity its market price moves with rates, like any bond. YT carries more risk: it can decay to zero if realized yield underperforms the implied APY." }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
 
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y902DS1JCN"></script>
@@ -62,7 +130,34 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      Static, crawler-readable seed of the homepage hero. React's createRoot()
+      replaces #root's children on mount, so sighted JS users get the full
+      animated SPA; search engines and no-JS clients get the SAME headline,
+      subtitle, and primary links in the raw HTML (not hidden text — it IS the
+      content, just server-static). Keep the heading text identical to Hero.tsx.
+    -->
+    <div id="root">
+      <main style="min-height:100vh;background:#020609;color:#e6edf3;font-family:'Plus Jakarta Sans',system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem 1.25rem;gap:1.25rem">
+        <a href="/" style="display:flex;align-items:center;gap:.5rem;color:#fff;text-decoration:none;font-weight:600;position:absolute;top:1.5rem;left:1.5rem">
+          <img src="/logo-32.png" alt="Spield" width="26" height="26" /> <span>Spield</span>
+        </a>
+        <h1 style="font-family:'Space Grotesk',sans-serif;font-size:clamp(2.5rem,7vw,5rem);line-height:1.05;letter-spacing:-.03em;color:#fff;margin:0;max-width:14ch">
+          The Fixed-Income Layer for Stellar
+        </h1>
+        <p style="max-width:44ch;color:#b9c2ca;font-size:1.1rem;line-height:1.6;margin:0">
+          Split your Blend yield into a fixed-rate Principal Token (PT) and a leveraged Yield Token (YT), and trade real Stellar yield on-chain.
+        </p>
+        <nav style="display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;margin-top:.5rem">
+          <a href="/dashboard" style="background:#00ffcc;color:#021511;font-weight:600;padding:.6rem 1.2rem;border-radius:999px;text-decoration:none">Launch app</a>
+          <a href="/learn" style="border:1px solid rgba(255,255,255,.15);color:#e6edf3;padding:.6rem 1.2rem;border-radius:999px;text-decoration:none">Learn</a>
+          <a href="/glossary" style="border:1px solid rgba(255,255,255,.15);color:#e6edf3;padding:.6rem 1.2rem;border-radius:999px;text-decoration:none">Glossary</a>
+        </nav>
+        <noscript>
+          <p style="color:#8b97a3;margin-top:1rem">Spield is the fixed-income and yield-tokenization layer for Stellar. <a href="/learn" style="color:#22d3a8">Read the guides</a> or <a href="/dashboard" style="color:#22d3a8">launch the app</a>.</p>
+        </noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

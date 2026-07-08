@@ -4,51 +4,73 @@ interface SEOProps {
   title: string;
   description?: string;
   canonical?: string;
+  /** 'website' (default) or 'article' for content-type routes. */
+  ogType?: 'website' | 'article';
+  /** Override the social share image (absolute URL). */
+  image?: string;
+  /** Set to true to keep a route out of the index (e.g. transient app states). */
+  noindex?: boolean;
 }
 
-export function useSEO({ title, description, canonical }: SEOProps) {
+const DEFAULT_IMAGE = 'https://www.spield.live/og-image.png';
+
+/**
+ * Client-side SEO for the SPA's own routes (landing, dashboard). The AUTHORITATIVE
+ * meta for crawlers on educational pages lives in the prerendered static HTML
+ * (see scripts/prerender.mjs) — this hook keeps the interactive React routes and
+ * in-app share previews correct. Manages title, description, canonical, robots,
+ * Open Graph, and Twitter tags.
+ */
+export function useSEO({
+  title,
+  description,
+  canonical,
+  ogType = 'website',
+  image = DEFAULT_IMAGE,
+  noindex = false,
+}: SEOProps) {
   useEffect(() => {
-    // 1. Update Browser document title
     document.title = title;
 
-    // Helper to update or create meta tags dynamically
-    const updateMetaTag = (attribute: string, name: string, content: string) => {
-      let element = document.querySelector(`meta[${attribute}="${name}"]`);
-      if (!element) {
-        element = document.createElement('meta');
-        element.setAttribute(attribute, name);
-        document.head.appendChild(element);
+    const setMeta = (attr: 'name' | 'property', key: string, content: string) => {
+      let el = document.querySelector(`meta[${attr}="${key}"]`);
+      if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attr, key);
+        document.head.appendChild(el);
       }
-      element.setAttribute('content', content);
+      el.setAttribute('content', content);
     };
 
-    // 2. Update primary meta title & description
-    updateMetaTag('name', 'title', title);
-    if (description) {
-      updateMetaTag('name', 'description', description);
-    }
-
-    // 3. Update Open Graph (Facebook/Discord/LinkedIn)
-    updateMetaTag('property', 'og:title', title);
-    if (description) {
-      updateMetaTag('property', 'og:description', description);
-    }
-
-    // 4. Update Twitter Card (X/Twitter)
-    updateMetaTag('name', 'twitter:title', title);
-    if (description) {
-      updateMetaTag('name', 'twitter:description', description);
-    }
-
-    // 5. Update Canonical link
-    if (canonical) {
-      let linkElement = document.querySelector('link[rel="canonical"]');
-      if (!linkElement) {
-        linkElement = document.createElement('link');
-        linkElement.setAttribute('rel', 'canonical');
-        document.head.appendChild(linkElement);
+    const setLink = (rel: string, href: string) => {
+      let el = document.querySelector(`link[rel="${rel}"]`);
+      if (!el) {
+        el = document.createElement('link');
+        el.setAttribute('rel', rel);
+        document.head.appendChild(el);
       }
-      linkElement.setAttribute('href', canonical);
-    }
-  }, [title, description, canonical]);
+      el.setAttribute('href', href);
+    };
+
+    // Primary
+    setMeta('name', 'title', title);
+    if (description) setMeta('name', 'description', description);
+    setMeta('name', 'robots', noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large');
+
+    // Open Graph
+    setMeta('property', 'og:type', ogType);
+    setMeta('property', 'og:title', title);
+    if (description) setMeta('property', 'og:description', description);
+    setMeta('property', 'og:image', image);
+    if (canonical) setMeta('property', 'og:url', canonical);
+
+    // Twitter
+    setMeta('name', 'twitter:card', 'summary_large_image');
+    setMeta('name', 'twitter:title', title);
+    if (description) setMeta('name', 'twitter:description', description);
+    setMeta('name', 'twitter:image', image);
+
+    // Canonical
+    if (canonical) setLink('canonical', canonical);
+  }, [title, description, canonical, ogType, image, noindex]);
 }
