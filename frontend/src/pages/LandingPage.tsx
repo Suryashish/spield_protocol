@@ -23,7 +23,7 @@ const LandingPage = () => {
   useSEO({
     title: 'Spield | Fixed-Rate Yield & Bonds on Stellar',
     description: 'Spield is the fixed-income layer for Stellar. Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT) to lock in fixed rates.',
-    canonical: 'https://www.spield.live'
+    canonical: 'https://www.spield.live/'
   });
 
   return (
