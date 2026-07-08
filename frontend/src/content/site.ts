@@ -10,7 +10,7 @@ export const SITE = {
   tagline: 'The fixed-income layer for Stellar',
   description:
     'Spield is the fixed-income and yield-tokenization layer for Stellar. Deposit USDC to lock a fixed rate, or split a yield-bearing position into tradable Principal Tokens (PT) and Yield Tokens (YT).',
-  logo: 'https://www.spield.live/favicon.png',
+  logo: 'https://www.spield.live/logo-512.png',
   /** Proper 1200×630 social-share card (matches the landing theme). */
   ogImage: 'https://www.spield.live/og-image.png',
   ogImageWidth: 1200,

@@ -60,7 +60,7 @@ const Navbar = () => {
           <a href="#top" className="group flex items-center gap-2.5 shrink-0">
             <div className="relative">
               <div className="absolute inset-0 bg-brand-primary blur-lg opacity-25 group-hover:opacity-50 transition-opacity" />
-              <img src={logo} alt="Spield" className="relative w-7 h-7 object-contain" />
+              <img src={logo} alt="Spield" width="28" height="28" className="relative w-7 h-7 object-contain" />
             </div>
             <span className="font-heading text-sm font-semibold tracking-tight text-white/90 hidden sm:block">
               Spield

@@ -54,7 +54,7 @@ const Footer = () => {
           {/* brand */}
           <div className="col-span-2">
             <div className="flex items-center gap-2.5">
-              <img src={logo} alt="Spield" className="w-7 h-7 object-contain" />
+              <img src={logo} alt="Spield" width="28" height="28" loading="lazy" decoding="async" className="w-7 h-7 object-contain" />
               <span className="font-heading text-base font-semibold text-white">Spield</span>
             </div>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/40">

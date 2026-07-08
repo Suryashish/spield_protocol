@@ -1,3 +1,10 @@
+// Installs the global `Buffer` the Allbridge/Solana bridge SDKs need. This lives
+// in the lazy dashboard chunk (not main.tsx) so the ~20KB `buffer` polyfill never
+// ships with the marketing landing / learn bundles that don't touch those SDKs.
+// It's a side-effect import at the top of this module, so it runs before any
+// provider below (which may pull in the bridge SDK) initializes.
+import '@/lib/polyfills';
+
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 import DashboardPage from '@/pages/DashboardPage';

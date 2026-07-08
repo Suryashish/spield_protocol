@@ -4,6 +4,25 @@ import './LightRays.css';
 
 const DEFAULT_COLOR = '#ffffff';
 
+/**
+ * Cheap probe for WebGL support. OGL's Renderer calls `console.error('unable to
+ * create webgl context')` internally when a context can't be made (headless
+ * browsers, disabled/blocked GPU), which shows up as a logged error in audits.
+ * Probing first lets us skip OGL entirely in those environments — no error, and
+ * the decorative rays simply don't render. The throwaway canvas is GC'd.
+ */
+const supportsWebGL = (): boolean => {
+  try {
+    const canvas = document.createElement('canvas');
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+    );
+  } catch {
+    return false;
+  }
+};
+
 const hexToRgb = (hex: string): [number, number, number] => {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return m ? [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255] : [1, 1, 1];
@@ -77,6 +96,22 @@ const LightRays = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Respect the user's reduced-motion preference: skip the continuous WebGL
+    // animation entirely (accessibility + saves main-thread/GPU time and battery).
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+
+    // Skip in environments that can't provide a WebGL context (avoids OGL's
+    // internal console.error and a wasted init). The rays are purely decorative.
+    if (!supportsWebGL()) {
+      return;
+    }
+
     observerRef.current = new IntersectionObserver(
       entries => {
         const entry = entries[0];
@@ -110,10 +145,19 @@ const LightRays = ({
 
       if (!containerRef.current) return;
 
-      const renderer = new Renderer({
-        dpr: Math.min(window.devicePixelRatio, 2),
-        alpha: true
-      });
+      // Creating the WebGL context can throw or return null (headless browsers,
+      // blocked GPU, exhausted contexts). Guard it so a failure degrades to "no
+      // rays" instead of throwing an uncaught error to the console.
+      let renderer: Renderer;
+      try {
+        renderer = new Renderer({
+          dpr: Math.min(window.devicePixelRatio, 2),
+          alpha: true
+        });
+      } catch {
+        return;
+      }
+      if (!renderer.gl || !renderer.gl.canvas) return;
       rendererRef.current = renderer;
 
       const gl = renderer.gl;

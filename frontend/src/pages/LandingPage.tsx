@@ -1,6 +1,12 @@
-import LightRays from '@/components/landing/effects/LightRays';
+import { lazy, Suspense } from 'react';
 import CreaseBg2 from '@/components/landing/effects/CreaseBg2';
 import Navbar from '@/components/landing/layout/Navbar';
+
+// The LightRays hero effect pulls in OGL (WebGL, ~50KB). It's purely decorative,
+// so it's code-split into its own chunk and mounted after the page paints — the
+// hero text/CTA render immediately on the tiny critical bundle instead of waiting
+// on the WebGL library to download and compile.
+const LightRays = lazy(() => import('@/components/landing/effects/LightRays'));
 import Hero from '@/components/landing/sections/Hero';
 import Partners from '@/components/landing/sections/Partners';
 import Features from '@/components/landing/sections/Features';
@@ -44,19 +50,21 @@ const LandingPage = () => {
           }}
         />
 
-        {/* Background Layer 2: Light Rays */}
+        {/* Background Layer 2: Light Rays (lazy WebGL, non-blocking) */}
         <div className="absolute inset-0 z-[1] pointer-events-none">
-          <LightRays
-            raysOrigin="top-center"
-            raysColor="#00ffcc"
-            raysSpeed={1.0}
-            lightSpread={0.6}
-            rayLength={1.5}
-            followMouse={true}
-            mouseInfluence={0.05}
-            noiseAmount={0.05}
-            distortion={0.03}
-          />
+          <Suspense fallback={null}>
+            <LightRays
+              raysOrigin="top-center"
+              raysColor="#00ffcc"
+              raysSpeed={1.0}
+              lightSpread={0.6}
+              rayLength={1.5}
+              followMouse={true}
+              mouseInfluence={0.05}
+              noiseAmount={0.05}
+              distortion={0.03}
+            />
+          </Suspense>
         </div>
 
         {/* Hero content */}

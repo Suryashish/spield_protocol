@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- Primary Meta Tags -->
@@ -50,7 +52,7 @@
           "name": "Spield Protocol",
           "alternateName": "Spield",
           "url": "https://www.spield.live",
-          "logo": "https://www.spield.live/favicon.png",
+          "logo": "https://www.spield.live/logo-512.png",
           "description": "Spield is the fixed-income and yield-tokenization layer for Stellar. Deposit USDC to lock a fixed rate, or split a yield-bearing position into tradable Principal Tokens (PT) and Yield Tokens (YT).",
           "sameAs": ["https://x.com/spield_"]
         },
@@ -101,33 +103,76 @@
     }
     </script>
 
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y902DS1JCN"></script>
+    <!--
+      Analytics (Google Analytics + Microsoft Clarity) are deferred until the page
+      is idle so they never block first paint or steal main-thread time during the
+      critical render. gtag stubs are defined up front so any early events queue,
+      and the actual tags are injected after `window.load` (or on first user
+      interaction, whichever comes first) via requestIdleCallback.
+    -->
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-
       gtag('config', 'G-Y902DS1JCN');
-    </script>
 
-    <!-- Microsoft Clarity -->
-    <script type="text/javascript">
-      (function(c,l,a,r,i,t,y){
-          c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-          t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-          y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-      })(window, document, "clarity", "script", "wjr8mkggic");
+      (function () {
+        var loaded = false;
+        function loadAnalytics() {
+          if (loaded) return;
+          loaded = true;
+
+          // Google Analytics
+          var ga = document.createElement('script');
+          ga.async = true;
+          ga.src = 'https://www.googletagmanager.com/gtag/js?id=G-Y902DS1JCN';
+          document.head.appendChild(ga);
+
+          // Microsoft Clarity
+          (function (c, l, a, r, i, t, y) {
+            c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments); };
+            t = l.createElement(r); t.async = 1; t.src = 'https://www.clarity.ms/tag/' + i;
+            y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+          })(window, document, 'clarity', 'script', 'wjr8mkggic');
+        }
+
+        function schedule() {
+          if ('requestIdleCallback' in window) {
+            requestIdleCallback(loadAnalytics, { timeout: 4000 });
+          } else {
+            setTimeout(loadAnalytics, 2000);
+          }
+        }
+
+        // Load as soon as the page is done, or on the first real interaction.
+        if (document.readyState === 'complete') schedule();
+        else window.addEventListener('load', schedule, { once: true });
+        ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(function (evt) {
+          window.addEventListener(evt, loadAnalytics, { once: true, passive: true });
+        });
+      })();
     </script>
 
     <!-- Fonts. Landing page uses Inter / Playfair / Space Grotesk; the app shell
-         (dashboard) uses Plus Jakarta Sans / Space Grotesk — see src/index.css. -->
+         (dashboard) uses Plus Jakarta Sans / Space Grotesk — see src/index.css.
+         Loaded non-render-blocking: the stylesheet is fetched with media="print"
+         and flipped to "all" on load, so it never blocks first paint. A <noscript>
+         fallback keeps fonts for JS-disabled clients. `preconnect` warms the two
+         font origins so the swap is fast. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:wght@400..900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
       rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:wght@400..900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:wght@400..900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      />
+    </noscript>
     <!--
       Minimal Node shim for @stellar/stellar-sdk. Some of its polyfilled
       dependencies (readable-stream / http) reference `process.nextTick`, which
