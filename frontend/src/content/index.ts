@@ -24,6 +24,8 @@ import { article as whatIsPt } from './articles/what-is-a-principal-token';
 import { article as tokenizedTreasuries } from './articles/tokenized-treasuries-explained';
 import { article as rwaOnStellar } from './articles/rwa-on-stellar';
 import { article as protocolFacts } from './articles/spield-protocol-facts';
+import { article as fixedIncomeForInstitutions } from './articles/fixed-income-defi-for-institutions';
+import { article as verifiableTransparentDefi } from './articles/verifiable-transparent-defi';
 
 // --- Comparisons ------------------------------------------------------------
 import { comparison as blendVsAave } from './comparisons/blend-vs-aave';
@@ -42,6 +44,8 @@ const rawArticles: Article[] = [
   tokenizedTreasuries,
   rwaOnStellar,
   protocolFacts,
+  fixedIncomeForInstitutions,
+  verifiableTransparentDefi,
 ];
 
 const rawComparisons: Comparison[] = [blendVsAave, sorobanVsEvm];

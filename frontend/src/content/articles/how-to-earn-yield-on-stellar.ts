@@ -17,9 +17,12 @@ export const article: Article = {
     'Stellar passive income',
     'best yield on Stellar',
     'Stellar DeFi yield',
+    'guaranteed crypto returns',
+    'lock yield crypto',
+    'USDC yield splitting',
   ],
   datePublished: '2026-07-05',
-  dateModified: '2026-07-05',
+  dateModified: '2026-07-09',
   readingMinutes: 0,
   pillar: true,
   body: [

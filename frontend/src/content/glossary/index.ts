@@ -11,7 +11,7 @@ export const GLOSSARY: GlossaryTerm[] = [
   {
     slug: 'principal-token',
     term: 'Principal Token (PT)',
-    aliases: ['PT', 'principal token'],
+    aliases: ['PT', 'principal token', 'principal protected DeFi', 'principal protection'],
     category: 'yield-tokenization',
     shortDefinition:
       'A Principal Token (PT) is a token that represents the principal of a yield-bearing deposit and redeems 1:1 for the underlying asset at maturity, functioning like an on-chain zero-coupon bond. Because its yield has been stripped away, a PT trades at a discount before maturity, and that discount is the fixed yield a holder earns.',
@@ -337,7 +337,7 @@ export const GLOSSARY: GlossaryTerm[] = [
   {
     slug: 'time-decay-amm',
     term: 'Time-Decay AMM',
-    aliases: ['time-decay AMM', 'Pendle-style AMM', 'PT/YT AMM'],
+    aliases: ['time-decay AMM', 'Pendle-style AMM', 'PT/YT AMM', 'PT/USDC pool', 'PT yield AMM'],
     category: 'yield-tokenization',
     shortDefinition:
       'A time-decay AMM is an automated market maker designed to trade Principal Tokens, whose pricing curve accounts for the fact that a PT converges to par value as maturity approaches. This structure lets liquidity providers earn swap fees while facing near-zero impermanent loss if they stay until maturity.',

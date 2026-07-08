@@ -10,9 +10,18 @@ export const article: Article = {
   intent: 'informational',
   audience: 'intermediate',
   primaryKeyword: 'implied APY vs underlying APY',
-  keywords: ['implied APY vs underlying APY', 'implied APY', 'underlying APY', 'what is implied APY', 'fixed APY explained'],
+  keywords: [
+    'implied APY vs underlying APY',
+    'implied APY',
+    'implied APY DeFi',
+    'underlying APY',
+    'what is implied APY',
+    'fixed APY explained',
+    'implied APY arbitrage',
+    'trade yield exposure',
+  ],
   datePublished: '2026-07-05',
-  dateModified: '2026-07-05',
+  dateModified: '2026-07-09',
   readingMinutes: 0,
   body: [
     {

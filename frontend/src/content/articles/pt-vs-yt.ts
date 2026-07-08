@@ -10,9 +10,18 @@ export const article: Article = {
   intent: 'commercial',
   audience: 'beginner',
   primaryKeyword: 'PT vs YT',
-  keywords: ['PT vs YT', 'PT vs YT which to buy', 'principal token vs yield token', 'should I buy PT or YT', 'fixed vs variable yield tokenization'],
+  keywords: [
+    'PT vs YT',
+    'PT vs YT which to buy',
+    'principal token vs yield token',
+    'should I buy PT or YT',
+    'fixed vs variable yield tokenization',
+    'long yield token',
+    'trade yield exposure',
+    'implied APY arbitrage',
+  ],
   datePublished: '2026-07-05',
-  dateModified: '2026-07-05',
+  dateModified: '2026-07-09',
   readingMinutes: 0,
   body: [
     {
