@@ -25,7 +25,7 @@ import {
   comparisonGraph,
   collectionGraph,
 } from '../src/content/schema';
-import { buildStatsJson } from '../src/content/facts';
+import { buildStatsJson, PROTOCOL_FACTS } from '../src/content/facts';
 
 // --- head/meta --------------------------------------------------------------
 
@@ -349,6 +349,34 @@ export function renderComparison(c: Comparison, shell: string): string {
  * homepage. The seed is styled with the same scoped Learn CSS so any pre-hydration
  * flash stays on-brand (dark), not a white FOUC.
  */
+/**
+ * Honest, crawler-visible trust block for the homepage seed. Renders ONLY real,
+ * verifiable facts from PROTOCOL_FACTS (the same source behind /api/stats.json):
+ * network status, yield source, enforceable on-chain guarantees, testnet config
+ * values, and the on-chain contract count + explorer link. Deliberately NO
+ * invented TVL / user counts / audit badges — Spield is on testnet and facts.ts
+ * keeps live metrics null on purpose ("never publish invented numbers"). This is
+ * what AI answer engines read, so concrete facts here = better, truthful citations.
+ */
+function trustBlock(): string {
+  const f = PROTOCOL_FACTS;
+  const cfg = f.config
+    .map((c) => `<li><strong>${esc(c.label)}:</strong> ${esc(c.value)}</li>`)
+    .join('');
+  const guarantees = f.guarantees.map((g) => `<li>${esc(g)}</li>`).join('');
+  return `<h2>Is Spield safe? What you can verify</h2>
+    <p>Spield is currently live on the <strong>${esc(f.networkLabel)}</strong>. Its yield comes from ${esc(
+      f.yieldSource,
+    )} — there is no invented index and no bridged asset. As a testnet deployment it has no live TVL or user metrics yet; instead, trust rests on guarantees enforced directly in the smart contracts:</p>
+    <ul>${guarantees}</ul>
+    <h3>Protocol at a glance (testnet)</h3>
+    <ul>${cfg}</ul>
+    <p>All <strong>${f.contracts.length} core contracts</strong> are public and verifiable on-chain via
+      <a href="${esc(f.explorer)}">Stellar Expert</a>. See the full
+      <a href="/learn/spield-protocol-facts">protocol facts</a> (contract addresses, config, guarantees) or the
+      <a href="/api/stats.json">machine-readable stats endpoint</a>.</p>`;
+}
+
 function homeSeed(): string {
   const guideLinks = (items: { slug: string; title: string; description: string }[], base: string) =>
     items
@@ -381,6 +409,8 @@ function homeSeed(): string {
       <li><strong>Split yield</strong> into a Principal Token (PT, a zero-coupon bond) and a Yield Token (YT, a claim on future yield).</li>
       <li><strong>Trade PT and YT</strong> on a Stellar-native, time-decay AMM — no bridges, no wrapped assets, no invented index.</li>
     </ul>
+
+    ${trustBlock()}
 
     <h2>Start here — core guides</h2>
     <ul class="lh-seed-links">${guideLinks(pillars, '/learn')}</ul>

@@ -12,6 +12,7 @@ import Partners from '@/components/landing/sections/Partners';
 import Features from '@/components/landing/sections/Features';
 import HowItWorks from '@/components/landing/sections/HowItWorks';
 import Products from '@/components/landing/sections/Products';
+import Trust from '@/components/landing/sections/Trust';
 import VideoGuide from '@/components/landing/sections/VideoGuide';
 import FAQ from '@/components/landing/sections/FAQ';
 import CTA from '@/components/landing/sections/CTA';
@@ -109,6 +110,7 @@ const LandingPage = () => {
           <Features />
           <HowItWorks />
           <Products />
+          <Trust />
           <VideoGuide />
           <FAQ />
           <CTA />
