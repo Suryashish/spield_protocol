@@ -10,6 +10,16 @@
  * hairline accent. No colour hues; contrast and typography carry the design.
  */
 export const LEARN_CSS = `
+/* ---- document reset ----
+ * The prerendered static pages ship WITHOUT the app's CSS bundle (Tailwind
+ * Preflight + index.css are stripped in scripts/render-page.ts), so nothing
+ * else zeroes the UA defaults there. Without this, deployed content pages show
+ * an 8px white body margin ("white border" around the dark page) and the
+ * background canvas peeks through. On the SPA these rules are a harmless no-op
+ * (the app reset already applies). Keep it here so BOTH render targets match. */
+html{margin:0;padding:0}
+body{margin:0;padding:0;min-height:100vh;background:#050708}
+@media(prefers-color-scheme:light){body:has(.lh-root:not([data-theme="dark"])){background:#fafafa}}
 :root{
   --bg:#050708; --bg-2:#0a0d0f; --panel:#0e1214; --panel-2:#131719; --panel-3:#171b1e;
   --text:#f2f4f5; --text-2:#c9ced2; --muted:#8b9297; --muted-2:#5b6266; --faint:#3a4044;

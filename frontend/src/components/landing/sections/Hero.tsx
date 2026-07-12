@@ -121,7 +121,7 @@ const Hero = () => {
               <button
                 type="submit"
                 disabled={!valid || loading}
-                className="flex w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-primary px-5 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:bg-white/10 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+                className="flex w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-primary px-8 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:bg-white/10 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-38"
               >
                 {loading ? (
                   <Loader2 size={13} className="animate-spin" />
@@ -145,15 +145,6 @@ const Hero = () => {
             {error}
           </motion.p>
         )}
-
-        {/* Fine print */}
-        <div className="mt-4 flex items-center justify-center gap-4 text-[10px] text-white/50">
-          <span>No spam, just a launch notification.</span>
-          <span>·</span>
-          <a href="#how-it-works" className="hover:text-white/50 transition-colors">
-            How it works →
-          </a>
-        </div>
       </motion.div>
 
       {/* Scroll cue */}

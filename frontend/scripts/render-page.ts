@@ -225,8 +225,21 @@ export function document(shell: string, meta: Meta, bodyHtml: string): string {
   return html;
 }
 
+/**
+ * The `.lh-shell` class list. MUST match the React runtime
+ * (src/components/learn/LearnLayout.tsx): the two-column grid only activates via
+ * `.lh-shell.has-aside`, so `has-aside` MUST be present exactly when an aside is
+ * rendered. Otherwise the shell stays single-column and the position:sticky
+ * aside overlays the article on scroll. prerender.mjs asserts this invariant on
+ * the generated HTML so the two paths can't silently drift.
+ */
+function shellClass(hasAside: boolean): string {
+  return hasAside ? 'lh-shell has-aside' : 'lh-shell';
+}
+
 function wrap(main: string, aside = ''): string {
-  return `${HEADER}<div class="lh-shell">${aside ? `<aside class="lh-aside">${aside}</aside>` : ''}<main class="lh-main">${main}</main></div>${footer()}`;
+  const hasAside = Boolean(aside);
+  return `${HEADER}<div class="${shellClass(hasAside)}">${hasAside ? `<aside class="lh-aside">${aside}</aside>` : ''}<main class="lh-main">${main}</main></div>${footer()}`;
 }
 
 // --- page renderers ---------------------------------------------------------

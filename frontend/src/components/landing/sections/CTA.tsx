@@ -41,7 +41,7 @@ const CTA = () => {
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="group flex items-center gap-3.5 rounded-xl bg-brand-primary px-7 py-3.5 text-[11px] font-bold tracking-[0.24em] text-[#021511] shadow-[0_4px_16px_rgba(0,255,204,0.12)] transition-shadow hover:shadow-[0_6px_20px_rgba(0,255,204,0.2)]"
+                  className="group flex items-center justify-center gap-3.5 rounded-xl bg-brand-primary px-12 py-3.5 min-w-56 text-[11px] font-bold tracking-[0.24em] text-[#021511] shadow-[0_4px_16px_rgba(0,255,204,0.12)] transition-shadow hover:shadow-[0_6px_20px_rgba(0,255,204,0.2)]"
                 >
                   LAUNCH APP
                   <ChevronRight size={15} strokeWidth={2.5} className="transition-transform group-hover:translate-x-1" />
@@ -51,7 +51,7 @@ const CTA = () => {
                 href="#faq"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="rounded-xl border border-white/12 px-7 py-3.5 text-[11px] font-bold tracking-[0.24em] text-white/60 hover:text-white hover:border-white/25 transition-colors"
+                className="flex items-center justify-center rounded-xl border border-white/12 px-12 py-3.5 min-w-56 text-[11px] font-bold tracking-[0.24em] text-white/60 hover:text-white hover:border-white/25 transition-colors"
               >
                 READ THE DOCS
               </motion.a>

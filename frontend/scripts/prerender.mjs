@@ -175,6 +175,37 @@ async function main() {
     console.log('[prerender] ✓ all titles ≤60c and descriptions ≤160c');
   }
 
+  // Structural consistency lint (STRICT): the static HTML here is authored
+  // separately from the React runtime (src/components/learn/LearnLayout.tsx), so
+  // the two can drift. These invariants catch the drift that has actually bitten:
+  //   1. The two-column grid only activates via `.lh-shell.has-aside`, so an
+  //      <aside> WITHOUT `has-aside` (or `has-aside` WITHOUT an <aside>) means a
+  //      broken layout — the sticky ToC overlays the article.
+  //   2. Content pages ship without the app CSS bundle, so LEARN_CSS must carry
+  //      its own body reset — otherwise the browser default 8px margin shows as a
+  //      white border around the dark page.
+  const structErrors = [];
+  for (const p of pages) {
+    const hasAsideEl = /<aside class="lh-aside">/.test(p.html);
+    const hasAsideShell = /class="lh-shell has-aside"/.test(p.html);
+    if (hasAsideEl !== hasAsideShell) {
+      structErrors.push(
+        `/${p.outPath.replace(/\/index\.html$/, '')}: <aside> present=${hasAsideEl} but shell.has-aside=${hasAsideShell} (grid will break)`,
+      );
+    }
+    if (!/body\{[^}]*margin:0/.test(p.html)) {
+      structErrors.push(`/${p.outPath.replace(/\/index\.html$/, '')}: missing body{margin:0} reset (white border)`);
+    }
+  }
+  if (structErrors.length) {
+    console.error(`[prerender] ✗ ${structErrors.length} structural consistency issue(s):`);
+    for (const e of structErrors.slice(0, 30)) console.error(`  ${e}`);
+    console.error('[prerender] failing build — static pages would render inconsistently with the SPA');
+    process.exit(1);
+  } else {
+    console.log('[prerender] ✓ static layout consistent with the SPA (aside/grid + body reset)');
+  }
+
   console.log('[prerender] done:');
   console.log(`  ${pages.map((p) => '/' + p.outPath.replace(/\/index\.html$/, '')).join('\n  ')}`);
   console.log('  /sitemap.xml  /robots.txt  /llms.txt  /llms-full.txt  /api/stats.json');

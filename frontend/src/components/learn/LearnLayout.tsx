@@ -105,6 +105,8 @@ export function LearnLayout({ children, aside }: { children: React.ReactNode; as
   return (
     <div className="lh-root">
       <Header />
+      {/* `has-aside` gates the two-column grid — the prerenderer (scripts/render-page.ts
+          shellClass()) mirrors this exactly and prerender.mjs asserts they match. */}
       <div className={`lh-shell${aside ? ' has-aside' : ''}`}>
         {aside ? <aside className="lh-aside">{aside}</aside> : null}
         <main className="lh-main">{children}</main>
