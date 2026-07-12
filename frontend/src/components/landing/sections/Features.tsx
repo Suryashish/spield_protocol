@@ -43,7 +43,7 @@ const SolvencyGraphic = () => {
               initial={{ width: 0 }}
               whileInView={{ width: `${r.value * 100}%` }}
               viewport={{ once: true }}
-              transition={{ duration: 1, delay: i * 0.15, ease }}
+              transition={{ duration: 1.3, delay: i * 0.15, ease }}
               className={`h-full rounded-full ${
                 r.tone === 'brand'
                   ? 'bg-gradient-to-r from-brand-primary/50 to-brand-primary shadow-[0_0_12px_var(--color-brand-glow)]'
@@ -117,14 +117,14 @@ const CurveGraphic = () => {
           d={`M${x0},96 C110,92 175,55 ${x1},${yPar}`}
           fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2.2" strokeLinecap="round"
           initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-          transition={{ duration: 1.1, ease }}
+          transition={{ duration: 1.5, ease }}
         />
         {/* YT: value → 0 (ends at bottom-right) */}
         <motion.path
           d={`M${x0},42 C110,58 175,108 ${x1},${yBot}`}
           fill="none" stroke="#00ffcc" strokeWidth="2.2" strokeLinecap="round"
           initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-          transition={{ duration: 1.1, delay: 0.12, ease }}
+          transition={{ duration: 1.5, delay: 0.15, ease }}
         />
 
         {/* endpoint dots */}
@@ -136,10 +136,11 @@ const CurveGraphic = () => {
         <text x={x1} y={yBot + 16} textAnchor="end" fill="rgba(255,255,255,0.45)" fontSize="9">maturity</text>
       </svg>
 
-      {/* legend — top-left corner. PT starts low (y=96) and YT crosses down to
-          the right, so the upper-left is the one region clear of both curves,
-          the PT endpoint (top-right) and the "maturity" tick (bottom-right). */}
-      <div className="absolute left-11 top-1 flex flex-col gap-1 text-[9px]">
+      {/* legend — pinned to the top-right, laid out horizontally. The old
+          top-left placement collided with the in-SVG "1.0" y-axis label; the
+          top-right strip sits above the par line and clear of both curves'
+          left portions and the "1.0"/"0" ticks on the far left. */}
+      <div className="absolute right-3 top-1 flex items-center gap-3 text-[9px]">
         <span className="flex items-center gap-1.5 text-white/70"><span className="h-[2px] w-4 rounded bg-white/80" />PT price</span>
         <span className="flex items-center gap-1.5 text-brand-primary"><span className="h-[2px] w-4 rounded bg-brand-primary" />YT price</span>
       </div>
@@ -185,7 +186,7 @@ const PositionsGraphic = () => (
         initial={{ opacity: 0, x: -12 }}
         whileInView={{ opacity: 1, x: 0 }}
         viewport={{ once: true }}
-        transition={{ duration: 0.5, delay: i * 0.1, ease }}
+        transition={{ duration: 0.65, delay: i * 0.1, ease }}
       >
         <div
           className="stage-row flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2"
@@ -212,7 +213,7 @@ const RiskGraphic = () => {
           cx="60" cy="60" r={r} fill="none" stroke="#00ffcc" strokeWidth="8" strokeLinecap="round"
           strokeDasharray={c}
           initial={{ strokeDashoffset: c }} whileInView={{ strokeDashoffset: c * (1 - pct) }}
-          viewport={{ once: true }} transition={{ duration: 1.2, ease }}
+          viewport={{ once: true }} transition={{ duration: 1.6, ease }}
         />
       </svg>
       <div className="absolute text-center">

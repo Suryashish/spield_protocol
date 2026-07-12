@@ -74,14 +74,10 @@ const HowItWorks = () => {
                   d="M0,100 H30 M30,100 C46,100 46,52 72,52 M30,100 C46,100 46,148 72,148"
                   fill="none" stroke="rgba(0,255,204,0.45)" strokeWidth="1.6" strokeLinecap="round"
                   initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-                  transition={{ duration: 1, ease }}
+                  transition={{ duration: 1.4, ease }}
                 />
                 <circle cx="30" cy="100" r="3" fill="#00ffcc" />
               </svg>
-              {/* split node label */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 grid place-items-center w-7 h-7 rounded-full liquid-chip text-brand-primary">
-                <Split size={13} />
-              </div>
             </div>
 
             {/* ---- PT + YT ---- */}
@@ -112,7 +108,7 @@ const HowItWorks = () => {
                 >
                   <div className="flex items-center justify-between">
                     <span
-                      className={`grid place-items-center w-9 h-9 rounded-xl text-xs font-bold ${
+                      className={`grid place-items-center w-9 h-9 rounded-xl text-xs font-bold transition-transform duration-300 group-hover:scale-110 ${
                         t.featured
                           ? 'bg-brand-primary/15 text-brand-primary ring-1 ring-brand-primary/30'
                           : 'bg-white/[0.06] text-white/80 ring-1 ring-white/10'

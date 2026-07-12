@@ -19,7 +19,7 @@ export const SectionHeading = ({
       initial={{ opacity: 0, y: 14 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-80px' }}
-      transition={{ duration: 0.7, ease }}
+      transition={{ duration: 0.9, ease }}
       className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.3em] text-brand-primary/80"
     >
       <span className="h-1 w-1 rounded-full bg-brand-primary shadow-[0_0_8px_var(--color-brand-glow)]" />
@@ -29,7 +29,7 @@ export const SectionHeading = ({
       initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-80px' }}
-      transition={{ duration: 0.8, ease, delay: 0.05 }}
+      transition={{ duration: 1.05, ease, delay: 0.05 }}
       className="mt-4 text-3xl md:text-5xl font-medium tracking-tight text-white leading-[1.1]"
     >
       {title}
@@ -39,7 +39,7 @@ export const SectionHeading = ({
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: '-80px' }}
-        transition={{ duration: 0.8, ease, delay: 0.1 }}
+        transition={{ duration: 1.05, ease, delay: 0.1 }}
         className="mt-5 text-sm md:text-base font-light leading-relaxed text-white/45"
       >
         {subtitle}
@@ -61,7 +61,7 @@ export const Reveal = ({
     initial={{ opacity: 0, y: 24 }}
     whileInView={{ opacity: 1, y: 0 }}
     viewport={{ once: true, margin: '-60px' }}
-    transition={{ duration: 0.7, ease, delay }}
+    transition={{ duration: 0.9, ease, delay }}
     className={className}
   >
     {children}

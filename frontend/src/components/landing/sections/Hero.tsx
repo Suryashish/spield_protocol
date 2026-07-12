@@ -51,7 +51,7 @@ const Hero = () => {
       <motion.h1
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 1, ease }}
+        transition={{ delay: 0.3, duration: 1.3, ease }}
         className="text-5xl md:text-7xl lg:text-8xl font-normal mb-7 text-gradient tracking-tight font-display px-6 pb-2 leading-[1.05]"
       >
         The Fixed-Income
@@ -63,7 +63,7 @@ const Hero = () => {
       <motion.p
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5, duration: 1, ease }}
+        transition={{ delay: 0.5, duration: 1.3, ease }}
         className="max-w-2xl text-white/45 text-sm md:text-base font-light mb-10 leading-relaxed tracking-wide"
       >
         Split your Blend yield into a fixed-rate{' '}
@@ -76,16 +76,9 @@ const Hero = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.8, duration: 1, ease }}
+        transition={{ delay: 0.8, duration: 1.3, ease }}
         className="w-full max-w-md space-y-4"
       >
-        {/* Divider with label */}
-        <div className="flex items-center gap-3 text-[9px] text-white/20 uppercase tracking-widest">
-          <div className="flex-1 h-px bg-white/[0.07]" />
-          <span>Join the waitlist</span>
-          <div className="flex-1 h-px bg-white/[0.07]" />
-        </div>
-
         <AnimatePresence mode="wait">
           {submitted ? (
             <motion.div
@@ -121,14 +114,16 @@ const Hero = () => {
               <button
                 type="submit"
                 disabled={!valid || loading}
-                className="flex w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-primary px-8 py-2.5 text-[11px] font-bold tracking-[0.16em] text-[#021511] transition-all duration-300 enabled:hover:bg-white/10 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-38"
+                className="group relative flex w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-lg bg-brand-primary px-10 py-2.5 text-[11px] font-bold tracking-[0.18em] text-[#021511] transition-all duration-300 enabled:hover:bg-white/10 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-48"
               >
+                {/* sheen sweep on hover (enabled state only) */}
+                <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent transition-transform duration-700 ease-out group-enabled:group-hover:translate-x-full" />
                 {loading ? (
                   <Loader2 size={13} className="animate-spin" />
                 ) : (
                   <>
-                    <Rocket size={11} />
-                    NOTIFY ME
+                    <Rocket size={11} className="relative transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                    <span className="relative">NOTIFY ME</span>
                   </>
                 )}
               </button>

@@ -43,7 +43,7 @@ body{margin:0;padding:0;min-height:100vh;background:#050708}
 /* ---- header ---- */
 .lh-header{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
   gap:1rem;padding:.9rem 1.5rem;border-bottom:1px solid var(--line);
-  background:rgba(5,7,8,.72);backdrop-filter:blur(14px) saturate(1.2)}
+  background:rgba(5,7,8,.72);-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2)}
 .lh-header-in{width:100%;max-width:1120px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:1rem}
 .lh-brand{display:flex;align-items:center;gap:.6rem;font-family:var(--heading);font-weight:600;color:#fff;font-size:1.02rem;letter-spacing:-.01em}
 .lh-brand:hover{color:#fff}

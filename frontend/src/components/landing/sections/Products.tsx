@@ -3,6 +3,7 @@ import { ArrowRight, TrendingUp, Wallet, Droplets } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Reveal, Section, SectionGlow, SectionHeading } from '@/components/ui/Section';
+import { SpringCard } from '@/components/landing/motion/primitives';
 
 const ease = [0.16, 1, 0.3, 1] as const;
 
@@ -20,7 +21,7 @@ const FixedVisual = () => (
         initial={{ width: 0 }}
         whileInView={{ width: '93%' }}
         viewport={{ once: true }}
-        transition={{ duration: 1, ease }}
+        transition={{ duration: 1.3, ease }}
         className="h-full rounded-full bg-gradient-to-r from-white/30 to-white/70"
       />
       <span className="absolute right-0 top-1/2 -translate-y-1/2 h-3 w-[2px] rounded bg-brand-primary" />
@@ -38,7 +39,7 @@ const LeverageVisual = () => (
           initial={{ height: 4 }}
           whileInView={{ height: `${h}%` }}
           viewport={{ once: true }}
-          transition={{ duration: 0.7, delay: i * 0.08, ease }}
+          transition={{ duration: 0.9, delay: i * 0.1, ease }}
           className="w-2 rounded-sm bg-gradient-to-t from-brand-primary/20 to-brand-primary/80"
         />
       ))}
@@ -58,7 +59,7 @@ const LpVisual = () => (
         d="M0,28 C30,28 36,12 60,12 C84,12 90,26 120,26 C150,26 156,8 200,8"
         fill="none" stroke="#00ffcc" strokeWidth="2" strokeLinecap="round"
         initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-        transition={{ duration: 1.1, ease }}
+        transition={{ duration: 1.5, ease }}
       />
     </svg>
     <div className="mt-1 flex items-center justify-between text-[10px]">
@@ -136,11 +137,12 @@ const Products = () => {
       <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-4">
         {PRODUCTS.map((p, i) => (
           <Reveal key={p.title} delay={i * 0.07} className={p.featured ? 'md:-mt-3 md:mb-3' : ''}>
-            <div
-              className={`group relative flex h-full flex-col overflow-hidden rounded-2xl p-7 transition-transform duration-300 hover:-translate-y-1.5 ${
+            <SpringCard
+              lift={8}
+              className={`group relative flex h-full flex-col overflow-hidden rounded-2xl p-7 ${
                 p.featured
                   ? 'liquid-glass'
-                  : 'border border-white/10 bg-white/[0.015] hover:border-white/20'
+                  : 'border border-white/10 bg-white/[0.015] transition-colors hover:border-white/20'
               }`}
             >
               {/* animated soft glow on featured — oversized & blurred so only
@@ -155,7 +157,7 @@ const Products = () => {
                 {/* header */}
                 <div className="flex items-center justify-between">
                   <div
-                    className={`grid place-items-center w-11 h-11 rounded-xl ring-1 ${
+                    className={`grid place-items-center w-11 h-11 rounded-xl ring-1 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3 ${
                       p.featured
                         ? 'bg-brand-primary/15 text-brand-primary ring-brand-primary/30'
                         : 'bg-white/5 text-white/70 ring-white/10'
@@ -213,7 +215,7 @@ const Products = () => {
                   <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" />
                 </Link>
               </div>
-            </div>
+            </SpringCard>
           </Reveal>
         ))}
       </div>

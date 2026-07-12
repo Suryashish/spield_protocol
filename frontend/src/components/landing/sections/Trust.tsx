@@ -11,6 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 
 import { Reveal, Section, SectionGlow, SectionHeading } from '@/components/ui/Section';
+import { CountUp } from '@/components/landing/motion/primitives';
 import { PROTOCOL_FACTS } from '@/content/facts';
 
 const ease = [0.16, 1, 0.3, 1] as const;
@@ -43,7 +44,12 @@ const SolvencyVisual = () => (
         <div className="mt-1 text-sm text-white/50">Enforced on every mint &amp; redeem</div>
       </div>
       <div className="text-right">
-        <div className="font-display text-4xl leading-none text-gradient-brand">≥ 1.00</div>
+        <CountUp
+          value={1}
+          decimals={2}
+          prefix="≥ "
+          className="font-display text-4xl leading-none text-gradient-brand"
+        />
         <div className="text-[9px] uppercase tracking-[0.16em] text-white/35">backing ÷ issued</div>
       </div>
     </div>
@@ -61,7 +67,7 @@ const SolvencyVisual = () => (
             initial={{ width: '0%' }}
             whileInView={{ width: '100%' }}
             viewport={{ once: true, margin: '-80px' }}
-            transition={{ duration: 1.1, ease }}
+            transition={{ duration: 1.5, ease }}
             className="h-full rounded-full bg-gradient-to-r from-brand-primary/50 to-brand-primary"
           />
         </div>
@@ -78,7 +84,7 @@ const SolvencyVisual = () => (
             initial={{ width: '0%' }}
             whileInView={{ width: '92%' }}
             viewport={{ once: true, margin: '-80px' }}
-            transition={{ duration: 1.1, delay: 0.15, ease }}
+            transition={{ duration: 1.5, delay: 0.2, ease }}
             className="h-full rounded-full bg-gradient-to-r from-white/25 to-white/55"
           />
         </div>
@@ -89,7 +95,7 @@ const SolvencyVisual = () => (
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
         viewport={{ once: true }}
-        transition={{ duration: 0.6, delay: 1, ease }}
+        transition={{ duration: 0.7, delay: 1.7, ease }}
         className="flex items-center justify-end gap-2 text-[10px] text-white/40"
       >
         <span className="h-1.5 w-1.5 rounded-full bg-brand-primary" />
@@ -109,12 +115,12 @@ const GuaranteeMark = ({ kind }: { kind: 'no-bridge' | 'real-yield' | 'invariant
           <motion.circle
             cx="12" cy="12" r="6" fill="none" stroke="#00ffcc" strokeWidth="2"
             initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-            transition={{ duration: 0.8, ease }}
+            transition={{ duration: 1, ease }}
           />
           <motion.path
             d="M18 12 H42" stroke="rgba(255,255,255,.25)" strokeWidth="2" strokeDasharray="3 4"
             initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.3, ease }}
+            transition={{ duration: 0.8, delay: 0.4, ease }}
           />
           <line x1="46" y1="7" x2="54" y2="17" stroke="rgba(255,120,120,.7)" strokeWidth="2" strokeLinecap="round" />
           <line x1="54" y1="7" x2="46" y2="17" stroke="rgba(255,120,120,.7)" strokeWidth="2" strokeLinecap="round" />
@@ -128,7 +134,7 @@ const GuaranteeMark = ({ kind }: { kind: 'no-bridge' | 'real-yield' | 'invariant
             d="M2,20 C16,20 20,8 34,7 C46,6 52,4 58,3" fill="none" stroke="#00ffcc"
             strokeWidth="2" strokeLinecap="round"
             initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }}
-            transition={{ duration: 1, ease }}
+            transition={{ duration: 1.3, ease }}
           />
         </svg>
       );
@@ -211,19 +217,25 @@ const Trust = () => {
                 key={g}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
+                whileHover={{ y: -4 }}
                 viewport={{ once: true, margin: '-60px' }}
-                transition={{ duration: 0.55, ease, delay: 0.04 * i }}
-                className="group relative flex h-full flex-col gap-5 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.015] p-5 transition-colors hover:border-white/20"
+                transition={{
+                  y: { type: 'spring', stiffness: 320, damping: 24 },
+                  opacity: { duration: 0.7, ease, delay: 0.04 * i },
+                }}
+                className="group relative flex h-full flex-col gap-5 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.015] p-5 transition-colors hover:border-brand-primary/25"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-primary/10 text-brand-primary ring-1 ring-brand-primary/25">
+                {/* glow that blooms on hover */}
+                <div className="pointer-events-none absolute -right-12 -top-12 h-24 w-24 rounded-full bg-brand-primary/10 blur-2xl opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+                <div className="relative flex items-center justify-between gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-primary/10 text-brand-primary ring-1 ring-brand-primary/25 transition-transform duration-300 group-hover:scale-110 group-hover:ring-brand-primary/40">
                     <Icon size={16} strokeWidth={2} />
                   </span>
                   <div className="grid h-6 place-items-center">
                     <GuaranteeMark kind={meta.mark} />
                   </div>
                 </div>
-                <p className="text-sm leading-relaxed text-white/70">{g}</p>
+                <p className="relative text-sm leading-relaxed text-white/70">{g}</p>
               </motion.div>
             );
           })}
@@ -242,7 +254,7 @@ const Trust = () => {
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-60px' }}
-              transition={{ duration: 0.55, ease, delay: 0.04 }}
+              transition={{ duration: 0.7, ease, delay: 0.04 }}
               className="group relative flex h-full items-center gap-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.015] p-5 transition-colors hover:border-white/20"
             >
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-primary/10 text-brand-primary ring-1 ring-brand-primary/25">
@@ -264,7 +276,7 @@ const Trust = () => {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.55, ease, delay: 0.08 }}
+          transition={{ duration: 0.7, ease, delay: 0.08 }}
           className="group relative flex h-full items-center gap-4 overflow-hidden rounded-2xl liquid-glass p-5 transition-transform hover:-translate-y-1"
         >
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-primary/15 text-brand-primary ring-1 ring-brand-primary/30">
@@ -277,9 +289,10 @@ const Trust = () => {
               <ExternalLink size={12} strokeWidth={2.5} className="transition-transform group-hover:translate-x-0.5" />
             </p>
           </div>
-          <span className="ml-auto shrink-0 font-display text-3xl leading-none text-gradient-brand">
-            {f.contracts.length}
-          </span>
+          <CountUp
+            value={f.contracts.length}
+            className="ml-auto shrink-0 font-display text-3xl leading-none text-gradient-brand"
+          />
         </motion.a>
       </div>
 

@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Reveal, Section, SectionGlow } from '@/components/ui/Section';
+import { Magnetic } from '@/components/landing/motion/primitives';
 
 const CTA = () => {
   return (
@@ -37,16 +38,20 @@ const CTA = () => {
             </p>
 
             <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link to="/dashboard">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="group flex items-center justify-center gap-3.5 rounded-xl bg-brand-primary px-12 py-3.5 min-w-56 text-[11px] font-bold tracking-[0.24em] text-[#021511] shadow-[0_4px_16px_rgba(0,255,204,0.12)] transition-shadow hover:shadow-[0_6px_20px_rgba(0,255,204,0.2)]"
-                >
-                  LAUNCH APP
-                  <ChevronRight size={15} strokeWidth={2.5} className="transition-transform group-hover:translate-x-1" />
-                </motion.button>
-              </Link>
+              <Magnetic strength={10}>
+                <Link to="/dashboard">
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 22 }}
+                    className="group relative flex items-center justify-center gap-3.5 overflow-hidden rounded-xl bg-brand-primary px-12 py-3.5 min-w-56 text-[11px] font-bold tracking-[0.24em] text-[#021511] shadow-[0_4px_16px_rgba(0,255,204,0.12)] transition-shadow hover:shadow-[0_8px_28px_rgba(0,255,204,0.28)]"
+                  >
+                    {/* sheen sweep on hover */}
+                    <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full" />
+                    <span className="relative">LAUNCH APP</span>
+                    <ChevronRight size={15} strokeWidth={2.5} className="relative transition-transform duration-300 group-hover:translate-x-1" />
+                  </motion.button>
+                </Link>
+              </Magnetic>
               <motion.a
                 href="#faq"
                 whileHover={{ scale: 1.02 }}
