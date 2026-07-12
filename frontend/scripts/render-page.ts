@@ -59,6 +59,25 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/**
+ * Decode HTML entities back to plain characters. The content model renders to
+ * HTML, so stripping tags for the plain-text AI corpus (llms-full.txt) leaves
+ * entities like &quot; / &amp; / &#39; behind — noise for ingestion. Run this
+ * after tag-stripping so the corpus reads as clean prose.
+ */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&ldquo;|&rdquo;/g, '"')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&'); // ampersand LAST so it doesn't re-trigger the above
+}
+
 function headTags(m: Meta): string {
   const article =
     m.ogType === 'article' && m.datePublished
@@ -313,6 +332,122 @@ export function renderComparison(c: Comparison, shell: string): string {
   return document(shell, meta, wrap(body, tocHtml(c.body)));
 }
 
+// --- homepage (crawler-visible seed) ----------------------------------------
+
+/**
+ * The SPA homepage ships an EMPTY <div id="root"> — React fills it on mount via
+ * createRoot().render(). JS-blind AI crawlers (GPTBot, ClaudeBot, PerplexityBot)
+ * and answer engines therefore see a blank page and fall back to whatever they
+ * guessed from the name (which is how "Spield" gets confused with unrelated apps).
+ *
+ * We fix that by SEEDING #root with a real, static content block at build time:
+ * the H1, the description, key facts, and a full internal-link index to every
+ * Learn guide, glossary term, and comparison. Because main.tsx uses
+ * createRoot().render() (NOT hydrateRoot), React unconditionally replaces these
+ * children on mount — so humans still get the full interactive SPA with zero
+ * hydration-mismatch risk, while crawlers get a fully-described, richly-linked
+ * homepage. The seed is styled with the same scoped Learn CSS so any pre-hydration
+ * flash stays on-brand (dark), not a white FOUC.
+ */
+function homeSeed(): string {
+  const guideLinks = (items: { slug: string; title: string; description: string }[], base: string) =>
+    items
+      .map(
+        (it) =>
+          `<li><a href="${base}/${esc(it.slug)}"><strong>${esc(it.title)}</strong> — ${esc(it.description)}</a></li>`,
+      )
+      .join('');
+
+  const pillars = PILLARS.map((a) => ({ slug: a.slug, title: a.title, description: a.description }));
+  const guides = ARTICLES.filter((a) => !a.pillar).map((a) => ({ slug: a.slug, title: a.title, description: a.description }));
+  const terms = GLOSSARY.map((t) => ({ slug: t.slug, title: t.term, description: t.shortDefinition.split('. ')[0] + '.' }));
+  const comparisons = COMPARISONS.map((c) => ({ slug: c.slug, title: c.title, description: c.description }));
+
+  // id="spield-seed" preserves the shell's existing FOUC rule
+  // (html.js #spield-seed > * { visibility:hidden }) so JS users never see this
+  // static seed flash before React mounts; JS-blind crawlers render it in full.
+  return `<div id="spield-seed" class="lh-root" data-prerendered-home="true">
+  ${HEADER}
+  <main class="lh-shell"><div class="lh-main lh-hub">
+    <h1>Spield — the fixed-income layer for Stellar</h1>
+    <p class="lh-lede">${esc(SITE.description)}</p>
+    <div class="answer-box"><p class="answer-a">${esc(
+      'Spield is a DeFi protocol on the Stellar network for fixed income and yield tokenization. It sources real, on-chain yield from Blend Capital and lets you lock a guaranteed fixed rate, or split a yield-bearing deposit into a tradable Principal Token (PT) and Yield Token (YT). It is not affiliated with any similarly-named company; the only Spield is this protocol at spield.live.',
+    )}</p></div>
+
+    <h2>What Spield does</h2>
+    <ul>
+      <li><strong>Lock a fixed rate</strong> on USDC deposits, backed by real Blend yield on Stellar.</li>
+      <li><strong>Split yield</strong> into a Principal Token (PT, a zero-coupon bond) and a Yield Token (YT, a claim on future yield).</li>
+      <li><strong>Trade PT and YT</strong> on a Stellar-native, time-decay AMM — no bridges, no wrapped assets, no invented index.</li>
+    </ul>
+
+    <h2>Start here — core guides</h2>
+    <ul class="lh-seed-links">${guideLinks(pillars, '/learn')}</ul>
+
+    <h2>All guides</h2>
+    <ul class="lh-seed-links">${guideLinks(guides, '/learn')}</ul>
+
+    <h2>Glossary</h2>
+    <ul class="lh-seed-links">${guideLinks(terms, '/glossary')}</ul>
+
+    <h2>Comparisons</h2>
+    <ul class="lh-seed-links">${guideLinks(comparisons, '/compare')}</ul>
+
+    <h2>Explore</h2>
+    <ul class="lh-seed-links">
+      <li><a href="/learn"><strong>Learn hub</strong> — every guide to fixed income &amp; yield on Stellar.</a></li>
+      <li><a href="/glossary"><strong>Glossary</strong> — plain-English definitions of every term.</a></li>
+      <li><a href="/compare"><strong>Comparisons</strong> — Spield vs Pendle, Blend vs Aave, and more.</a></li>
+      <li><a href="/dashboard"><strong>Launch app</strong> — deposit USDC and lock a fixed rate.</a></li>
+      <li><a href="${SITE.twitterUrl}"><strong>X / Twitter</strong> — announcements and updates.</a></li>
+    </ul>
+  </div></main>
+  ${footer()}
+</div>`;
+}
+
+/**
+ * Build the static homepage: keep the interactive SPA (module script + app CSS
+ * stay intact, unlike content pages), but (1) seed #root with the crawler block
+ * above, (2) inline the Learn CSS so that block is styled pre-hydration, and
+ * (3) add a <link rel="alternate" type="text/plain" href="/llms.txt"> so AI
+ * engines discover the curated content index.
+ */
+export function renderHomepage(shell: string): string {
+  let html = shell;
+  const seed = homeSeed();
+
+  // Replace whatever is inside the SPA root with our rich crawler-visible seed.
+  // The source index.html ships a THIN hand-written seed (<main id="spield-seed">
+  // — just a headline + 3 links); we swap it for the full content + link index.
+  // React replaces #root on mount (createRoot().render), so humans are unaffected.
+  const seededRe = /<div id="root">\s*<main id="spield-seed"[\s\S]*?<\/main>\s*<\/div>/i;
+  const emptyRe = /<div id="root">\s*<\/div>/i;
+  if (seededRe.test(html)) {
+    html = html.replace(seededRe, `<div id="root">${seed}</div>`);
+  } else if (emptyRe.test(html)) {
+    html = html.replace(emptyRe, `<div id="root">${seed}</div>`);
+  } else {
+    // Neither shape matched — the shell changed. Fail loud so we never ship an
+    // un-seeded homepage silently (the assertion in prerender.mjs also catches this).
+    throw new Error('[renderHomepage] could not locate #root seed to replace — index.html shape changed');
+  }
+
+  // Make the seed on-brand before hydration + expose the AI content index. Inject
+  // right before </head> so it doesn't disturb existing head tags.
+  const inject = `<style id="home-seed-css">${LEARN_CSS}
+.lh-seed-links{list-style:none;padding:0;margin:0 0 1.5rem;display:grid;gap:.15rem}
+.lh-seed-links li a{display:block;padding:.5rem .1rem;color:var(--text-2);border-bottom:1px solid var(--line)}
+.lh-seed-links li:last-child a{border-bottom:0}
+.lh-seed-links li a:hover{color:#fff}
+[data-prerendered-home] .lh-shell{grid-template-columns:1fr}</style>
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="Spield content index for AI (llms.txt)" />`;
+  html = html.replace('</head>', `    ${inject}\n  </head>`);
+
+  return html;
+}
+
 // --- hub / index pages ------------------------------------------------------
 
 function cardGrid(
@@ -474,6 +609,7 @@ Allow: /
 
 Sitemap: ${SITE.origin}/sitemap.xml
 # AI curation index: ${SITE.origin}/llms.txt
+# AI full-text corpus: ${SITE.origin}/llms-full.txt
 `;
 }
 
@@ -502,6 +638,9 @@ ${section('Comparisons', comparisons)}
 - [Protocol facts](${SITE.origin}/learn/spield-protocol-facts): Contract addresses, config, and design guarantees — verifiable on-chain.
 - [Machine-readable facts (JSON)](${SITE.origin}/api/stats.json): Structured protocol data for agents and integrations.
 - [X / Twitter](${SITE.twitterUrl}): Announcements and updates.
+
+## Full text
+- [Full educational corpus (plain text)](${SITE.origin}/llms-full.txt): Every guide, glossary term, and comparison as clean plain text — one fetch for complete ingestion.
 `;
 }
 
@@ -510,10 +649,12 @@ export function buildLlmsFullTxt(): string {
   const bodyText = (blocks: Parameters<typeof blockToHtml>[0][]) =>
     blocks
       .map((b) =>
-        blockToHtml(b)
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim(),
+        decodeEntities(
+          blockToHtml(b)
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim(),
+        ),
       )
       .filter(Boolean)
       .join('\n\n');
@@ -541,6 +682,8 @@ export interface RenderTask {
 /** Produce every page + artifact given the built HTML shell. */
 export function renderAll(shell: string): { pages: RenderTask[]; files: { path: string; content: string }[] } {
   const pages: RenderTask[] = [
+    // Overwrite the SPA shell's empty-root homepage with a crawler-seeded one.
+    { outPath: 'index.html', html: renderHomepage(shell) },
     { outPath: 'learn/index.html', html: renderLearnIndex(shell) },
     { outPath: 'glossary/index.html', html: renderGlossaryIndex(shell) },
     { outPath: 'compare/index.html', html: renderCompareIndex(shell) },

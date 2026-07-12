@@ -206,6 +206,48 @@ async function main() {
     console.log('[prerender] ✓ static layout consistent with the SPA (aside/grid + body reset)');
   }
 
+  // Homepage crawlability lint (STRICT): the homepage is the #1 page for brand /
+  // entity ranking, and JS-blind AI crawlers only see its raw HTML. Assert that
+  // the prerendered homepage actually carries crawler-visible content + the
+  // entity signals that disambiguate Spield — regressing any of these silently
+  // re-blanks the homepage for bots (the "resolves to some other app" failure).
+  const homeErrors = [];
+  const home = pages.find((p) => p.outPath === 'index.html');
+  if (!home) {
+    homeErrors.push('no prerendered index.html was produced (renderHomepage not wired in)');
+  } else {
+    const h = home.html;
+    // 1. #root must be seeded (not empty) so bots see real content.
+    if (/<div id="root">\s*<\/div>/.test(h)) homeErrors.push('homepage #root is EMPTY (crawlers see a blank page)');
+    if (!/data-prerendered-home="true"/.test(h)) homeErrors.push('homepage seed block is missing');
+    // 2. The seed must actually describe Spield + link into the content hub.
+    if (!/fixed-income layer for Stellar/i.test(h)) homeErrors.push('homepage seed missing the H1/description');
+    const seedLinks = (h.match(/href="\/(learn|glossary|compare)\/[a-z0-9-]+"/g) || []).length;
+    if (seedLinks < 10) homeErrors.push(`homepage seed links to only ${seedLinks} content pages (expected many more)`);
+    // 3. Entity disambiguation signals must be present in the head JSON-LD.
+    const org = (h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [])
+      .map((s) => { try { return JSON.parse(s.replace(/<\/?script[^>]*>/g, '')); } catch { return null; } })
+      .filter(Boolean)
+      .flatMap((j) => j['@graph'] || [j])
+      .find((n) => n && n['@type'] === 'Organization');
+    if (!org) homeErrors.push('homepage missing Organization JSON-LD');
+    else {
+      for (const f of ['name', 'description', 'sameAs', 'alternateName']) {
+        if (org[f] === undefined) homeErrors.push(`Organization JSON-LD missing "${f}"`);
+      }
+    }
+    // 4. AI content index must be discoverable from the head.
+    if (!/href="\/llms\.txt"/.test(h)) homeErrors.push('homepage missing <link ... href="/llms.txt"> (AI content index)');
+  }
+  if (homeErrors.length) {
+    console.error(`[prerender] ✗ ${homeErrors.length} homepage crawlability issue(s):`);
+    for (const e of homeErrors) console.error(`  ${e}`);
+    console.error('[prerender] failing build — the homepage would be invisible/ambiguous to AI crawlers');
+    process.exit(1);
+  } else {
+    console.log('[prerender] ✓ homepage is crawler-visible (seeded root + entity data + llms.txt link)');
+  }
+
   console.log('[prerender] done:');
   console.log(`  ${pages.map((p) => '/' + p.outPath.replace(/\/index\.html$/, '')).join('\n  ')}`);
   console.log('  /sitemap.xml  /robots.txt  /llms.txt  /llms-full.txt  /api/stats.json');
