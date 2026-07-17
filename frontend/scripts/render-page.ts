@@ -41,6 +41,8 @@ interface Meta {
   locale?: string;
   /** Locale → URL alternates for hreflang (only when real translations exist). */
   translations?: Record<string, string>;
+  /** Keep this page out of the index (e.g. the 404 page). */
+  noindex?: boolean;
 }
 
 /** Emit hreflang alternates (+ x-default) when a page has translations. */
@@ -87,7 +89,7 @@ function headTags(m: Meta): string {
   return `<title>${esc(m.title)}</title>
     <meta name="title" content="${esc(m.title)}" />
     <meta name="description" content="${esc(m.description)}" />
-    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="robots" content="${m.noindex ? 'noindex, follow' : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1'}" />
     <meta property="og:locale" content="${(m.locale || 'en').replace('-', '_')}" />
     <link rel="canonical" href="${esc(m.canonical)}" />${hreflangTags(m)}
     <meta property="og:type" content="${m.ogType}" />
@@ -117,7 +119,7 @@ const LOGO = '/logo-32.png';
 
 const HEADER = `<header class="lh-header">
   <div class="lh-header-in">
-    <a class="lh-brand" href="/"><img src="${LOGO}" alt="Spield" /> <span>Spield</span></a>
+    <a class="lh-brand" href="/"><img src="${LOGO}" alt="Spield" width="28" height="28" decoding="async" /> <span>Spield</span></a>
     <nav class="lh-nav" aria-label="Learn navigation">
       <a class="lh-nav-link lh-nav-hide" href="/learn">Learn</a>
       <a class="lh-nav-link lh-nav-hide" href="/glossary">Glossary</a>
@@ -131,7 +133,7 @@ function footer(): string {
   return `<footer class="lh-footer">
   <div class="lh-footer-cols">
     <div>
-      <div class="lh-footer-brand-row"><img src="${LOGO}" alt="" /> <span>Spield</span></div>
+      <div class="lh-footer-brand-row"><img src="${LOGO}" alt="" width="28" height="28" loading="lazy" decoding="async" /> <span>Spield</span></div>
       <p class="lh-footer-sub">The fixed-income layer for Stellar. Split yield into tradable Principal Tokens (PT) and Yield Tokens (YT), or lock a fixed rate — on real, on-chain Blend yield.</p>
       <a class="lh-cta" href="/dashboard">Launch the app →</a>
     </div>
@@ -219,6 +221,9 @@ export function document(shell: string, meta: Meta, bodyHtml: string): string {
   html = html.replace(/<meta name="description"[^>]*>/i, '');
   html = html.replace(/<meta name="title"[^>]*>/i, '');
   html = html.replace(/<meta name="keywords"[^>]*>/i, '');
+  // Strip the shell's robots meta — headTags() emits a fresh per-page one, and a
+  // duplicate is at best redundant, at worst conflicting (e.g. the noindex 404).
+  html = html.replace(/<meta name="robots"[^>]*>/i, '');
   html = html.replace(/<link rel="canonical"[^>]*>/i, '');
   // Remove Open Graph / Twitter tags from the shell (we emit fresh ones).
   html = html.replace(/<meta property="og:[^"]*"[^>]*>\s*/gi, '');
@@ -330,6 +335,50 @@ export function renderComparison(c: Comparison, shell: string): string {
     <p class="lh-cta-block"><a class="lh-cta" href="/dashboard">Try Spield on Stellar →</a></p>
   </article>`;
   return document(shell, meta, wrap(body, tocHtml(c.body)));
+}
+
+// --- 404 (static, real-content error page) ----------------------------------
+
+/**
+ * Static 404 page. Vercel serves dist/404.html with an HTTP 404 status for any
+ * URL that matches no static file and no rewrite (the only SPA rewrite is
+ * /dashboard/*), so genuine missing pages return a real 404 — not a 200 SPA
+ * shell. The page carries real content (well over 200 chars), a prominent link
+ * back to the homepage, and links into the Learn hub so a lost visitor (human or
+ * crawler) still has somewhere to go. It is noindex so the error page itself
+ * never enters the index.
+ */
+export function renderNotFound(shell: string): string {
+  const meta: Meta = {
+    title: 'Page not found (404) — Spield',
+    description:
+      'This Spield page could not be found. Spield is the fixed-income layer for Stellar — head back to the homepage or explore the Learn hub.',
+    canonical: absUrl('/404'),
+    ogType: 'website',
+    noindex: true,
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: 'Page not found (404)',
+      description: 'The requested Spield page could not be found.',
+      url: absUrl('/404'),
+      isPartOf: { '@id': `${SITE.origin}/#website` },
+    },
+  };
+  const body = `<div class="lh-hub lh-404">
+    <p class="lh-meta"><span>Error 404</span></p>
+    <h1>This page could not be found</h1>
+    <p class="lh-lede">The link may be broken or the page may have moved. Spield is the fixed-income layer for Stellar — you can split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT) to lock in a fixed rate. Let's get you back on track.</p>
+    <p class="lh-cta-block"><a class="lh-cta" href="/">← Back to the homepage</a></p>
+    ${sectionH('Popular places to go next')}
+    ${cardGrid([
+      { path: '/learn', title: 'Learn hub', description: 'Guides to fixed income, yield tokenization, and earning yield on Stellar.', more: 'Browse guides' },
+      { path: '/glossary', title: 'Glossary', description: 'Plain-English definitions of every fixed-income and Stellar DeFi term.', more: `${GLOSSARY.length} terms` },
+      { path: '/compare', title: 'Comparisons', description: 'Spield vs Pendle, Blend vs Aave, Stellar vs other chains, and more.', more: `${COMPARISONS.length} comparisons` },
+      { path: '/dashboard', title: 'Launch the app', description: 'Open the Spield dashboard and lock a fixed rate on Stellar.', more: 'Open app' },
+    ])}
+  </div>`;
+  return document(shell, meta, wrap(body));
 }
 
 // --- homepage (crawler-visible seed) ----------------------------------------
@@ -714,6 +763,8 @@ export function renderAll(shell: string): { pages: RenderTask[]; files: { path: 
   const pages: RenderTask[] = [
     // Overwrite the SPA shell's empty-root homepage with a crawler-seeded one.
     { outPath: 'index.html', html: renderHomepage(shell) },
+    // Static 404 — Vercel serves this with an HTTP 404 for unmatched URLs.
+    { outPath: '404.html', html: renderNotFound(shell) },
     { outPath: 'learn/index.html', html: renderLearnIndex(shell) },
     { outPath: 'glossary/index.html', html: renderGlossaryIndex(shell) },
     { outPath: 'compare/index.html', html: renderCompareIndex(shell) },

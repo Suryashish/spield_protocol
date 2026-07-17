@@ -4,7 +4,7 @@
   "trailingSlash": false,
   "rewrites": [
     {
-      "source": "/((?!learn|glossary|compare|api|sitemap\\.xml|robots\\.txt|llms\\.txt|llms-full\\.txt|assets|favicon).*)",
+      "source": "/dashboard/:path*",
       "destination": "/"
     }
   ],

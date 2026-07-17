@@ -55,7 +55,7 @@ export function useSEO({
     // Primary
     setMeta('name', 'title', title);
     if (description) setMeta('name', 'description', description);
-    setMeta('name', 'robots', noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large');
+    setMeta('name', 'robots', noindex ? 'noindex, follow' : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
 
     // Open Graph
     setMeta('property', 'og:type', ogType);
