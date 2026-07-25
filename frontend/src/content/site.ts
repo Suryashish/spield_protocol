@@ -16,6 +16,19 @@ export const SITE = {
   ogImageWidth: 1200,
   ogImageHeight: 630,
   themeColor: '#020609',
+  /**
+   * Open Graph title/description for the HOME page specifically.
+   *
+   * These are deliberately shorter than the <title>/<meta description> pair.
+   * Search snippets reward the long form (~60c title, ~155c description), but
+   * social cards and AI-comprehension audits target a much tighter band — ~25-35
+   * chars for og:title and ~55-65 for og:description — because link previews clip
+   * mid-word past that. So we keep the SEO-length tags for crawlers and use these
+   * for OG/Twitter. Interior pages still derive OG from their own title/desc,
+   * where the page-specific wording matters more than hitting the band.
+   */
+  ogTitle: 'Spield — Fixed Yield on Stellar', // 31 chars (target 25-35)
+  ogDescription: 'Fixed-rate USDC yield and tradable PT/YT tokens on Stellar.', // 59 chars (target 55-65)
 } as const;
 
 export const absUrl = (path: string): string => {

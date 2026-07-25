@@ -11,8 +11,20 @@
 import type { Article, Comparison, ContentBlock, GlossaryTerm } from './types';
 import { SITE, absUrl } from './site';
 import { blockToText } from './render';
+import { PROTOCOL_FACTS } from './facts';
 
 type Json = Record<string, unknown>;
+
+/**
+ * The real cost of using the protocol, in one sentence, derived from
+ * PROTOCOL_FACTS so the structured data can never drift from the published fee
+ * schedule. Used wherever we assert a price — see the note in protocolOffers().
+ */
+function feeDisclosure(): string {
+  const swap = PROTOCOL_FACTS.config.find((c) => c.label === 'Market swap fee')?.value;
+  const swapClause = swap ? `the ${swap} market swap fee and ` : '';
+  return `No access, subscription, or deposit fee to use the app. On-chain activity still incurs ${swapClause}Stellar network fees.`;
+}
 
 /**
  * The reviewing author entity, attached to Article/Comparison as `reviewedBy`
@@ -32,17 +44,99 @@ export function reviewerPerson(): Json {
   };
 }
 
+/**
+ * The three things Spield actually offers, as a schema.org OfferCatalog. This is
+ * what `hasOfferCatalog` audits look for, and it gives answer engines an explicit,
+ * structured list of the protocol's products instead of making them infer it from
+ * prose. Every entry is a real, shipped surface of the app — no roadmap items.
+ */
+function protocolOffers(): Json[] {
+  /**
+   * NOTE ON PRICE: these offers deliberately carry NO `price`/`priceCurrency`.
+   *
+   * Spield charges no subscription or access fee, but "free" is not the same as
+   * "costless": the market swap fee is 0.30% (see facts.ts) and every action pays
+   * a Stellar network fee. Asserting `price: "0"` would be a machine-readable
+   * claim that using these services costs nothing — contradicting our own
+   * published fee schedule, and in a financial (YMYL) context that is exactly the
+   * kind of inaccuracy answer engines repeat verbatim and users rely on.
+   *
+   * Omitting price is valid schema.org: `Offer` does not require it. Where a real
+   * fee exists we state it as a `priceSpecification` instead, so the structured
+   * data matches the contracts rather than flattering them.
+   */
+  const offer = (name: string, description: string, url: string, fee?: Json): Json => ({
+    '@type': 'Offer',
+    itemOffered: { '@type': 'Service', name, description, provider: { '@id': `${SITE.origin}/#organization` } },
+    url: absUrl(url),
+    category: 'Decentralized Finance',
+    ...(fee ? { priceSpecification: fee } : {}),
+  });
+  return [
+    offer(
+      'Fixed-Rate Vault',
+      'Deposit USDC and lock a guaranteed fixed yield rate until maturity, backed by real on-chain Blend Capital yield on Stellar.',
+      '/dashboard/vault',
+    ),
+    offer(
+      'Yield Tokenization (PT / YT)',
+      'Split a yield-bearing deposit into a tradable Principal Token (PT), a zero-coupon bond redeeming 1:1 at maturity, and a Yield Token (YT), a claim on all yield until maturity.',
+      '/dashboard',
+    ),
+    offer(
+      'PT/YT Market',
+      'Trade Principal Tokens and Yield Tokens on a Stellar-native time-decay AMM — no bridges and no wrapped assets.',
+      '/dashboard/markets',
+      {
+        '@type': 'PriceSpecification',
+        description: `Swap fee of ${
+          PROTOCOL_FACTS.config.find((c) => c.label === 'Market swap fee')?.value ?? 'a published percentage'
+        } per trade, plus the Stellar network fee. No protocol access or subscription fee.`,
+      },
+    ),
+  ];
+}
+
+export function offerCatalogSchema(): Json {
+  return {
+    '@type': 'OfferCatalog',
+    '@id': `${SITE.origin}/#offers`,
+    name: 'Spield products',
+    itemListElement: protocolOffers(),
+  };
+}
+
 /** The publisher/author entity, reused everywhere. */
 export function organizationSchema(): Json {
   return {
     '@type': 'Organization',
     '@id': `${SITE.origin}/#organization`,
     name: SITE.legalName,
-    alternateName: SITE.name,
+    alternateName: [SITE.name, 'Spield Finance', 'Spield DeFi', SITE.domain],
     url: SITE.origin,
-    logo: SITE.logo,
+    logo: {
+      '@type': 'ImageObject',
+      url: SITE.logo,
+      width: 512,
+      height: 512,
+    },
+    image: SITE.ogImage,
     description: SITE.description,
-    sameAs: [SITE.twitterUrl],
+    slogan: `${SITE.tagline}.`,
+    foundingDate: '2025',
+    areaServed: 'Worldwide',
+    // Protocol products, explicitly enumerated for answer engines.
+    hasOfferCatalog: offerCatalogSchema(),
+    makesOffer: protocolOffers(),
+    sameAs: [SITE.twitterUrl, SITE.github],
+    // No `address`: Spield is a protocol with no public office, and a fabricated
+    // postal address is a worse signal than an absent one.
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'technical support',
+      url: SITE.twitterUrl,
+      availableLanguage: 'en',
+    },
   };
 }
 
@@ -73,7 +167,15 @@ export function softwareApplicationSchema(): Json {
     operatingSystem: 'Web',
     url: SITE.origin,
     description: SITE.description,
-    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    // `price: 0` is accurate for ACCESS to the app (no subscription/paywall), but
+    // spell out that on-chain activity still costs — see the note in
+    // protocolOffers() on why a bare "free" claim is unsafe in a financial context.
+    offers: {
+      '@type': 'Offer',
+      price: '0',
+      priceCurrency: 'USD',
+      description: feeDisclosure(),
+    },
     publisher: { '@id': `${SITE.origin}/#organization` },
   };
 }

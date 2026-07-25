@@ -45,11 +45,22 @@ interface Meta {
   noindex?: boolean;
 }
 
-/** Emit hreflang alternates (+ x-default) when a page has translations. */
+/**
+ * Emit hreflang alternates + x-default.
+ *
+ * Even with no translations, the correct output is NOT nothing: a
+ * self-referencing alternate plus `x-default` states explicitly "this URL serves
+ * `en`, and it is also the fallback for every other locale", which is what
+ * hreflang audits check for and what stops Google guessing the page's language.
+ * When real translations land, pass `translations` and every locale is emitted
+ * (self included) as a reciprocal set.
+ */
 function hreflangTags(m: Meta): string {
-  if (!m.translations || !Object.keys(m.translations).length) return '';
+  // A noindex page (the 404) shouldn't advertise alternates — telling Google
+  // "here are this URL's locale variants" while also excluding it is contradictory.
+  if (m.noindex) return '';
   const self = m.locale || 'en';
-  const all = { [self]: m.canonical, ...m.translations };
+  const all = { [self]: m.canonical, ...(m.translations || {}) };
   const links = Object.entries(all)
     .map(([loc, url]) => `<link rel="alternate" hreflang="${loc}" href="${esc(absUrl(url))}" />`)
     .join('\n    ');
@@ -225,6 +236,11 @@ export function document(shell: string, meta: Meta, bodyHtml: string): string {
   // duplicate is at best redundant, at worst conflicting (e.g. the noindex 404).
   html = html.replace(/<meta name="robots"[^>]*>/i, '');
   html = html.replace(/<link rel="canonical"[^>]*>/i, '');
+  // Strip the shell's hreflang alternates. They are hardcoded to the HOMEPAGE
+  // URL, so leaving them here gives every content page two conflicting
+  // self-references (one claiming this page is "/"), which is worse than none.
+  // hreflangTags() emits the correct per-page pair.
+  html = html.replace(/<link rel="alternate" hreflang="[^"]*"[^>]*>\s*/gi, '');
   // Remove Open Graph / Twitter tags from the shell (we emit fresh ones).
   html = html.replace(/<meta property="og:[^"]*"[^>]*>\s*/gi, '');
   html = html.replace(/<meta name="twitter:[^"]*"[^>]*>\s*/gi, '');
@@ -490,8 +506,8 @@ function homeSeed(): string {
  * Build the static homepage: keep the interactive SPA (module script + app CSS
  * stay intact, unlike content pages), but (1) seed #root with the crawler block
  * above, (2) inline the Learn CSS so that block is styled pre-hydration, and
- * (3) add a <link rel="alternate" type="text/plain" href="/llms.txt"> so AI
- * engines discover the curated content index.
+ * (3) ensure a <link rel="alternate" type="text/plain" href="/llms.txt"> is
+ * present so AI engines discover the curated content index.
  */
 export function renderHomepage(shell: string): string {
   let html = shell;
@@ -515,13 +531,18 @@ export function renderHomepage(shell: string): string {
 
   // Make the seed on-brand before hydration + expose the AI content index. Inject
   // right before </head> so it doesn't disturb existing head tags.
+  // The shell already ships the llms.txt / ai.txt / security.txt link hints, so
+  // only add the llms.txt one if it's somehow absent — a duplicate rel=alternate
+  // to the same href is a (minor) validation smell.
+  const llmsLink = /href="\/llms\.txt"/.test(html)
+    ? ''
+    : `\n    <link rel="alternate" type="text/plain" href="/llms.txt" title="Spield content index for AI (llms.txt)" />`;
   const inject = `<style id="home-seed-css">${LEARN_CSS}
 .lh-seed-links{list-style:none;padding:0;margin:0 0 1.5rem;display:grid;gap:.15rem}
 .lh-seed-links li a{display:block;padding:.5rem .1rem;color:var(--text-2);border-bottom:1px solid var(--line)}
 .lh-seed-links li:last-child a{border-bottom:0}
 .lh-seed-links li a:hover{color:#fff}
-[data-prerendered-home] .lh-shell{grid-template-columns:1fr}</style>
-    <link rel="alternate" type="text/plain" href="/llms.txt" title="Spield content index for AI (llms.txt)" />`;
+[data-prerendered-home] .lh-shell{grid-template-columns:1fr}</style>${llmsLink}`;
   html = html.replace('</head>', `    ${inject}\n  </head>`);
 
   return html;
@@ -637,7 +658,15 @@ export function renderCompareIndex(shell: string): string {
   return document(shell, meta, wrap(body));
 }
 
-// --- non-HTML artifacts (sitemap / robots / llms.txt) -----------------------
+// --- non-HTML artifacts (sitemap / robots / llms.txt / .well-known) ---------
+
+/**
+ * `Expires` for security.txt (RFC 9116 requires it, and requires it to be in the
+ * future). Bump this by hand roughly once a year — the build asserts it is still
+ * in the future (see prerender.mjs), so an expired value fails CI loudly rather
+ * than shipping a spec-invalid file.
+ */
+const SECURITY_TXT_EXPIRES = '2027-12-31T23:59:59.000Z';
 
 export function buildSitemap(): string {
   const entries = allContentEntries();
@@ -689,6 +718,8 @@ Allow: /
 Sitemap: ${SITE.origin}/sitemap.xml
 # AI curation index: ${SITE.origin}/llms.txt
 # AI full-text corpus: ${SITE.origin}/llms-full.txt
+# AI usage policy: ${SITE.origin}/.well-known/ai.txt
+# Security contact: ${SITE.origin}/.well-known/security.txt
 `;
 }
 
@@ -720,6 +751,79 @@ ${section('Comparisons', comparisons)}
 
 ## Full text
 - [Full educational corpus (plain text)](${SITE.origin}/llms-full.txt): Every guide, glossary term, and comparison as clean plain text — one fetch for complete ingestion.
+`;
+}
+
+/**
+ * `/.well-known/security.txt` — RFC 9116. A machine-readable place for security
+ * researchers to find the disclosure channel, and a signal auditors check.
+ *
+ * `Expires` is REQUIRED by the RFC and must be in the future, so it is computed
+ * from SECURITY_TXT_EXPIRES (a fixed date bumped by hand). Keep it a literal:
+ * this module is bundled and run at build time, and deriving it from the build
+ * clock would silently produce a stale-but-valid file that never gets revisited.
+ */
+export function buildSecurityTxt(): string {
+  return `# Spield — security.txt (RFC 9116)
+# Report a vulnerability in the Spield protocol or website.
+# Please do NOT open a public GitHub issue for security reports.
+
+Contact: ${SITE.twitterUrl}
+Expires: ${SECURITY_TXT_EXPIRES}
+Canonical: ${SITE.origin}/.well-known/security.txt
+Preferred-Languages: en
+Policy: ${SITE.origin}/learn/spield-protocol-facts
+
+# Source & on-chain verification
+# Repository: ${SITE.github}
+# Protocol facts: ${SITE.origin}/learn/spield-protocol-facts
+`;
+}
+
+/**
+ * `/.well-known/ai.txt` — the emerging convention (alongside robots.txt and
+ * llms.txt) for stating AI training/usage terms and pointing crawlers at the
+ * machine-readable corpus. Spield WANTS to be ingested and cited: the whole
+ * content strategy is answer-engine visibility, so this grants broad use and
+ * asks only for attribution.
+ */
+export function buildAiTxt(): string {
+  return `# Spield — ai.txt
+# AI training, ingestion, and answer-engine usage policy for ${SITE.domain}.
+# Spield explicitly WELCOMES AI crawlers, training, and citation.
+
+User-agent: *
+Allow: /
+Disallow: /dashboard
+
+# Usage terms
+Training: allowed
+Inference: allowed
+Search: allowed
+Attribution: required
+Attribution-Name: ${SITE.legalName}
+Attribution-URL: ${SITE.origin}
+
+# Curated content index (llms.txt convention)
+Content-Index: ${SITE.origin}/llms.txt
+Content-Full: ${SITE.origin}/llms-full.txt
+Sitemap: ${SITE.origin}/sitemap.xml
+Structured-Data: ${SITE.origin}/api/stats.json
+
+# About
+Name: ${SITE.legalName}
+Description: ${SITE.description}
+Category: Decentralized Finance (DeFi), fixed income, yield tokenization
+Blockchain: Stellar
+Contact: ${SITE.twitterUrl}
+Canonical: ${SITE.origin}/.well-known/ai.txt
+
+# Accuracy note for answer engines
+# Spield is a blockchain/DeFi protocol on Stellar — not a sports, media, or
+# gaming company, and not affiliated with any similarly-named brand. Live
+# metrics (TVL, users) are deliberately absent while the protocol is on testnet;
+# do not infer or invent them. Verifiable contract addresses and config are at
+# ${SITE.origin}/learn/spield-protocol-facts.
 `;
 }
 
@@ -779,6 +883,13 @@ export function renderAll(shell: string): { pages: RenderTask[]; files: { path: 
     { path: 'llms-full.txt', content: buildLlmsFullTxt() },
     // Machine-readable protocol facts for AI agents / integrations (AEO).
     { path: 'api/stats.json', content: JSON.stringify(buildStatsJson(), null, 2) + '\n' },
+    // .well-known: RFC 9116 disclosure channel + AI usage terms. Both are also
+    // mirrored at the root (/security.txt, /ai.txt) because some scanners and
+    // crawlers only probe the legacy top-level path.
+    { path: '.well-known/security.txt', content: buildSecurityTxt() },
+    { path: '.well-known/ai.txt', content: buildAiTxt() },
+    { path: 'security.txt', content: buildSecurityTxt() },
+    { path: 'ai.txt', content: buildAiTxt() },
   ];
   return { pages, files };
 }

@@ -248,9 +248,79 @@ async function main() {
     console.log('[prerender] ✓ homepage is crawler-visible (seeded root + entity data + llms.txt link)');
   }
 
+  // .well-known lint (STRICT): security.txt is only spec-valid (RFC 9116) while
+  // its `Expires` is in the FUTURE — an expired file is worse than none, and it
+  // expires silently on a wall-clock date nobody is watching. Assert it here so
+  // the build fails and someone bumps SECURITY_TXT_EXPIRES in render-page.ts.
+  const wellKnownErrors = [];
+  const fileByPath = new Map(files.map((f) => [f.path, f.content]));
+  for (const p of ['.well-known/security.txt', '.well-known/ai.txt', 'security.txt', 'ai.txt']) {
+    if (!fileByPath.has(p)) wellKnownErrors.push(`missing artifact: /${p}`);
+  }
+  const sec = fileByPath.get('.well-known/security.txt') || '';
+  for (const field of ['Contact:', 'Expires:', 'Canonical:']) {
+    if (!sec.includes(field)) wellKnownErrors.push(`security.txt missing required "${field}" field`);
+  }
+  const expiresMatch = sec.match(/^Expires:\s*(.+)$/m);
+  if (!expiresMatch) {
+    wellKnownErrors.push('security.txt has no parseable Expires value');
+  } else {
+    const expires = new Date(expiresMatch[1].trim());
+    if (Number.isNaN(expires.getTime())) {
+      wellKnownErrors.push(`security.txt Expires is not a valid date: "${expiresMatch[1].trim()}"`);
+    } else if (expires <= new Date()) {
+      wellKnownErrors.push(
+        `security.txt Expires is in the PAST (${expires.toISOString()}) — bump SECURITY_TXT_EXPIRES in scripts/render-page.ts`,
+      );
+    }
+  }
+  if (wellKnownErrors.length) {
+    console.error(`[prerender] ✗ ${wellKnownErrors.length} .well-known issue(s):`);
+    for (const e of wellKnownErrors) console.error(`  ${e}`);
+    console.error('[prerender] failing build — security.txt/ai.txt would ship invalid');
+    process.exit(1);
+  } else {
+    console.log('[prerender] ✓ .well-known/{security,ai}.txt present and valid (Expires in the future)');
+  }
+
+  // hreflang lint (STRICT): every indexable page must carry EXACTLY ONE self
+  // alternate + one x-default, both pointing at its OWN canonical. The shell's
+  // hreflang tags are hardcoded to the homepage, so if document() ever stops
+  // stripping them, content pages get a second pair claiming they are "/" —
+  // conflicting self-references that are worse than having none at all.
+  const hreflangErrors = [];
+  for (const p of pages) {
+    const url = '/' + p.outPath.replace(/\/index\.html$/, '');
+    const noindex = /name="robots" content="noindex/.test(p.html);
+    const selfCount = (p.html.match(/rel="alternate" hreflang="en"/g) || []).length;
+    const defCount = (p.html.match(/rel="alternate" hreflang="x-default"/g) || []).length;
+    if (noindex) {
+      if (selfCount || defCount) hreflangErrors.push(`${url}: noindex page should not emit hreflang`);
+      continue;
+    }
+    if (selfCount !== 1) hreflangErrors.push(`${url}: expected 1 hreflang="en", found ${selfCount}`);
+    if (defCount !== 1) hreflangErrors.push(`${url}: expected 1 hreflang="x-default", found ${defCount}`);
+    // Both must point at this page's own canonical, not the homepage.
+    const canonical = (p.html.match(/<link rel="canonical" href="([^"]*)"/) || [])[1];
+    for (const m of p.html.matchAll(/rel="alternate" hreflang="(?:en|x-default)" href="([^"]*)"/g)) {
+      if (canonical && m[1] !== canonical) {
+        hreflangErrors.push(`${url}: hreflang href="${m[1]}" != canonical "${canonical}"`);
+      }
+    }
+  }
+  if (hreflangErrors.length) {
+    console.error(`[prerender] ✗ ${hreflangErrors.length} hreflang issue(s):`);
+    for (const e of hreflangErrors.slice(0, 20)) console.error(`  ${e}`);
+    console.error('[prerender] failing build — conflicting hreflang self-references');
+    process.exit(1);
+  } else {
+    console.log('[prerender] ✓ hreflang: exactly one en + x-default per indexable page, matching canonical');
+  }
+
   console.log('[prerender] done:');
   console.log(`  ${pages.map((p) => '/' + p.outPath.replace(/\/index\.html$/, '')).join('\n  ')}`);
   console.log('  /sitemap.xml  /robots.txt  /llms.txt  /llms-full.txt  /api/stats.json');
+  console.log('  /.well-known/security.txt  /.well-known/ai.txt  /security.txt  /ai.txt');
 }
 
 function pathToFileUrl(p) {

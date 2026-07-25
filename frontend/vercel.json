@@ -61,6 +61,20 @@
       "headers": [{ "key": "Content-Type", "value": "text/plain; charset=utf-8" }]
     },
     {
+      "source": "/.well-known/(security.txt|ai.txt)",
+      "headers": [
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=0, s-maxage=86400" }
+      ]
+    },
+    {
+      "source": "/(security.txt|ai.txt)",
+      "headers": [
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=0, s-maxage=86400" }
+      ]
+    },
+    {
       "source": "/api/stats.json",
       "headers": [
         { "key": "Content-Type", "value": "application/json; charset=utf-8" },
