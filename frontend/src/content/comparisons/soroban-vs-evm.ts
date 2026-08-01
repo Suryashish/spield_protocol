@@ -46,7 +46,7 @@ export const comparison: Comparison = {
         ['Execution', 'Parallel (Protocol 23)', 'Mostly sequential'],
         ['State model', 'State archival + auto-restore', 'Persistent storage'],
         ['Ecosystem', 'Growing', 'Largest in crypto'],
-        ['DeFi on it', 'Blend, Spield, AMMs', 'Aave, Uniswap, Pendle, etc.'],
+        ['DeFi on it', 'Blend, Spield, AMMs', 'Aave, Uniswap, etc.'],
       ],
     },
     {

@@ -101,6 +101,7 @@ export const article: Article = {
     { href: '/glossary/tokenized-treasuries', label: 'Tokenized treasuries (glossary)' },
     { href: '/glossary/rwa', label: 'Real-world asset (RWA)' },
     { href: '/learn/rwa-on-stellar', label: 'RWAs on Stellar' },
+    { href: '/learn/zero-coupon-bonds-explained', label: 'Zero-coupon bonds explained' },
     { href: '/learn/fixed-income-on-stellar', label: 'Fixed income on Stellar' },
   ],
   sources: [

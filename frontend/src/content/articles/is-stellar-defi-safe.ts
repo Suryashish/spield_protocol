@@ -139,7 +139,8 @@ export const article: Article = {
     { href: '/learn/what-is-blend-capital', label: 'What is Blend Capital?' },
     { href: '/learn/how-to-earn-yield-on-stellar', label: 'How to earn yield on Stellar' },
     { href: '/glossary/solvency-invariant', label: 'Solvency invariant' },
-    { href: '/glossary/soroban', label: 'Soroban' },
+    { href: '/learn/is-blend-capital-safe', label: 'Is Blend Capital safe?' },
+    { href: '/learn/stellar-wallet-setup', label: 'How to set up a Stellar wallet' },
     { href: '/learn/spield-protocol-facts', label: 'Spield protocol facts (verify on-chain)' },
   ],
   sources: [

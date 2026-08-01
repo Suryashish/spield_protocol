@@ -71,7 +71,7 @@ export const PROTOCOL_FACTS: ProtocolFacts = {
   products: [
     { name: 'Fixed-Rate Vault', description: 'Deposit USDC and lock a guaranteed fixed rate; redeem principal + coupon at maturity.' },
     { name: 'Wrapper (Tokenize)', description: 'Split a yield-bearing position into a tradable Principal Token (PT) and Yield Token (YT).' },
-    { name: 'PT/USDC Market', description: 'A Pendle-style time-decay AMM to buy fixed yield at a discount or provide liquidity.' },
+    { name: 'PT/USDC Market', description: 'A time-decay AMM to buy fixed yield at a discount or provide liquidity.' },
   ],
   config: [
     { label: 'Underlying asset', value: 'USDC (native on Stellar)' },

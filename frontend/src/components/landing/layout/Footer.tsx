@@ -40,6 +40,7 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     title: 'Community',
     links: [
       { label: 'Twitter / X', href: 'https://x.com/spield_' },
+      { label: 'Contact', href: 'mailto:contact@spield.live' },
     ],
   },
 ];
@@ -63,8 +64,8 @@ const Footer = () => {
             </p>
             <p className="mt-3 text-xs text-white/30">
               Questions?{' '}
-              <a href="https://x.com/spield_" className="text-brand-primary/70 hover:text-brand-primary transition-colors">
-                x.com/spield_
+              <a href="mailto:contact@spield.live" className="text-brand-primary/70 hover:text-brand-primary transition-colors">
+                contact@spield.live
               </a>
             </p>
           </div>

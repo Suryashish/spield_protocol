@@ -106,6 +106,7 @@ export const article: Article = {
     { href: '/glossary/principal-token', label: 'Principal Token (PT)' },
     { href: '/glossary/yield-token', label: 'Yield Token (YT)' },
     { href: '/glossary/implied-apy', label: 'Implied APY' },
+    { href: '/learn/what-is-a-yield-token', label: 'What is a Yield Token (YT)?' },
     { href: '/learn/yield-tokenization', label: 'Yield tokenization explained' },
     { href: '/learn/fixed-income-on-stellar', label: 'Fixed income on Stellar' },
   ],

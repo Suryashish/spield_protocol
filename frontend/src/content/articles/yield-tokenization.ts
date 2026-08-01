@@ -16,7 +16,7 @@ export const article: Article = {
     'yield stripping',
     'what is a principal token',
     'what is a yield token',
-    'how does Pendle work',
+    'yield splitting crypto',
   ],
   datePublished: '2026-07-05',
   dateModified: '2026-07-05',
@@ -36,7 +36,7 @@ export const article: Article = {
         'The **[PT](/glossary/principal-token)** is a zero-coupon bond; the **[YT](/glossary/yield-token)** is the yield stream.',
         'Buy the PT at a discount → **lock a fixed rate**. Buy the YT → **bet yield rises**.',
         'PT value + YT value always equals the underlying — the split is lossless.',
-        'Pendle pioneered this on EVM; **Spield brings it to Stellar** on real Blend yield.',
+        '**Spield brings yield tokenization to Stellar**, built on real on-chain Blend yield.',
       ],
     },
     {
@@ -98,20 +98,20 @@ export const article: Article = {
         },
         {
           q: 'Which protocols do yield tokenization?',
-          a: 'Pendle pioneered yield tokenization on Ethereum and other EVM chains. Spectra offers a permissionless EVM version. Spield brings yield tokenization to Stellar, built on real Blend lending yield.',
+          a: 'On Stellar, Spield is the yield-tokenization protocol: depositing USDC mints a PT and a YT backed by real Blend lending yield. The technique itself originated on other chains, but Stellar had no native implementation before Spield.',
         },
       ],
     },
   ],
   related: [
     { href: '/glossary/principal-token', label: 'Principal Token (PT)' },
-    { href: '/glossary/yield-token', label: 'Yield Token (YT)' },
+    { href: '/learn/what-is-a-yield-token', label: 'What is a Yield Token (YT)?' },
     { href: '/learn/pt-vs-yt', label: 'PT vs YT: which should you buy?' },
+    { href: '/learn/time-decay-amms-explained', label: 'Time-decay AMMs explained' },
     { href: '/learn/fixed-income-on-stellar', label: 'Fixed income on Stellar' },
     { href: '/learn/implied-vs-underlying-apy', label: 'Implied vs underlying APY' },
   ],
   sources: [
     { href: 'https://chain.link/article/tokenized-yield-guide', label: 'Chainlink — Tokenized Yield' },
-    { href: 'https://docs.pendle.finance/', label: 'Pendle Documentation' },
   ],
 };

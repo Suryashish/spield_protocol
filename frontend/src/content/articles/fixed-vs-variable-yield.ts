@@ -94,6 +94,7 @@ export const article: Article = {
     { href: '/learn/how-to-earn-yield-on-stellar', label: 'How to earn yield on Stellar' },
     { href: '/learn/fixed-income-on-stellar', label: 'Fixed income on Stellar' },
     { href: '/glossary/real-yield', label: 'Real yield' },
-    { href: '/glossary/fixed-income', label: 'Fixed income' },
+    { href: '/learn/what-is-a-fixed-rate-vault', label: 'What is a fixed-rate vault?' },
+    { href: '/learn/usdc-yield-on-stellar', label: 'USDC yield on Stellar' },
   ],
 };

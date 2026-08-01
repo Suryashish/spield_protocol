@@ -105,7 +105,7 @@ export const article: Article = {
     },
   ],
   related: [
-    { href: '/glossary/blend-capital', label: 'Blend Capital (glossary)' },
+    { href: '/learn/is-blend-capital-safe', label: 'Is Blend Capital safe?' },
     { href: '/glossary/btoken', label: 'bToken / bRate' },
     { href: '/learn/how-to-earn-yield-on-stellar', label: 'How to earn yield on Stellar' },
     { href: '/learn/is-stellar-defi-safe', label: 'Is Stellar DeFi safe?' },

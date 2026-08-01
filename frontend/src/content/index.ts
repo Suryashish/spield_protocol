@@ -21,6 +21,16 @@ import { article as ptVsYt } from './articles/pt-vs-yt';
 import { article as fixedVsVariable } from './articles/fixed-vs-variable-yield';
 import { article as impliedVsUnderlying } from './articles/implied-vs-underlying-apy';
 import { article as whatIsPt } from './articles/what-is-a-principal-token';
+import { article as whatIsYt } from './articles/what-is-a-yield-token';
+import { article as zeroCouponBonds } from './articles/zero-coupon-bonds-explained';
+import { article as timeDecayAmms } from './articles/time-decay-amms-explained';
+import { article as fixedRateVault } from './articles/what-is-a-fixed-rate-vault';
+import { article as walletSetup } from './articles/stellar-wallet-setup';
+import { article as getUsdc } from './articles/how-to-get-usdc-on-stellar';
+import { article as isBlendSafe } from './articles/is-blend-capital-safe';
+import { article as xlmStaking } from './articles/does-xlm-have-staking';
+import { article as usdcYield } from './articles/usdc-yield-on-stellar';
+import { article as bestYield } from './articles/best-yield-on-stellar';
 import { article as tokenizedTreasuries } from './articles/tokenized-treasuries-explained';
 import { article as rwaOnStellar } from './articles/rwa-on-stellar';
 import { article as protocolFacts } from './articles/spield-protocol-facts';
@@ -41,6 +51,16 @@ const rawArticles: Article[] = [
   fixedVsVariable,
   impliedVsUnderlying,
   whatIsPt,
+  whatIsYt,
+  zeroCouponBonds,
+  timeDecayAmms,
+  fixedRateVault,
+  walletSetup,
+  getUsdc,
+  isBlendSafe,
+  xlmStaking,
+  usdcYield,
+  bestYield,
   tokenizedTreasuries,
   rwaOnStellar,
   protocolFacts,

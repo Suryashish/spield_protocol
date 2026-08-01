@@ -312,6 +312,54 @@ export const GLOSSARY: GlossaryTerm[] = [
     ],
   },
   {
+    slug: 'trustline',
+    term: 'Trustline',
+    aliases: ['trustline', 'trust line', 'Stellar trustline', 'add asset Stellar'],
+    category: 'stellar',
+    shortDefinition:
+      'A trustline is a Stellar account’s explicit opt-in to hold a specific asset, such as USDC from a specific issuer. Each trustline reserves 0.5 XLM while it exists, and until the trustline is added the account cannot receive that asset at all. Adding one takes seconds in any Stellar wallet.',
+    body: [
+      {
+        type: 'paragraph',
+        lead: true,
+        text: 'A **trustline** tells the [Stellar](/glossary/stellar) network “this account accepts this asset from this issuer.” It is Stellar’s built-in spam defense: nobody can fill your wallet with tokens you never asked for. The practical consequence is a one-time setup step — before receiving USDC, PT, or YT, your wallet must add the matching trustline, which reserves 0.5 XLM until removed.',
+      },
+      {
+        type: 'paragraph',
+        text: 'Because anyone can issue an asset with any ticker, the trustline is also where you verify the **issuer**. The real USDC is issued by Circle; wallets mark it as verified. Checking once, when you add the line, protects every transfer after it.',
+      },
+    ],
+    related: [
+      { href: '/glossary/stellar', label: 'Stellar' },
+      { href: '/learn/stellar-wallet-setup', label: 'How to set up a Stellar wallet' },
+      { href: '/learn/how-to-get-usdc-on-stellar', label: 'How to get USDC on Stellar' },
+    ],
+  },
+  {
+    slug: 'anchor',
+    term: 'Anchor (Stellar)',
+    aliases: ['anchor', 'Stellar anchor', 'fiat on-ramp Stellar'],
+    category: 'stellar',
+    shortDefinition:
+      'An anchor is a regulated on/off-ramp service on the Stellar network that connects bank money to the blockchain: it accepts a fiat deposit and delivers the equivalent asset to a Stellar wallet, and handles the reverse for withdrawals. Anchors are how most fiat currency enters and exits the Stellar ecosystem.',
+    body: [
+      {
+        type: 'paragraph',
+        lead: true,
+        text: 'An **anchor** is [Stellar](/glossary/stellar)’s bridge to the banking system — a licensed business that takes deposits in a local currency and issues (or delivers) the matching asset on-chain, following Stellar’s standard deposit/withdrawal protocols. For someone starting from a bank account, an anchor can be the most direct route to holding USDC on Stellar without ever touching a trading interface.',
+      },
+      {
+        type: 'paragraph',
+        text: 'Coverage varies by country and currency, and each anchor sets its own fees and identity checks. The [how to get USDC](/learn/how-to-get-usdc-on-stellar) guide covers when an anchor beats a simple exchange withdrawal.',
+      },
+    ],
+    related: [
+      { href: '/glossary/trustline', label: 'Trustline' },
+      { href: '/glossary/stellar', label: 'Stellar' },
+      { href: '/learn/how-to-get-usdc-on-stellar', label: 'How to get USDC on Stellar' },
+    ],
+  },
+  {
     slug: 'real-yield',
     term: 'Real Yield',
     aliases: ['real yield', 'organic yield'],
@@ -337,7 +385,7 @@ export const GLOSSARY: GlossaryTerm[] = [
   {
     slug: 'time-decay-amm',
     term: 'Time-Decay AMM',
-    aliases: ['time-decay AMM', 'Pendle-style AMM', 'PT/YT AMM', 'PT/USDC pool', 'PT yield AMM'],
+    aliases: ['time-decay AMM', 'PT/YT AMM', 'PT/USDC pool', 'PT yield AMM'],
     category: 'yield-tokenization',
     shortDefinition:
       'A time-decay AMM is an automated market maker designed to trade Principal Tokens, whose pricing curve accounts for the fact that a PT converges to par value as maturity approaches. This structure lets liquidity providers earn swap fees while facing near-zero impermanent loss if they stay until maturity.',
@@ -345,7 +393,7 @@ export const GLOSSARY: GlossaryTerm[] = [
       {
         type: 'paragraph',
         lead: true,
-        text: 'A **time-decay AMM** (popularized by Pendle) prices a [PT](/glossary/principal-token) against its underlying with a curve that shifts over time, because a PT is worth more the closer it gets to maturity. Spield runs a PT/USDC time-decay market of this kind.',
+        text: 'A **time-decay AMM** prices a [PT](/glossary/principal-token) against its underlying with a curve that shifts over time, because a PT is worth more the closer it gets to maturity. Spield runs a PT/USDC time-decay market of this kind.',
       },
       {
         type: 'paragraph',

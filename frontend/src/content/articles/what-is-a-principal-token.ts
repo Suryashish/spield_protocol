@@ -95,7 +95,8 @@ export const article: Article = {
   ],
   related: [
     { href: '/glossary/principal-token', label: 'Principal Token (PT)' },
-    { href: '/glossary/yield-token', label: 'Yield Token (YT)' },
+    { href: '/learn/what-is-a-yield-token', label: 'What is a Yield Token (YT)?' },
+    { href: '/learn/zero-coupon-bonds-explained', label: 'Zero-coupon bonds explained' },
     { href: '/glossary/zero-coupon-bond', label: 'Zero-coupon bond' },
     { href: '/learn/pt-vs-yt', label: 'PT vs YT: which should you buy?' },
     { href: '/learn/yield-tokenization', label: 'Yield tokenization explained' },

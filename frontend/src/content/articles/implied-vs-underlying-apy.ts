@@ -100,5 +100,7 @@ export const article: Article = {
     { href: '/glossary/underlying-apy', label: 'Underlying APY' },
     { href: '/learn/pt-vs-yt', label: 'PT vs YT: which should you buy?' },
     { href: '/learn/yield-tokenization', label: 'Yield tokenization explained' },
+    { href: '/learn/what-is-a-yield-token', label: 'What is a Yield Token (YT)?' },
+    { href: '/learn/time-decay-amms-explained', label: 'Time-decay AMMs explained' },
   ],
 };

@@ -164,7 +164,9 @@ export const article: Article = {
     { href: '/learn/what-is-blend-capital', label: 'What is Blend Capital?' },
     { href: '/learn/is-stellar-defi-safe', label: 'Is Stellar DeFi safe?' },
     { href: '/learn/yield-tokenization', label: 'Yield tokenization explained' },
-    { href: '/glossary/blend-capital', label: 'Blend Capital' },
+    { href: '/learn/stellar-wallet-setup', label: 'How to set up a Stellar wallet' },
+    { href: '/learn/how-to-get-usdc-on-stellar', label: 'How to get USDC on Stellar' },
+    { href: '/learn/best-yield-on-stellar', label: 'Best DeFi yield on Stellar' },
   ],
   sources: [
     { href: 'https://www.blend.capital/', label: 'Blend Capital' },

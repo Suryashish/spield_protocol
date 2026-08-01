@@ -175,8 +175,8 @@ export const article: Article = {
     { href: '/learn/pt-vs-yt', label: 'PT vs YT: which should you buy?' },
     { href: '/learn/what-is-blend-capital', label: 'What is Blend Capital?' },
     { href: '/glossary/fixed-income', label: 'Fixed income' },
-    { href: '/glossary/principal-token', label: 'Principal Token (PT)' },
-    { href: '/glossary/yield-token', label: 'Yield Token (YT)' },
+    { href: '/learn/zero-coupon-bonds-explained', label: 'Zero-coupon bonds explained' },
+    { href: '/learn/what-is-a-fixed-rate-vault', label: 'What is a fixed-rate vault?' },
   ],
   sources: [
     { href: 'https://www.blend.capital/', label: 'Blend Capital' },

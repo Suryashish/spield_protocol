@@ -137,6 +137,7 @@ export const article: Article = {
     { href: '/learn/is-stellar-defi-safe', label: 'Is Stellar DeFi safe?' },
     { href: '/glossary/solvency-invariant', label: 'Solvency invariant' },
     { href: '/learn/what-is-blend-capital', label: 'What is Blend Capital?' },
+    { href: '/learn/what-is-a-fixed-rate-vault', label: 'What is a fixed-rate vault?' },
     { href: '/learn/how-to-earn-yield-on-stellar', label: 'How to earn yield on Stellar' },
   ],
   sources: [

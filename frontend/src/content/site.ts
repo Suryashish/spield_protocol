@@ -7,6 +7,7 @@ export const SITE = {
   twitter: '@spield_',
   twitterUrl: 'https://x.com/spield_',
   github: 'https://github.com/Suryashish/spield_protocol',
+  email: 'contact@spield.live',
   tagline: 'The fixed-income layer for Stellar',
   description:
     'Spield is the fixed-income and yield-tokenization layer for Stellar. Deposit USDC to lock a fixed rate, or split a yield-bearing position into tradable Principal Tokens (PT) and Yield Tokens (YT).',

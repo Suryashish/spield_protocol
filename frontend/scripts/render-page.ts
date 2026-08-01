@@ -390,7 +390,7 @@ export function renderNotFound(shell: string): string {
     ${cardGrid([
       { path: '/learn', title: 'Learn hub', description: 'Guides to fixed income, yield tokenization, and earning yield on Stellar.', more: 'Browse guides' },
       { path: '/glossary', title: 'Glossary', description: 'Plain-English definitions of every fixed-income and Stellar DeFi term.', more: `${GLOSSARY.length} terms` },
-      { path: '/compare', title: 'Comparisons', description: 'Spield vs Pendle, Blend vs Aave, Stellar vs other chains, and more.', more: `${COMPARISONS.length} comparisons` },
+      { path: '/compare', title: 'Comparisons', description: 'Blend vs Aave, Soroban vs EVM, and how the Stellar stack compares.', more: `${COMPARISONS.length} comparisons` },
       { path: '/dashboard', title: 'Launch the app', description: 'Open the Spield dashboard and lock a fixed rate on Stellar.', more: 'Open app' },
     ])}
   </div>`;
@@ -493,7 +493,7 @@ function homeSeed(): string {
     <ul class="lh-seed-links">
       <li><a href="/learn"><strong>Learn hub</strong> — every guide to fixed income &amp; yield on Stellar.</a></li>
       <li><a href="/glossary"><strong>Glossary</strong> — plain-English definitions of every term.</a></li>
-      <li><a href="/compare"><strong>Comparisons</strong> — Spield vs Pendle, Blend vs Aave, and more.</a></li>
+      <li><a href="/compare"><strong>Comparisons</strong> — Blend vs Aave, Soroban vs EVM, and more.</a></li>
       <li><a href="/dashboard"><strong>Launch app</strong> — deposit USDC and lock a fixed rate.</a></li>
       <li><a href="${SITE.twitterUrl}"><strong>X / Twitter</strong> — announcements and updates.</a></li>
     </ul>
@@ -590,7 +590,7 @@ export function renderLearnIndex(shell: string): string {
     ${sectionH('Keep exploring')}
     ${cardGrid([
       { path: '/glossary', title: 'Glossary', description: 'Clear definitions of every fixed-income, yield, and Stellar DeFi term.', more: `${GLOSSARY.length} terms` },
-      { path: '/compare', title: 'Comparisons', description: 'Spield vs Pendle, Blend vs Aave, Stellar vs other chains, and more.', more: `${COMPARISONS.length} comparisons` },
+      { path: '/compare', title: 'Comparisons', description: 'Blend vs Aave, Soroban vs EVM, and how the Stellar stack compares.', more: `${COMPARISONS.length} comparisons` },
     ], true)}
   </div>`;
   return document(shell, meta, wrap(body));
@@ -637,9 +637,9 @@ export function renderGlossaryIndex(shell: string): string {
 
 export function renderCompareIndex(shell: string): string {
   const meta: Meta = {
-    title: 'Comparisons — Spield vs Pendle & More | Spield',
+    title: 'Comparisons — Blend vs Aave & More | Spield',
     description:
-      'Side-by-side comparisons: Spield vs Pendle, Blend vs Aave, Stellar vs other chains for DeFi, fixed vs variable yield, and more.',
+      'Side-by-side comparisons: Blend vs Aave, Soroban vs EVM, Stellar vs other chains for DeFi, fixed vs variable yield, and more.',
     canonical: absUrl('/compare'),
     ogType: 'website',
     jsonLd: collectionGraph(

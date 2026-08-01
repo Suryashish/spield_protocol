@@ -86,6 +86,7 @@ function Footer() {
             <li><a href="/glossary">Glossary</a></li>
             <li><a href="/compare">Comparisons</a></li>
             <li><a href="https://x.com/spield_">X / Twitter</a></li>
+            <li><a href="mailto:contact@spield.live">Contact</a></li>
           </ul>
         </div>
       </div>

@@ -134,6 +134,7 @@ export function organizationSchema(): Json {
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'technical support',
+      email: SITE.email,
       url: SITE.twitterUrl,
       availableLanguage: 'en',
     },
