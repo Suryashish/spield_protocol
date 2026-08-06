@@ -1,0 +1,1398 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Spield design tokens — raw values, themed via [data-theme]
+   ============================================================ */
+:root {
+  --canvas: #fbfaf7;
+  --surface: #ffffff;
+  --border: #e7e4de;
+  --ink: #121212;
+  --muted: #6e6e6e;
+  --subtle: #a4a3a0;
+
+  --accent: #0fbe7c;
+  --accent-text: #089663;
+  --accent-bright: #2bd894;
+  --accent-ink: #06130c;
+  --ember: #ff7a2f;
+  --ember-text: #d95b14;
+  /* the USDC blue — the deposit, before it is anything else */
+  --usdc: #4a87f2;
+  --usdc-text: #3c74ce;
+
+  /* the closing plate: a deeper paper than the page it ends, and the
+     engraved wordmark cut into it */
+  --footer-bg: #f3f0e9;
+  --footer-line: rgba(18, 18, 18, 0.11);
+  /* dark ink on pale paper carries less weight per unit of alpha than
+     light ink on black — these are pitched to land at the same contrast
+     against the plate as the dark theme's, not the same alpha */
+  --footer-mark-hi: rgba(18, 18, 18, 0.24);
+  --footer-mark-mid: rgba(18, 18, 18, 0.12);
+  --footer-mark-lo: rgba(18, 18, 18, 0.045);
+  --footer-glow-strong: color-mix(in srgb, var(--accent) 13%, transparent);
+  --footer-glow-soft: color-mix(in srgb, var(--accent) 5%, transparent);
+
+  --stage: #0f0f0e;
+  --stage-edge: #1e1e1c;
+  --onstage: #fafaf8;
+  --onstage-dim: rgba(250, 250, 248, 0.55);
+  --onstage-faint: rgba(250, 250, 248, 0.36);
+
+  --shadow-soft-v: 0 10px 30px rgba(18, 18, 18, 0.07);
+  /* light catching the top edge of raised elements */
+  --edge-hl: rgba(255, 255, 255, 0.7);
+  --ease-v: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --ff-display: "Satoshi", var(--font-geist), -apple-system, sans-serif;
+  --ff-serif: var(--font-instrument), Georgia, serif;
+  --ff-body: var(--font-geist), -apple-system, sans-serif;
+  --ff-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+}
+
+[data-theme="dark"] {
+  --canvas: #171716;
+  --surface: #1c1c1b;
+  --border: #2a2a28;
+  --ink: #fafaf8;
+  --muted: #a4a3a0;
+  --subtle: #6e6e6e;
+  --accent-text: #2bd894;
+  --ember-text: #ff9351;
+  --usdc-text: #7ba9f5;
+  --stage: #0c0c0b;
+  --stage-edge: #262624;
+  --shadow-soft-v: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --edge-hl: rgba(255, 255, 255, 0.07);
+
+  --footer-bg: #0c0c0b;
+  --footer-line: rgba(250, 250, 248, 0.13);
+  --footer-mark-hi: rgba(250, 250, 248, 0.3);
+  --footer-mark-mid: rgba(250, 250, 248, 0.13);
+  --footer-mark-lo: rgba(250, 250, 248, 0.045);
+  --footer-glow-strong: color-mix(in srgb, var(--accent) 20%, transparent);
+  --footer-glow-soft: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* ============================================================
+   Map tokens into Tailwind's theme → real utilities
+   (bg-canvas, text-ink, border-line, font-display, ease-vault…)
+   ============================================================ */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-line: var(--border);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-ink: var(--accent-ink);
+  --color-ember: var(--ember);
+  --color-ember-text: var(--ember-text);
+  --color-usdc: var(--usdc);
+  --color-usdc-text: var(--usdc-text);
+
+  --color-stage: var(--stage);
+  --color-stage-edge: var(--stage-edge);
+  --color-onstage: var(--onstage);
+  --color-onstage-dim: var(--onstage-dim);
+  --color-onstage-faint: var(--onstage-faint);
+
+  --font-display: var(--ff-display);
+  --font-serif: var(--ff-serif);
+  --font-sans: var(--ff-body);
+  --font-mono: var(--ff-mono);
+
+  --shadow-soft: var(--shadow-soft-v);
+  /* layered depth: edge highlight + contact shadow + ambient shadow */
+  --shadow-float: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.05),
+    0 6px 16px rgb(18 18 18 / 0.06);
+  --shadow-float-sm: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.04),
+    0 3px 10px rgb(18 18 18 / 0.05);
+  --shadow-cta: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 2px 6px rgb(18 18 18 / 0.18),
+    0 10px 24px rgb(18 18 18 / 0.12);
+  --shadow-cta-hover: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 4px 10px rgb(18 18 18 / 0.2),
+    0 14px 32px rgb(18 18 18 / 0.16);
+  --ease-vault: var(--ease-v);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    overflow-x: clip;
+    /* no scroll-behavior: smooth — it would fight Lenis's per-frame scrolling */
+  }
+  /* Lenis smooth scrolling */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  body {
+    font-family: var(--ff-body);
+    background: var(--canvas);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+    transition: background 0.4s var(--ease-v), color 0.4s var(--ease-v);
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 8px;
+  }
+}
+
+.mono {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Load choreography — [data-reveal] fade-rises, masked lines
+   ============================================================ */
+.js [data-reveal] {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 0.8s var(--ease-v), transform 0.8s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+}
+.js .loaded [data-reveal] {
+  opacity: 1;
+  transform: none;
+}
+
+.line {
+  display: block;
+  padding: 0.12em 0.1em;
+  margin: -0.12em -0.1em;
+}
+.js .line {
+  overflow: hidden;
+}
+.js .settled .line {
+  overflow: visible;
+}
+.js .line-inner {
+  display: block;
+  transform: translateY(118%);
+  filter: blur(10px);
+  opacity: 0.4;
+  will-change: transform, filter;
+  transition: transform 1.05s var(--ease-v), filter 1.05s var(--ease-v),
+    opacity 1.05s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+}
+.js .loaded .line-inner {
+  transform: none;
+  filter: blur(0);
+  opacity: 1;
+}
+
+/* ============================================================
+   Shared bits
+   ============================================================ */
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2.4s var(--ease-v) infinite;
+  flex: none;
+}
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* the nav glider — one soft lozenge that travels between links */
+.nav-glider {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 40px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, width;
+  transition: transform 0.45s var(--ease-v), width 0.45s var(--ease-v),
+    opacity 0.3s var(--ease-v);
+}
+
+/* the brand mark — bare glyph artwork, so each theme gets its own ink.
+   same show/hide grammar as the sun/moon below */
+.brand-mark {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* scoped to .brand-mark so these outrank `.brand-mark img` above —
+   a bare `.logo-dark` loses to it on specificity and both marks show */
+.brand-mark .logo-dark {
+  display: none;
+}
+[data-theme="dark"] .brand-mark .logo-light {
+  display: none;
+}
+[data-theme="dark"] .brand-mark .logo-dark {
+  display: block;
+}
+
+.icon-moon {
+  display: none;
+}
+[data-theme="dark"] .icon-sun {
+  display: none;
+}
+[data-theme="dark"] .icon-moon {
+  display: block;
+}
+
+/* ============================================================
+   The vault stage — glow, machined edge, video scrim
+   ============================================================ */
+/* one restrained under-shadow — depth without halo */
+.stage {
+  box-shadow: 0 30px 70px -30px rgba(18, 18, 18, 0.35);
+}
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    52% 44% at 50% 118%,
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+/* a text well: darkest where the content sits, opening at the edges
+   so the footage performs at the periphery without fighting the type */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(
+      46% 62% at 50% 47%,
+      rgba(10, 10, 9, 0.72) 0%,
+      rgba(10, 10, 9, 0.45) 55%,
+      transparent 100%
+    ),
+    linear-gradient(180deg, rgba(10, 10, 9, 0.5), rgba(10, 10, 9, 0.16) 40%, rgba(10, 10, 9, 0.6));
+}
+
+/* ---- the liquid-glass warp: a lens shockwave at every click ---- */
+.warp-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+}
+/* square, so the round lens map lands as a circle rather than an
+   ellipse — and centred on the click in both axes */
+.warp {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  margin: -55px 0 0 -55px;
+}
+/* The glass itself. WebKit parses `backdrop-filter: url(…)` as valid but
+   renders nothing for it, so a plain override would have silently eaten
+   the whole effect in Safari. The two treatments are kept in separate
+   rules and ClickWarp picks one — neither can clobber the other. */
+/* The centre of the glass. A real lens is clearest in the middle, so no
+   blur here — whatever is under it stays legible, only lifted a little.
+   Blurring the whole disc is what made this read as a smudge. */
+.warp-wave {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  /* no brightness(): it cannot lift near-black on the vault and only
+     washes out the paper sections. saturation and contrast read on both */
+  -webkit-backdrop-filter: saturate(1.5) contrast(1.07);
+  backdrop-filter: saturate(1.5) contrast(1.07);
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 255, 255, 0.015) 0%,
+    rgba(255, 255, 255, 0.05) 72%,
+    rgba(255, 255, 255, 0.11) 90%,
+    transparent 100%
+  );
+  transform: scale(0.3);
+  /* scale rides the expo; the fade gets its own soft-landing curve */
+  animation:
+    warpGrow 0.9s var(--ease-v) forwards,
+    warpFade 0.9s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+/* where the displacement map genuinely renders, it does the bending on
+   its own — anything else here would only muddy it */
+.has-lens .warp-wave {
+  -webkit-backdrop-filter: url(#lensWarp) saturate(1.35) brightness(1.04);
+  backdrop-filter: url(#lensWarp) saturate(1.35) brightness(1.04);
+  background: none;
+}
+
+/* the catch-light. a bead of glass is read almost entirely by the
+   highlight it throws, and unlike brightness() it shows on black */
+.warp-wave::after {
+  content: "";
+  position: absolute;
+  left: 17%;
+  top: 13%;
+  width: 36%;
+  height: 27%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.6), transparent 100%);
+  filter: blur(2px);
+}
+.has-lens .warp-wave::after {
+  display: none;
+}
+
+/* The bend, for engines with no SVG backdrop filter. Glass distorts
+   hardest at its edge and not at all through the middle, so the blur
+   lives in an annulus — the same profile as the displacement map
+   Chromium gets (strength = d^3.2, neutral at the centre). */
+.warp-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  -webkit-backdrop-filter: blur(6px) saturate(1.5);
+  backdrop-filter: blur(6px) saturate(1.5);
+  -webkit-mask-image: radial-gradient(
+    closest-side,
+    transparent 42%,
+    #000 74%,
+    #000 92%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    closest-side,
+    transparent 42%,
+    #000 74%,
+    #000 92%,
+    transparent 100%
+  );
+  transform: scale(0.3);
+  animation:
+    warpGrow 0.9s var(--ease-v) forwards,
+    warpFade 0.9s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+.has-lens .warp-rim {
+  display: none;
+}
+@keyframes warpGrow {
+  from {
+    transform: scale(0.3);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes warpFade {
+  0% {
+    opacity: 1;
+  }
+  35% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* the glass rim — specular top-left, shaded bottom-right */
+.warp-glint {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow:
+    inset 1px 2px 2px -1px rgba(255, 255, 255, 0.85),
+    inset -1.5px -2px 2px -1px rgba(0, 0, 0, 0.45);
+  transform: scale(0.3);
+  animation:
+    warpGrow 0.9s var(--ease-v) forwards,
+    glintFade 0.9s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+@keyframes glintFade {
+  0% {
+    opacity: 0.95;
+  }
+  30% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* dims the vault as it recedes behind the arriving sheet */
+.stage-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: #060605;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* the vault tips back from a point low on the card */
+.stage-scale {
+  transform-origin: 50% 85%;
+}
+
+/* sections 2+ ride over the receding vault as an elevated sheet */
+.sheet {
+  position: relative;
+  z-index: 5;
+  background: var(--canvas);
+  margin-top: -60vh;
+  border-radius: 32px 32px 0 0;
+  will-change: transform;
+  /* depth under the lip: light catch on the edge, then tight
+     negative-spread shadows that hug it — elevation, not halo */
+  box-shadow:
+    inset 0 1px 0 var(--edge-hl),
+    0 -5px 18px -6px rgba(0, 0, 0, 0.2),
+    0 -24px 54px -22px rgba(0, 0, 0, 0.24);
+}
+/* cast shadow: actively darkens the vault beneath the lip — box-shadow
+   alone vanishes against the already-dimmed backdrop */
+.sheet::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -90px;
+  height: 90px;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.2) 0%,
+    rgba(0, 0, 0, 0.15) 20%,
+    rgba(0, 0, 0, 0.09) 45%,
+    rgba(0, 0, 0, 0.04) 70%,
+    transparent 100%
+  );
+}
+@media (max-width: 900px) {
+  .sheet {
+    margin-top: -48vh;
+    border-radius: 24px 24px 0 0;
+  }
+}
+
+/* ============================================================
+   The serif word + its swash (draws only when the rate locks)
+   ============================================================ */
+.serif-word {
+  position: relative;
+  font-family: var(--ff-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.02em;
+  letter-spacing: -0.01em;
+  padding: 0 0.06em 0 0.02em;
+  color: var(--accent-bright);
+  background-image: linear-gradient(178deg, #a5f4d4 6%, #2bd894 52%, #0eb877 96%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.swash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.08em;
+  height: 0.13em;
+  overflow: visible;
+  pointer-events: none;
+}
+.swash path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.9;
+}
+.js .swash path {
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  transition: stroke-dashoffset 0.8s var(--ease-v);
+}
+.js .locked .swash path {
+  stroke-dashoffset: 0;
+}
+
+/* ============================================================
+   Buttons — layered, crafted
+   ============================================================ */
+.btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 17px 30px;
+  border-radius: 9999px;
+  font-size: 15.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-v), background-color 0.2s var(--ease-v),
+    border-color 0.2s var(--ease-v), box-shadow 0.2s var(--ease-v);
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn svg {
+  flex: none;
+}
+.btn-primary {
+  background-color: var(--accent);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 55%);
+  color: var(--accent-ink);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 62%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.65s var(--ease-v);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  background-color: #12ce88;
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--accent) 42%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.btn-primary:hover::after {
+  transform: translateX(130%);
+}
+.btn-primary .arrow {
+  transition: transform 0.2s var(--ease-v);
+}
+.btn-primary:hover .arrow {
+  transform: translateX(3px);
+}
+.btn-ghost {
+  border: 1px solid rgba(250, 250, 248, 0.18);
+  color: var(--onstage);
+  background: rgba(250, 250, 248, 0.045);
+}
+.btn-ghost:hover {
+  transform: translateY(-2px);
+  border-color: rgba(250, 250, 248, 0.4);
+  background: rgba(250, 250, 248, 0.08);
+}
+
+/* ============================================================
+   The split ticket — one object, two sides, a perforation between
+   ============================================================ */
+.ticket {
+  border: 1px solid rgba(250, 250, 248, 0.13);
+  background: rgba(12, 12, 11, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  position: relative;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 34px rgba(0, 0, 0, 0.35);
+}
+.locked .ticket {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.ticket::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.locked .ticket::after {
+  animation: lockPing 0.9s var(--ease-v) 1;
+}
+@keyframes lockPing {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 22px transparent;
+  }
+}
+
+.tk-side {
+  transition: background 0.25s var(--ease-v);
+}
+.tk-side:hover {
+  background: rgba(250, 250, 248, 0.03);
+}
+/* bookend identity rules: the vault side is green, the market side ember */
+.tk-fixed-edge {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.tk-var-edge {
+  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--yt) 50%, transparent);
+}
+
+/* the perforation, with punched notches at either end */
+.tk-perf {
+  position: relative;
+  width: 1px;
+  margin: 10px 0;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(250, 250, 248, 0.16) 0 5px,
+    transparent 5px 11px
+  );
+}
+
+/* inline actions */
+.cs-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.cs-act svg {
+  flex: none;
+  transition: transform 0.2s var(--ease-v);
+}
+.tk-side:hover .cs-act svg {
+  transform: translateX(3px);
+}
+.cs-act-fixed {
+  color: var(--accent-bright);
+}
+.cs-act-var {
+  color: #ff9351;
+}
+
+@media (max-width: 560px) {
+  /* the console stacks; the perforation turns horizontal */
+  .tk-perf {
+    width: auto;
+    height: 1px;
+    margin: 0 14px;
+    background-image: repeating-linear-gradient(
+      to right,
+      rgba(250, 250, 248, 0.14) 0 5px,
+      transparent 5px 11px
+    );
+  }
+}
+
+.drift-num {
+  color: var(--accent-bright); /* JS drives this from ember → green */
+}
+.drift-lock .shackle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  transform: translateY(-3.5px) rotate(16deg);
+  transform-origin: 16px 11px;
+  transition: transform 0.45s var(--ease-v);
+}
+.locked .drift-lock .shackle {
+  transform: none;
+}
+.drift-lock .body {
+  fill: currentColor;
+}
+
+/* drift history — flatlines the moment you lock; tucked beside the number */
+.drift-spark {
+  display: block;
+  width: 76px;
+  height: 22px;
+  opacity: 0.7;
+  flex: none;
+}
+/* drift history as a live barcode — bars dance while variable,
+   settle into a clean printed code the moment you lock */
+.drift-bars path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: butt;
+}
+
+/* one centred state caption beneath the console */
+.drift-status {
+  position: relative;
+  margin-top: 12px;
+  height: 17px;
+  width: 100%;
+  text-align: center;
+}
+.drift-status span {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  transition: opacity 0.4s var(--ease-v), transform 0.4s var(--ease-v);
+}
+.status-a {
+  color: color-mix(in srgb, var(--ember) 42%, var(--onstage-faint));
+  opacity: 1;
+}
+.status-b {
+  color: color-mix(in srgb, var(--accent-bright) 55%, var(--onstage-faint));
+  opacity: 0;
+  transform: translate(-50%, 6px);
+}
+.locked .status-a {
+  opacity: 0;
+  transform: translate(-50%, -6px);
+}
+.locked .status-b {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+
+/* ============================================================
+   Scroll hint ↔ engraved terms (they trade places on lock)
+   ============================================================ */
+.hint svg {
+  animation: bobDown 1.8s var(--ease-v) infinite;
+}
+@keyframes bobDown {
+  0%,
+  100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+.plate {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.plate .val {
+  color: var(--onstage-dim);
+  transition: color 0.45s var(--ease-v);
+}
+.plate .val.flash {
+  color: var(--accent-bright);
+  transition: color 0.1s;
+}
+.plate-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(250, 250, 248, 0.22);
+  margin: 0 26px;
+  flex: none;
+}
+
+/* ============================================================
+   Section 2 — scroll-in reveals + the split
+   ============================================================ */
+.io {
+  opacity: 0;
+  transform: translateY(26px);
+  transition: opacity 0.8s var(--ease-v), transform 0.8s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+}
+.in .io {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---- the three beats: tall colour-blocked cards that ride up with
+   the scroll. `--p` (0 → 1) is published per card by useScrollRise, so
+   the lift tracks the wheel instead of playing back on a timer. The
+   lift lives on a wrapper so the card keeps its own hover transition
+   without the two fighting over `transform` ---- */
+/* the card row escapes the section's 1220px column and runs the full
+   width of the window, keeping only the page gutter — the cards get
+   every pixel the viewport can give them */
+.bleed-row {
+  width: 100vw;
+  max-width: 100vw;
+  margin-inline: calc(50% - 50vw);
+  padding-inline: clamp(20px, 4vw, 48px);
+}
+
+/* The deal. Every card interpolates from its own starting pose — set by
+   the four --*0 vars — to rest, driven by --e. The middle card rises on
+   its own first; the outer two start stacked behind it and fan out to
+   the sides as their own progress catches up. */
+.rise {
+  --e: 0;
+  --x0: 0px; /* how far toward the centre it starts */
+  --y0: 130px; /* how far below it starts */
+  --rot0: 0deg; /* the angle it starts fanned at */
+  --s0: 0.9; /* how small it starts */
+  transform: perspective(1200px)
+    translate3d(calc((1 - var(--e)) * var(--x0)), calc((1 - var(--e)) * var(--y0)), 0)
+    rotateX(calc((1 - var(--e)) * 9deg)) rotate(calc((1 - var(--e)) * var(--rot0)))
+    scale(calc(var(--s0) + (1 - var(--s0)) * var(--e)));
+  transform-origin: 50% 100%;
+  /* solid by the time it clears the card in front — a translucent card
+     sliding out from behind another reads as a ghost, not a card */
+  opacity: calc(var(--e) * 2);
+  will-change: transform, opacity;
+}
+
+/* The fan only exists while the three sit side by side. Stacked, they
+   keep the plain rise — there is no "sides" to travel to. */
+@media (min-width: 900px) {
+  .rise {
+    z-index: 1;
+  }
+  /* the middle card leads, and stays over the other two as they emerge */
+  .rise:nth-child(2) {
+    --y0: 150px;
+    z-index: 2;
+  }
+  /* one card-width plus the gap puts them exactly behind the middle.
+     barely any --y0: by the time these move the middle has landed, so
+     they travel out sideways from it rather than up from below */
+  .rise:nth-child(1) {
+    --x0: calc(100% + var(--card-gap));
+    --y0: 12px;
+    --rot0: -6deg;
+    --s0: 0.82;
+  }
+  .rise:nth-child(3) {
+    --x0: calc(-100% - var(--card-gap));
+    --y0: 12px;
+    --rot0: 6deg;
+    --s0: 0.82;
+  }
+}
+
+/* The pin. The row holds at the top of the viewport while the extra
+   height below is scrolled through, and that travel drives the deal —
+   so the page cannot leave the section with cards still in the air.
+   Only worth doing three-up: stacked, the column is taller than the
+   viewport and there is nothing to hold still. */
+.cards-scrub {
+  height: 175vh;
+}
+.cards-pin {
+  position: sticky;
+  top: 0;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+}
+
+@media (max-width: 899.98px) {
+  .cards-scrub {
+    height: auto;
+  }
+  .cards-pin {
+    position: static;
+    min-height: 0;
+    display: block;
+  }
+}
+
+/* the gap lives here so the fan can measure against the same value the
+   grid lays out with.
+
+   --exit is the hand-off: over the last of the pin the row eases back
+   and away, so it is already in motion when the pin lets go. Without it
+   the row goes from perfectly still to full scroll speed in one frame,
+   which is the jolt you feel leaving a sticky section. */
+.step-grid {
+  --card-gap: clamp(16px, 2vw, 26px);
+  --exit: 0;
+  /* the layout lives here rather than in utilities so the mobile deck can
+     take it over outright instead of out-specifying it */
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  gap: var(--card-gap);
+  /* -100px over the ~200px ramp with a p² curve puts the row at ~1px of
+     travel per px of scroll right as the pin lets go — matched speed */
+  transform: translateY(calc(var(--exit) * -100px)) scale(calc(1 - 0.045 * var(--exit)));
+  opacity: calc(1 - 0.3 * var(--exit));
+  will-change: transform, opacity;
+}
+
+/* the card is the footage — no chrome, no copy, just the plate it
+   plays on and the colour it carries */
+.step-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: clamp(20px, 2vw, 28px);
+  background: var(--stage);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 20%, transparent),
+    var(--shadow-soft-v);
+  transition: box-shadow 0.45s var(--ease-v), transform 0.45s var(--ease-v),
+    opacity 0.45s var(--ease-v);
+}
+/* gated on a real pointer: on touch, :hover latches after a tap and the
+   card would stay lifted for the rest of the session */
+@media (hover: hover) and (pointer: fine) {
+  .step-card:hover {
+    transform: translateY(-5px);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 42%, transparent),
+      0 26px 56px rgba(18, 18, 18, 0.13);
+  }
+  [data-theme="dark"] .step-card:hover {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 46%, transparent),
+      0 26px 56px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* ---- below 900px: the deal becomes a deck ----
+   Three portrait cards stacked in a column is 1300px of near-identical
+   scroll, and every video decodes at once. So the same three beats turn
+   on their side: a full-bleed snap deck you swipe. The axis is the one
+   the desktop fan already uses — the cards travel sideways there too,
+   you just drive them — and only the card you land on plays.
+
+   This has to sit AFTER the .step-grid / .rise rules above: same
+   specificity, so source order is the whole argument. */
+@media (max-width: 899.98px) {
+  /* the deck runs to the screen edge; the rail keeps the gutter itself */
+  .deck-bleed {
+    padding-inline: 0;
+  }
+
+  .step-grid {
+    /* as wide as the screen will give, held off the edge just enough to
+       leave a sliver of the next card showing. svh caps it on short
+       phones so a card is never taller than the screen it sits in. */
+    /* 46svh is the width that makes a 3:4 card ~61svh tall — the height
+       cap, expressed on the axis flex-basis actually reads */
+    --deck-w: min(88vw, 46svh, 500px);
+    display: flex;
+    max-width: none;
+    gap: clamp(10px, 2.6vw, 16px);
+    /* 50% not 50vw: resolves against the rail's own box, so a card
+       centres on the screen whatever gutter an ancestor is carrying */
+    padding-inline: calc(50% - var(--deck-w) / 2);
+    padding-block: 12px 8px; /* room for the card's drop shadow */
+    overflow-x: auto;
+    overscroll-behavior-x: contain; /* don't chain into iOS swipe-back */
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    /* nothing pins down here, so there is no hand-off to animate */
+    transform: none;
+    opacity: 1;
+    will-change: auto;
+  }
+  .step-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .rise {
+    flex: 0 0 var(--deck-w);
+    scroll-snap-align: center;
+    /* no fan, no sideways travel: a horizontal offset here would fight
+       the scroller it lives in. Just a rise, staggered per card. */
+    --x0: 0px;
+    --y0: 54px;
+    --rot0: 0deg;
+    --s0: 0.94;
+  }
+
+  /* the card you have landed on is the live one; the neighbours sit back
+     so the snap reads as a choice rather than a scroll position */
+  .rise[data-live="false"] .step-card {
+    opacity: 0.5;
+    transform: scale(0.955);
+  }
+}
+
+/* ---- the deck's progress rail: three bars, each in its beat's colour.
+   Doubles as the "there are three of these" signal and as the keyboard
+   and screen-reader route into the deck ---- */
+.deck-dots {
+  display: none;
+}
+.deck-dot {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 32px; /* tap target — the mark itself is the 3px bar */
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition: width 0.5s var(--ease-v);
+}
+.deck-dot::before {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  transition: width 0.5s var(--ease-v), background-color 0.5s var(--ease-v);
+}
+.deck-dot[aria-current="true"] {
+  width: 48px;
+}
+.deck-dot[aria-current="true"]::before {
+  width: 38px;
+  background: var(--tone);
+}
+@media (max-width: 899.98px) {
+  .deck-dots {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin-top: clamp(18px, 3vh, 28px);
+  }
+}
+
+/* what stands in until the file exists — a lit plate, not an empty box */
+.step-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(
+    112% 78% at 50% 116%,
+    color-mix(in srgb, var(--tone) 30%, transparent),
+    transparent 72%
+  );
+}
+.step-ph::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to right, rgba(250, 250, 248, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(250, 250, 248, 0.05) 1px, transparent 1px);
+  background-size: 34px 34px;
+  -webkit-mask-image: radial-gradient(125% 100% at 50% 0%, #000, transparent 78%);
+  mask-image: radial-gradient(125% 100% at 50% 0%, #000, transparent 78%);
+}
+.step-ph-num {
+  position: relative;
+  font-family: var(--ff-mono);
+  font-size: clamp(52px, 6.4vw, 84px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: color-mix(in srgb, var(--tone) 34%, transparent);
+}
+
+.invariant::before,
+.invariant::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
+/* ============================================================
+   Section 3 — the yield market
+   ============================================================ */
+.pulse-dot-ember {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ember);
+  animation: pulseEmber 2.4s var(--ease-v) infinite;
+  flex: none;
+}
+@keyframes pulseEmber {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* the leverage bar: you pay the sliver, you earn the bar */
+.lev-track {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+.lev-fill {
+  width: 0;
+  min-width: 0;
+  background: var(--ember);
+  transition: width 1.1s var(--ease-v) 0.35s, min-width 1.1s var(--ease-v) 0.35s;
+}
+.in .lev-fill {
+  width: 3.32%;
+  min-width: 10px;
+}
+
+/* ============================================================
+   The footer — the vault closing
+   ============================================================ */
+.footer {
+  position: relative;
+  overflow: hidden;
+  background: var(--footer-bg);
+  border-radius: clamp(28px, 3vw, 44px) clamp(28px, 3vw, 44px) 0 0;
+  margin-top: clamp(60px, 9vh, 120px);
+  isolation: isolate;
+  transition: background 0.4s var(--ease-v);
+}
+/* the same accent breathing off the floor as on the hero stage */
+.footer-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(58% 46% at 50% 112%, var(--footer-glow-strong), transparent 72%),
+    radial-gradient(42% 34% at 88% -8%, var(--footer-glow-soft), transparent 70%);
+}
+
+.footer-rule {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--footer-line) 12%,
+    var(--footer-line) 88%,
+    transparent
+  );
+}
+
+.footer-link {
+  display: inline-block;
+  font-size: 14.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  transition: color 0.2s var(--ease-v), transform 0.2s var(--ease-v);
+}
+.footer-link:hover {
+  color: var(--ink);
+  transform: translateX(3px);
+}
+.footer-link-sm {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  color: var(--subtle);
+}
+.footer-mail {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-text) 35%, transparent);
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.2s var(--ease-v);
+}
+.footer-mail:hover {
+  text-decoration-color: var(--accent-text);
+}
+.footer-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--subtle);
+  transition: color 0.2s var(--ease-v);
+}
+.footer-top:hover {
+  color: var(--ink);
+}
+
+/* ---- the footer cascade: a longer, softer rise than the section-level
+   .io, so the close of the page settles rather than snaps ---- */
+.f-up {
+  opacity: 0;
+  transform: translateY(34px);
+  transition: opacity 0.9s var(--ease-v), transform 0.9s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+}
+.in .f-up {
+  opacity: 1;
+  transform: none;
+}
+/* the hairlines draw outward from the middle */
+.f-wipe {
+  transform: scaleX(0);
+  transition: transform 1.1s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+}
+.in .f-wipe {
+  transform: none;
+}
+
+/* the monument: SPIELD cut into the vault floor, lit from above.
+   sized in vw so it always reaches for the full width of the window */
+.footer-mark-mask {
+  overflow: hidden;
+  /* The line box is 0.78em but the glyphs run ~0.14em past it at each
+     end. Padded in vw, NOT em — em here would resolve against the
+     inherited 16px, not the mark's own ~500px, and crop every glyph. */
+  padding: 7.5vw 0;
+  margin: -7.5vw 0;
+}
+.footer-mark {
+  margin: clamp(30px, 5vh, 54px) 0 clamp(26px, 4vh, 44px);
+  /* rises out of its own mask, the same reveal as the hero headline.
+     165% clears the line box plus the padding plus the ascender */
+  transform: translateY(165%);
+  transition: transform 1.25s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+  will-change: transform;
+  font-family: var(--ff-display);
+  font-weight: 700;
+  /* tuned by measurement so the glyphs reach ~97% of the gutter width */
+  font-size: 34.6vw;
+  line-height: 0.78;
+  letter-spacing: -0.045em;
+  text-align: center;
+  white-space: nowrap;
+  user-select: none;
+  background: linear-gradient(
+    177deg,
+    var(--footer-mark-hi) 4%,
+    var(--footer-mark-mid) 46%,
+    var(--footer-mark-lo) 88%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.in .footer-mark {
+  transform: none;
+}
+
+/* the gutter stops shrinking below 20px, so the mark has to give back
+   a little to keep its shoulders inside it */
+@media (max-width: 720px) {
+  .footer-mark {
+    font-size: 32.4vw;
+    letter-spacing: -0.035em;
+  }
+}
+
+/* ============================================================
+   Responsive tweaks for component classes
+   ============================================================ */
+@media (max-width: 900px) {
+  .plate {
+    flex-direction: column;
+    gap: 9px;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+  }
+  .plate-item-optional {
+    display: none;
+  }
+  .plate-sep {
+    display: none;
+  }
+}
+@media (max-width: 480px) {
+  .drift-spark {
+    display: none;
+  }
+}
+
+/* ============================================================
+   Reduced motion — the fully-locked static page
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+  .js [data-reveal],
+  .js .line-inner {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+  .js .line {
+    overflow: visible !important;
+  }
+  .js .swash path {
+    stroke-dashoffset: 0 !important;
+  }
+  .scrub,
+  .cards-scrub {
+    height: auto !important;
+  }
+  .cards-pin {
+    position: static !important;
+    min-height: 0 !important;
+  }
+  .step-grid {
+    --exit: 0 !important;
+  }
+  .sticky-vault {
+    position: relative !important;
+    height: 100svh;
+  }
+  .sheet {
+    margin-top: 0 !important;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .stage-dim {
+    display: none;
+  }
+  .hint {
+    display: none;
+  }
+  .plate {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .io,
+  .rise,
+  .f-up,
+  .f-wipe,
+  .footer-mark {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}

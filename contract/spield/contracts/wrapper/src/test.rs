@@ -698,3 +698,276 @@ fn solvency_view_survives_blend_pool_frozen() {
     assert_eq!(pv.principal, 100 * USDC);
     std::println!("blend-frozen: solvency still readable, backing={}", backing);
 }
+
+// ===========================================================================
+// testcando.md §0 — mechanism-level gaps found while reading the code.
+// These PIN the current behavior (they are not claims that it is correct).
+// ===========================================================================
+
+/// Warp to `ts` and refresh the oracle so Blend keeps quoting.
+fn warp_to(w: &World, ts: u64) {
+    w.env().ledger().set_timestamp(ts);
+    w.oracle().set_price_stable(&vec![w.env(), 1_0000000, 1_0000000]);
+    w.env().cost_estimate().budget().reset_unlimited();
+}
+
+// --------------------------------------------------------------------------
+// §0 P0 — `mint_after_maturity_behavior`
+//
+// `wrapper::mint` has NO maturity gate (the vault and the market both refuse
+// post-maturity inflows; the wrapper does not). A post-maturity mint creates a
+// position whose PT is instantly redeemable and whose YT keeps accruing with no
+// maturity cap on `claim_yield`.
+// --------------------------------------------------------------------------
+
+#[test]
+fn mint_after_maturity_is_currently_allowed() {
+    let w = setup(YEAR);
+    warp_to(&w, w.maturity + 1);
+
+    // The wrapper happily accepts a deposit for a bond that has already matured.
+    let (user, id) = w.deposit_new_user(100 * USDC);
+    let pos = w.wrapper().get_position(&id);
+    assert!(pos.open);
+    assert_eq!(pos.pt_amount, 100 * USDC);
+    assert_eq!(pos.yt_amount, 100 * USDC);
+
+    // The PT it minted is redeemable in the very same ledger — a zero-duration
+    // round trip that exists only because there is no maturity gate on `mint`.
+    let before = w.usdc().balance(&user);
+    let redeemed = w.wrapper().redeem_pt(&id, &(100 * USDC));
+    assert_eq!(redeemed, 100 * USDC);
+    // Blend floors the withdraw, so the delivered USDC can trail the returned
+    // figure by ≤1 stroop (the tolerance `redeem_underlying` itself allows).
+    let received = w.usdc().balance(&user) - before;
+    assert!(
+        (100 * USDC - received) <= 1,
+        "received {} vs redeemed {}",
+        received,
+        redeemed
+    );
+
+    // Solvency is not violated by it (you get back exactly what you put in) —
+    // this is a product/consistency gap, not a value leak.
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
+}
+
+#[test]
+fn yt_minted_after_maturity_keeps_accruing_forever() {
+    let w = setup(YEAR);
+    warp_to(&w, w.maturity + 1);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    // `claim_yield` has no maturity cap either: the YT of a post-maturity mint
+    // keeps earning real Blend interest indefinitely.
+    w.advance(YEAR);
+    let claimed = w.wrapper().claim_yield(&id);
+    assert!(
+        claimed > 0,
+        "YT minted AFTER maturity still accrues — claim_yield has no maturity cap"
+    );
+    std::println!("post-maturity mint accrued {} USDC of yield a year later", claimed);
+}
+
+// --------------------------------------------------------------------------
+// §0 P2 — `claim_on_closed_position_is_noop`
+//
+// `do_claim` never checks `pos.open`. A closed position has `shares == 0`, so
+// it pays 0 and merely re-settles. Harmless — pinned so a future refactor
+// cannot quietly turn it into a payout.
+// --------------------------------------------------------------------------
+
+#[test]
+fn claim_on_closed_position_is_a_noop() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 2);
+
+    // Fully combine → the position closes (PT + YT both burned, shares drained).
+    w.wrapper().combine_and_redeem(&id, &(100 * USDC));
+    let closed = w.wrapper().get_position(&id);
+    assert!(!closed.open);
+    assert_eq!(closed.pt_amount, 0);
+    assert_eq!(closed.yt_amount, 0);
+    assert_eq!(closed.shares, 0, "a closed position holds no Blend shares");
+
+    // Let the rate rise a lot, then claim on the closed position.
+    w.advance(YEAR);
+    let usdc_before = w.usdc().balance(&user);
+    let paid = w.wrapper().claim_yield(&id);
+    assert_eq!(paid, 0, "a closed position must never pay out");
+    assert_eq!(w.usdc().balance(&user), usdc_before, "no USDC moved");
+
+    // It did re-settle (settled_rate advanced to the current rate) but nothing else.
+    let after = w.wrapper().get_position(&id);
+    assert!(after.settled_rate >= closed.settled_rate);
+    assert!(!after.open, "claiming must not resurrect a closed position");
+    assert_eq!(after.shares, 0);
+
+    // Repeating it is equally inert.
+    assert_eq!(w.wrapper().claim_yield(&id), 0);
+}
+
+// --------------------------------------------------------------------------
+// §13 P0 — `pt_supply_equals_sum_of_position_pt`
+//
+// The missing global conservation law: no PT/YT may exist that the wrapper did
+// not mint. This is the on-chain invariant that would DETECT counterfeit PT
+// issued straight from the classic Stellar issuer (§13's attack surface).
+// --------------------------------------------------------------------------
+
+/// Sum `pt_amount` / `yt_amount` over every position id ever opened.
+fn sum_position_legs(w: &World, next_id: u64) -> (i128, i128) {
+    let (mut pt, mut yt) = (0i128, 0i128);
+    for id in 0..next_id {
+        if let Ok(Ok(p)) = w.wrapper().try_get_position(&id) {
+            pt += p.pt_amount;
+            yt += p.yt_amount;
+        }
+    }
+    (pt, yt)
+}
+
+#[test]
+fn pt_and_yt_supply_equals_sum_of_open_position_legs() {
+    let w = setup(YEAR);
+
+    // Three positions across two users, with claims and a partial combine mixed in.
+    let (u0, id0) = w.deposit_new_user(100 * USDC);
+    let (_u1, id1) = w.deposit_new_user(250 * USDC);
+    w.advance(YEAR / 4);
+    let (_u2, id2) = w.deposit_new_user(70 * USDC);
+
+    let check = |label: &str, n: u64| {
+        let (pt_sum, yt_sum) = sum_position_legs(&w, n);
+        // The SAC total supply is exactly what the wrapper minted and has not burned.
+        // We reconstruct it from the balances of every account that can hold it.
+        assert_eq!(
+            pt_sum,
+            w.pt().balance(&u0)
+                + w.pt().balance(&_u1)
+                + w.pt().balance(&_u2),
+            "{}: Σ position pt_amount != Σ PT balances",
+            label
+        );
+        assert_eq!(
+            yt_sum,
+            w.yt().balance(&u0)
+                + w.yt().balance(&_u1)
+                + w.yt().balance(&_u2),
+            "{}: Σ position yt_amount != Σ YT balances",
+            label
+        );
+    };
+
+    check("after 3 mints", 3);
+
+    // Claiming yield must not move PT/YT at all (SCF #6).
+    w.advance(YEAR / 4);
+    w.wrapper().claim_yield(&id0);
+    w.wrapper().claim_yield(&id1);
+    check("after claims", 3);
+
+    // A partial combine burns equal PT + YT from one position.
+    w.wrapper().combine_and_redeem(&id2, &(30 * USDC));
+    check("after partial combine", 3);
+
+    // A full redeem at maturity burns the PT leg only.
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().redeem_pt(&id1, &(250 * USDC));
+    check("after full PT redeem", 3);
+
+    // And a transfer moves both legs without changing the totals.
+    let bob = Address::generate(w.env());
+    w.wrapper().transfer_position(&id0, &bob);
+    let (pt_sum, yt_sum) = sum_position_legs(&w, 3);
+    assert_eq!(
+        pt_sum,
+        w.pt().balance(&u0) + w.pt().balance(&_u1) + w.pt().balance(&_u2) + w.pt().balance(&bob),
+        "transfer must conserve total PT"
+    );
+    assert_eq!(
+        yt_sum,
+        w.yt().balance(&u0) + w.yt().balance(&_u1) + w.yt().balance(&_u2) + w.yt().balance(&bob),
+        "transfer must conserve total YT"
+    );
+}
+
+/// Donated ("counterfeit") PT — the §13 issuer-bypass shape, simulated by moving
+/// PT in from outside any position — breaks the conservation law. This is the
+/// detector: an on-chain monitor comparing PT supply to Σ position legs would
+/// fire. It also confirms the wrapper itself is *incidentally* shielded, because
+/// `redeem_pt` is position-gated.
+#[test]
+fn extra_pt_outside_a_position_breaks_conservation_but_not_the_wrapper() {
+    let w = setup(YEAR);
+    let (victim, id) = w.deposit_new_user(100 * USDC);
+    let attacker = Address::generate(w.env());
+
+    // Simulate counterfeit supply: PT that exists without a backing position.
+    // (On mainnet the classic issuer can do exactly this with a plain payment.)
+    // Here we move real PT to an account that owns no position — the accounting
+    // shape the monitor sees is identical: PT held against no position leg.
+    w.pt().transfer(&victim, &attacker, &(40 * USDC));
+
+    let (pt_sum, _) = sum_position_legs(&w, 1);
+    assert_eq!(pt_sum, 100 * USDC, "the position still records the full leg");
+    assert_eq!(w.pt().balance(&attacker), 40 * USDC);
+    assert_eq!(w.pt().balance(&victim), 60 * USDC);
+
+    // The wrapper is unharmed: the attacker cannot redeem — there is no position
+    // of theirs to redeem against (the §0.1 gap acting as an accidental shield).
+    warp_to(&w, w.maturity + 1);
+    assert_eq!(
+        w.wrapper().try_redeem_pt(&1u64, &(40 * USDC)),
+        Err(Ok(spield_shared::Error::PositionNotFound.into())),
+        "loose PT has no redemption path at the wrapper"
+    );
+    // And the legitimate owner can only redeem what they still hold.
+    assert!(
+        w.wrapper().try_redeem_pt(&id, &(100 * USDC)).is_err(),
+        "the position's own redeem now fails — its PT left the owner's balance"
+    );
+    let before = w.usdc().balance(&victim);
+    w.wrapper().redeem_pt(&id, &(60 * USDC));
+    assert_eq!(w.usdc().balance(&victim) - before, 60 * USDC);
+}
+
+// --------------------------------------------------------------------------
+// §1 P1 — `one_stroop_mint_at_elevated_entry_rate` (surfaced while testing §0.4)
+//
+// Once the pool has accrued (`b_rate > 1`), Blend floors the credited shares of a
+// 1-stroop supply to 0 and rejects the request *inside the pool* — before the
+// wrapper's own `shares <= 0` guard is ever reached. The practical consequence
+// is a hard **2-stroop minimum mint** on any pool with a non-unit `b_rate`, which
+// is exactly mainnet's state (`b_rate ≈ 1.124`). This is what makes a dust-sized
+// vault `harvest` reinvest revert (see the vault suite).
+// --------------------------------------------------------------------------
+
+#[test]
+fn one_stroop_mint_is_rejected_once_brate_exceeds_one() {
+    let w = setup(YEAR);
+    w.advance(30 * 24 * 60 * 60); // let b_rate rise above 1.0
+
+    let user = Address::generate(w.env());
+    w.usdc_admin().mint(&user, &(100 * USDC));
+
+    // 1 stroop floors to 0 shares → refused.
+    let one = w.wrapper().try_mint(&user, &1i128);
+    assert!(
+        one.is_err(),
+        "a 1-stroop mint must be refused at b_rate > 1, never mint unbacked PT"
+    );
+    // 2 stroops is the smallest viable deposit.
+    assert!(
+        w.wrapper().try_mint(&user, &2i128).is_ok(),
+        "2 stroops is the minimum viable mint at an elevated b_rate"
+    );
+
+    // The refusal is atomic: no PT/YT was minted for the failed attempt.
+    assert_eq!(w.pt().balance(&user), 2, "only the successful 2-stroop mint exists");
+    assert_eq!(w.yt().balance(&user), 2);
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal);
+}

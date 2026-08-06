@@ -41,6 +41,9 @@ mod storage;
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod test_rate_brick;
+
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String,
 };

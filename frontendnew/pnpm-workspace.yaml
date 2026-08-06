@@ -1,0 +1,5 @@
+allowBuilds:
+  # sharp powers next/image optimization; its postinstall only unpacks prebuilt binaries
+  sharp: true
+ignoredBuiltDependencies:
+  - unrs-resolver

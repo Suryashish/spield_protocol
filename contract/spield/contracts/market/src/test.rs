@@ -887,3 +887,303 @@ fn code_hash_returns_live_wasm_hash() {
     }
     assert!(nonzero, "code_hash must be a real, non-zero wasm hash");
 }
+
+// ===========================================================================
+// testcando.md §0 — mechanism-level gaps found while reading the code.
+//
+// These tests do NOT assert that the protocol is correct; they PIN the actual
+// behavior at the boundary between the market's loose PT (a plain SAC balance)
+// and the wrapper's *position-gated* redemption. Every wrapper exit path
+// (`redeem_pt`, `combine_and_redeem`, `transfer_position`) burns/transfers from
+// `pos.owner`'s SAC balance against a position the caller owns. The moment PT
+// changes hands on the AMM, the position record and the SAC balances diverge,
+// and the two sides break in opposite directions:
+//
+//   * the BUYER holds redeemable PT but owns no position  → no exit at all;
+//   * the SELLER owns the position but holds no PT        → their exits revert.
+//
+// ===========================================================================
+
+/// Warp to `ts` and refresh the oracle so Blend keeps quoting (prices go stale).
+fn warp_to(w: &World, ts: u64) {
+    w.env().ledger().set_timestamp(ts);
+    w.oracle().set_price_stable(&vec![w.env(), 1_0000000, 1_0000000]);
+    w.env().cost_estimate().budget().reset_unlimited();
+}
+
+// --------------------------------------------------------------------------
+// §0 P0 — `market_bought_pt_is_redeemable_by_buyer`
+//
+// A trader buys PT on the AMM and holds it to maturity. `wrapper::redeem_pt` is
+// position-gated, and the buyer has no position — so the core "Earn Fixed via
+// AMM" flow has no exit. This test documents that.
+// --------------------------------------------------------------------------
+
+#[test]
+fn market_bought_pt_has_no_wrapper_redemption_path() {
+    let w = setup(YEAR);
+    // LP mints position #0 (1_000 PT + 1_000 YT) and puts ALL the PT in the pool.
+    let (lp, _shares) = seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+
+    // A trader buys PT with USDC — the headline "Earn Fixed via the AMM" flow.
+    let trader = w.new_user(100 * USDC);
+    let pt_bought = w.market().swap_exact_usdc_for_pt(&trader, &(100 * USDC), &0);
+    assert!(pt_bought > 0);
+    assert_eq!(w.usdc().balance(&trader), 0, "trader spent all their USDC on PT");
+
+    // Hold to maturity. The PT is a real SAC balance the trader owns outright.
+    warp_to(&w, w.maturity + 1);
+    assert_eq!(w.pt().balance(&trader), pt_bought, "trader holds redeemable PT");
+
+    // GAP 1: the trader owns no position, so there is nothing to redeem against.
+    // The only position that exists is the LP's #0.
+    assert_eq!(w.wrapper().get_position(&0u64).owner, lp, "only the LP has a position");
+    assert!(
+        w.wrapper().try_get_position(&1u64).is_err(),
+        "no second position exists — the buyer never minted one"
+    );
+    // Any id the buyer might invent is simply not found.
+    assert_eq!(
+        w.wrapper().try_redeem_pt(&1u64, &pt_bought),
+        Err(Ok(spield_shared::Error::PositionNotFound.into())),
+        "a market buyer has no position id to redeem against"
+    );
+
+    // GAP 2: and there is no un-gated, balance-based redemption entry point either
+    // — the trader ends maturity holding PT worth 1 USDC each and 0 USDC.
+    assert_eq!(
+        w.usdc().balance(&trader),
+        0,
+        "market-bought PT could not be converted to USDC at maturity"
+    );
+}
+
+/// The documented workaround today: the *seller* hands over the position itself.
+/// It only works if the seller still holds the matching PT — i.e. after the LP
+/// pulls its PT back out of the pool. This pins the one exit that does exist.
+#[test]
+fn transfer_position_is_the_only_exit_for_market_bought_pt() {
+    let w = setup(YEAR);
+    let (lp, shares) = seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+    let trader = w.new_user(100 * USDC);
+    let pt_bought = w.market().swap_exact_usdc_for_pt(&trader, &(100 * USDC), &0);
+
+    warp_to(&w, w.maturity + 1);
+
+    // The LP exits the pool, recovering PT into their own balance.
+    let (pt_out, _usdc_out) = w.market().remove_liquidity(&lp, &shares);
+    // Position #0 still records the full 1_000 PT, but the LP only got `pt_out`
+    // back (the trader took `pt_bought` out of the pool) — the position and the
+    // SAC balance have already diverged.
+    let pos = w.wrapper().get_position(&0u64);
+    assert_eq!(pos.pt_amount, 1_000 * USDC);
+    assert_eq!(w.pt().balance(&lp), pt_out);
+    assert!(pt_out < pos.pt_amount, "LP recovered less PT than the position records");
+
+    // So `transfer_position` (which moves `pos.pt_amount`) CANNOT be executed:
+    // the LP does not hold that much PT.
+    assert!(
+        w.wrapper().try_transfer_position(&0u64, &trader).is_err(),
+        "transfer_position must fail — it moves pos.pt_amount, which the LP no longer holds"
+    );
+
+    // The LP can only redeem what they actually hold, and only against their own
+    // position. The trader's `pt_bought` stays stranded.
+    let before = w.usdc().balance(&lp);
+    w.wrapper().redeem_pt(&0u64, &pt_out);
+    assert_eq!(w.usdc().balance(&lp) - before, pt_out, "LP redeems the PT it holds");
+    assert_eq!(w.pt().balance(&trader), pt_bought, "the buyer's PT is still stranded");
+}
+
+// --------------------------------------------------------------------------
+// §0 P0 — `seller_with_sold_pt_cannot_redeem_or_transfer`
+//
+// The mirror image: mint, sell the PT leg on the market, keep the position + YT.
+// `claim_yield` must keep working (it touches neither SAC), but `redeem_pt`,
+// `combine_and_redeem` and `transfer_position` must all fail on the SAC leg —
+// the divergence must degrade gracefully, never corrupt state.
+// --------------------------------------------------------------------------
+
+#[test]
+fn seller_with_sold_pt_can_still_claim_yield() {
+    let w = setup(YEAR);
+    seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+
+    let seller = w.new_user(100 * USDC);
+    let id = w.mint_position(&seller, 100 * USDC);
+    // Sell the whole PT leg; keep the position record and the YT.
+    let usdc_out = w.market().swap_exact_pt_for_usdc(&seller, &(100 * USDC), &0);
+    assert!(usdc_out > 0);
+    assert_eq!(w.pt().balance(&seller), 0, "PT leg sold");
+    // The position still records the PT even though the SAC balance is gone.
+    assert_eq!(w.wrapper().get_position(&id).pt_amount, 100 * USDC);
+
+    // claim_yield touches neither SAC — it must keep working.
+    w.advance(YEAR - 24 * 60 * 60);
+    let claimed = w.wrapper().claim_yield(&id);
+    assert!(claimed > 0, "YT yield must still be claimable after selling the PT leg");
+
+    // ...and the wrapper stays solvent throughout.
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 8 >= principal, "backing {} principal {}", backing, principal);
+}
+
+#[test]
+fn seller_with_sold_pt_cannot_redeem_pt() {
+    let w = setup(YEAR);
+    seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+    let seller = w.new_user(100 * USDC);
+    let id = w.mint_position(&seller, 100 * USDC);
+    w.market().swap_exact_pt_for_usdc(&seller, &(100 * USDC), &0);
+
+    warp_to(&w, w.maturity + 1);
+    // The position says 100 PT is redeemable, but the SAC burn has nothing to burn.
+    assert_eq!(w.wrapper().get_position(&id).pt_amount, 100 * USDC);
+    assert!(
+        w.wrapper().try_redeem_pt(&id, &(100 * USDC)).is_err(),
+        "redeem_pt must fail on the SAC burn shortfall, not silently pay out"
+    );
+    // State is untouched by the failed attempt (the whole tx reverted).
+    assert_eq!(w.wrapper().get_position(&id).pt_amount, 100 * USDC);
+    assert_eq!(w.usdc().balance(&w.wrapper), 0);
+}
+
+#[test]
+fn seller_with_sold_pt_cannot_combine_or_transfer() {
+    let w = setup(YEAR);
+    seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+    let seller = w.new_user(100 * USDC);
+    let id = w.mint_position(&seller, 100 * USDC);
+    w.market().swap_exact_pt_for_usdc(&seller, &(100 * USDC), &0);
+    w.env().cost_estimate().budget().reset_unlimited();
+
+    // combine burns PT + YT; the PT leg is gone, so it must fail.
+    assert!(
+        w.wrapper().try_combine_and_redeem(&id, &(100 * USDC)).is_err(),
+        "combine_and_redeem must fail without the PT leg"
+    );
+    // transfer_position moves pos.pt_amount PT; the seller no longer holds it.
+    let other = Address::generate(w.env());
+    assert!(
+        w.wrapper().try_transfer_position(&id, &other).is_err(),
+        "transfer_position must fail without the PT leg"
+    );
+    // Ownership unchanged after the failed transfer.
+    assert_eq!(w.wrapper().get_position(&id).owner, seller);
+}
+
+// --------------------------------------------------------------------------
+// §0 P1 — `market_maturity_mismatch_with_wrapper`
+//
+// `market::initialize` takes `maturity` as a free parameter and never checks it
+// against the wrapper it trades PT for. A market dated LATER than the wrapper
+// keeps quoting PT at a discount after PT is already redeemable at par — a
+// risk-free arbitrage paid for by the LPs.
+// --------------------------------------------------------------------------
+
+#[test]
+fn market_init_does_not_cross_check_wrapper_maturity() {
+    let w = setup(YEAR);
+    let admin = w.wrapper().admin();
+
+    // A market dated 30 days AFTER the wrapper's maturity initializes happily.
+    let late = w.maturity + 30 * 24 * 60 * 60;
+    let late_market = w.env().register(Market, (admin.clone(),));
+    MarketClient::new(w.env(), &late_market).initialize(
+        &w.pt, &w.usdc, &late, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+    );
+    assert_eq!(MarketClient::new(w.env(), &late_market).maturity(), late);
+    assert_ne!(
+        MarketClient::new(w.env(), &late_market).maturity(),
+        w.wrapper().maturity(),
+        "market maturity is NOT validated against the wrapper's"
+    );
+
+    // A market dated 30 days BEFORE the wrapper's maturity is equally accepted.
+    let early = w.maturity - 30 * 24 * 60 * 60;
+    let early_market = w.env().register(Market, (admin.clone(),));
+    MarketClient::new(w.env(), &early_market).initialize(
+        &w.pt, &w.usdc, &early, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+    );
+    assert_eq!(MarketClient::new(w.env(), &early_market).maturity(), early);
+}
+
+#[test]
+fn late_dated_market_sells_pt_below_par_after_it_redeems_at_par() {
+    let w = setup(YEAR);
+    let admin = w.wrapper().admin();
+    // Market dated 180 days AFTER the wrapper's maturity (the deploy-script
+    // promise slipped — nothing on chain forbids it).
+    let late = w.maturity + 180 * 24 * 60 * 60;
+    let market = MarketClient::new(w.env(), &w.env().register(Market, (admin.clone(),)));
+    market.initialize(&w.pt, &w.usdc, &late, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR);
+
+    // Seed PT-heavy (proportion 0.8) so the curve discounts PT — the normal state
+    // of a fixed-income pool before maturity.
+    let lp = w.new_user(2_000 * USDC);
+    w.mint_position(&lp, 1_600 * USDC);
+    market.add_liquidity(&lp, &(1_600 * USDC), &(400 * USDC));
+
+    // Warp PAST the wrapper's maturity but BEFORE the market's. PT is now
+    // redeemable 1:1 at the wrapper, yet the market still quotes it at a discount.
+    warp_to(&w, w.maturity + 1);
+    let price = market.pt_price();
+    assert!(price > 0, "the late market still has a live curve");
+    assert!(
+        price < SCALAR_12,
+        "PT still quoted BELOW par ({}) while already redeemable AT par",
+        price
+    );
+
+    // The structural failure: swaps still execute after the bond has matured.
+    let arb = w.new_user(100 * USDC);
+    let pt_bought = market.swap_exact_usdc_for_pt(&arb, &(100 * USDC), &0);
+    assert!(
+        pt_bought > 100 * USDC,
+        "100 USDC bought {} PT — more than 1 PT per USDC, and every PT is already \
+         worth exactly 1 USDC at the wrapper: a risk-free draw on the LPs",
+        pt_bought
+    );
+    std::println!(
+        "late-dated market: price={} 100 USDC -> {} PT (par-redeemable) — LP loss {}",
+        price,
+        pt_bought,
+        pt_bought - 100 * USDC
+    );
+}
+
+#[test]
+fn early_dated_market_strands_pt_holders_between_the_two_maturities() {
+    let w = setup(YEAR);
+    let admin = w.wrapper().admin();
+    // Market dated 30 days BEFORE the wrapper's maturity.
+    let early = w.maturity - 30 * 24 * 60 * 60;
+    let market = MarketClient::new(w.env(), &w.env().register(Market, (admin.clone(),)));
+    market.initialize(&w.pt, &w.usdc, &early, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR);
+
+    let lp = w.new_user(2_000 * USDC);
+    w.mint_position(&lp, 1_000 * USDC);
+    market.add_liquidity(&lp, &(1_000 * USDC), &(1_000 * USDC));
+
+    let holder = w.new_user(100 * USDC);
+    let hid = w.mint_position(&holder, 100 * USDC);
+
+    // Between the market's maturity and the wrapper's, the holder has NO venue…
+    warp_to(&w, early + 1);
+    assert_eq!(
+        market.try_swap_exact_pt_for_usdc(&holder, &(100 * USDC), &0),
+        Err(Ok(spield_shared::Error::MarketExpired.into())),
+        "trading halted while PT is still a live bond"
+    );
+    // …and NO redemption either: the bond has not matured yet.
+    assert_eq!(
+        w.wrapper().try_redeem_pt(&hid, &(100 * USDC)),
+        Err(Ok(spield_shared::Error::NotMatured.into())),
+        "PT is not redeemable until the wrapper's maturity"
+    );
+    // The only exit left is `combine_and_redeem` (needs both legs) — pin that it works,
+    // so the stranding is a liquidity failure, not a trapped-funds failure.
+    w.env().cost_estimate().budget().reset_unlimited();
+    let (returned, _) = w.wrapper().combine_and_redeem(&hid, &(100 * USDC));
+    assert_eq!(returned, 100 * USDC);
+}
