@@ -621,27 +621,36 @@
 }
 
 /* ============================================================
-   The split ticket — one object, two sides, a perforation between
+   The readout — the rate, machined into the face of the dial
    ============================================================ */
-.ticket {
-  border: 1px solid rgba(250, 250, 248, 0.13);
-  background: rgba(12, 12, 11, 0.62);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+.readout-win {
+  display: inline-flex;
+  align-items: center;
   position: relative;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 34px rgba(0, 0, 0, 0.35);
+  border-radius: 15px;
+  border: 1px solid rgba(250, 250, 248, 0.1);
+  background: linear-gradient(180deg, rgba(10, 10, 9, 0.74), rgba(10, 10, 9, 0.52));
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  padding: clamp(9px, 1.2vh, 14px) clamp(14px, 1.8vw, 22px);
+  /* a slot cut into metal: light on the top lip, shadow pooling inside */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -16px 26px -20px rgba(0, 0, 0, 0.9), 0 18px 44px -22px rgba(0, 0, 0, 0.75);
+  transition: border-color 0.5s var(--ease-v), box-shadow 0.5s var(--ease-v);
 }
-.locked .ticket {
-  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+.locked .readout-win {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 20px 50px -20px color-mix(in srgb, var(--accent) 28%, transparent);
 }
-.ticket::after {
+.readout-win::after {
   content: "";
   position: absolute;
   inset: -1px;
   border-radius: inherit;
   pointer-events: none;
 }
-.locked .ticket::after {
+.locked .readout-win::after {
   animation: lockPing 0.9s var(--ease-v) 1;
 }
 @keyframes lockPing {
@@ -653,73 +662,99 @@
   }
 }
 
-.tk-side {
-  transition: background 0.25s var(--ease-v);
-}
-.tk-side:hover {
-  background: rgba(250, 250, 248, 0.03);
-}
-/* bookend identity rules: the vault side is green, the market side ember */
-.tk-fixed-edge {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
-}
-.tk-var-edge {
-  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--yt) 50%, transparent);
-}
-
-/* the perforation, with punched notches at either end */
-.tk-perf {
-  position: relative;
-  width: 1px;
-  margin: 10px 0;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    rgba(250, 250, 248, 0.16) 0 5px,
-    transparent 5px 11px
-  );
-}
-
-/* inline actions */
-.cs-act {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+.readout-label {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   white-space: nowrap;
+  color: rgba(250, 250, 248, 0.3);
 }
-.cs-act svg {
-  flex: none;
-  transition: transform 0.2s var(--ease-v);
+/* the number is only a "fixed APY" once it stops moving — the label
+   states which world you are reading, and both are laid on the same
+   grid cell so the window never changes width */
+.rl-swap {
+  display: inline-grid;
+  justify-items: start;
 }
-.tk-side:hover .cs-act svg {
-  transform: translateX(3px);
+.rl-swap > span {
+  grid-area: 1 / 1;
+  transition: opacity 0.4s var(--ease-v), transform 0.4s var(--ease-v);
 }
-.cs-act-fixed {
-  color: var(--accent-bright);
+.rl-b {
+  opacity: 0;
+  transform: translateY(5px);
 }
-.cs-act-var {
-  color: #ff9351;
+.locked .rl-a {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+.locked .rl-b {
+  opacity: 1;
+  transform: none;
+  color: color-mix(in srgb, var(--accent-bright) 45%, rgba(250, 250, 248, 0.3));
 }
 
-@media (max-width: 560px) {
-  /* the console stacks; the perforation turns horizontal */
-  .tk-perf {
-    width: auto;
-    height: 1px;
-    margin: 0 14px;
-    background-image: repeating-linear-gradient(
-      to right,
-      rgba(250, 250, 248, 0.14) 0 5px,
-      transparent 5px 11px
-    );
+/* the number sits between two hairline rules, like a gauge window */
+.readout-num {
+  display: inline-flex;
+  align-items: baseline;
+  margin: 0 clamp(13px, 1.7vw, 22px);
+  padding: 0 clamp(13px, 1.7vw, 22px);
+  border-left: 1px solid rgba(250, 250, 248, 0.09);
+  border-right: 1px solid rgba(250, 250, 248, 0.09);
+  font-size: clamp(30px, 3.4vw, 46px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--accent-bright); /* JS drives this from ember → green */
+}
+.readout-pc {
+  font-size: 0.48em;
+  margin-left: 0.12em;
+  opacity: 0.7;
+}
+.readout-num .drift-lock svg {
+  width: 0.42em;
+  height: auto;
+}
+.readout-num .drift-lock {
+  margin-right: 0.18em;
+}
+
+@media (max-width: 460px) {
+  /* the term label steps out before the window can squeeze the number */
+  .readout-term {
+    display: none;
+  }
+  .readout-num {
+    border-right: 0;
+    margin-right: 0;
+    padding-right: 0;
   }
 }
 
-.drift-num {
-  color: var(--accent-bright); /* JS drives this from ember → green */
+/* the second door — the market side, kept quiet under the CTAs */
+.yt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: rgba(250, 250, 248, 0.4);
+  transition: color 0.25s var(--ease-v);
 }
+.yt-link:hover {
+  color: #ff9351;
+}
+.yt-link svg {
+  flex: none;
+  transition: transform 0.2s var(--ease-v);
+}
+.yt-link:hover svg {
+  transform: translateX(3px);
+}
+
 .drift-lock .shackle {
   fill: none;
   stroke: currentColor;
@@ -736,26 +771,10 @@
   fill: currentColor;
 }
 
-/* drift history — flatlines the moment you lock; tucked beside the number */
-.drift-spark {
-  display: block;
-  width: 76px;
-  height: 22px;
-  opacity: 0.7;
-  flex: none;
-}
-/* drift history as a live barcode — bars dance while variable,
-   settle into a clean printed code the moment you lock */
-.drift-bars path {
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: butt;
-}
-
-/* one centred state caption beneath the console */
+/* one centred state caption beneath the readout */
 .drift-status {
   position: relative;
-  margin-top: 12px;
+  margin-top: 13px;
   height: 17px;
   width: 100%;
   text-align: center;
@@ -1086,6 +1105,548 @@
   }
 }
 
+/* ============================================================
+   The payoff explorer — the yield market, argued as a chart
+
+   PT is a flat line and YT is a ray, and they cross at the rate
+   already in the price. Everything here exists to make that crossing
+   the loudest thing in the section.
+   ============================================================ */
+/* No panel. A card here would be a box holding boxes holding boxes —
+   the structure comes from hairlines and light instead, so the chart
+   sits on the page rather than on a tray. */
+.pay {
+  margin-top: clamp(38px, 6vh, 64px);
+  padding-top: clamp(26px, 4vh, 40px);
+  border-top: 1px solid var(--border);
+}
+
+.pay-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.pay-label {
+  display: block;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pay-rate {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--ff-display);
+  font-size: clamp(40px, 6vw, 68px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  /* the number is dragged: proportional digits would make it jitter */
+  font-variant-numeric: tabular-nums;
+}
+.pay-rate-unit {
+  font-size: 0.46em;
+  font-weight: 500;
+  margin-left: 0.1em;
+  color: var(--muted);
+}
+
+/* who is winning at the current rate — the answer, in two words */
+.pay-verdict {
+  padding-bottom: 8px;
+  font-family: var(--ff-display);
+  font-size: clamp(19px, 2.2vw, 26px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  transition: color 0.3s var(--ease-v);
+}
+.pay-verdict[data-lead="yt"] {
+  color: var(--ember-text);
+}
+.pay-verdict[data-lead="pt"] {
+  color: var(--accent-text);
+}
+
+/* ---- the control ---- */
+.pay-slider {
+  --v: 35%;
+  margin-top: clamp(18px, 2.5vh, 26px);
+}
+.pay-range {
+  display: block;
+  width: 100%;
+  height: 22px;
+  background: none;
+  cursor: grab;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.pay-range:active {
+  cursor: grabbing;
+}
+.pay-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--ember) 0,
+    var(--ember) var(--v),
+    color-mix(in srgb, var(--ink) 10%, transparent) var(--v)
+  );
+}
+.pay-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--ember) 0,
+    var(--ember) var(--v),
+    color-mix(in srgb, var(--ink) 10%, transparent) var(--v)
+  );
+}
+.pay-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--ember);
+  box-shadow: 0 2px 8px rgba(18, 18, 18, 0.18);
+}
+.pay-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--ember);
+  box-shadow: 0 2px 8px rgba(18, 18, 18, 0.18);
+}
+
+.pay-ticks {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--subtle);
+}
+/* rides the axis at the implied rate, so it lines up with the chart's
+   marker — and clicking it jumps the rate back to the crossing */
+.pay-tick-implied {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 1px dashed color-mix(in srgb, var(--ink) 24%, transparent);
+  transition: color 0.2s var(--ease-v);
+}
+.pay-tick-implied:hover {
+  color: var(--ink);
+}
+
+/* ---- the chart ---- */
+/* chart and figures side by side, so each number sits level with the
+   line it reads instead of a screen away from it */
+.pay-body {
+  display: grid;
+  grid-template-columns: 1fr clamp(180px, 19vw, 250px);
+  margin-top: clamp(24px, 3.6vh, 36px);
+}
+/* keeps the plot and its caption off the divider */
+.pay-chart {
+  padding-right: clamp(18px, 2.2vw, 30px);
+}
+.pay-axis-y {
+  margin-bottom: 8px;
+  text-align: right;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--subtle);
+}
+.pay-plot {
+  --gutter: 42px;
+  position: relative;
+  height: clamp(210px, 25vw, 320px);
+  cursor: ew-resize;
+  /* let a vertical swipe scroll the page and keep horizontal drags here */
+  touch-action: pan-y;
+  /* a drag across the plot is a value, not a text selection — without
+     this it highlights the axis labels on the way past */
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* atmosphere where the panel used to be: the chart reads as lit rather
+   than framed, and the warmth sits under the half of it YT owns */
+.pay-plot::before {
+  content: "";
+  position: absolute;
+  /* bleeds vertically but never sideways: a horizontal overflow here is
+     a scrollbar across the whole page on a narrow screen. The gradient
+     is sized to fade out before the box edge instead. */
+  inset: -16% 0 -20%;
+  background: radial-gradient(
+    56% 62% at 62% 60%,
+    color-mix(in srgb, var(--ember) 9%, transparent),
+    transparent 72%
+  );
+  pointer-events: none;
+}
+/* the plot proper starts past the axis labels, so nothing is ever drawn
+   underneath one */
+.pay-field {
+  position: absolute;
+  inset: 0 0 0 var(--gutter);
+}
+.pay-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.pay-grid {
+  stroke: color-mix(in srgb, var(--ink) 8%, transparent);
+  stroke-width: 1;
+}
+.pay-implied {
+  stroke: color-mix(in srgb, var(--ink) 26%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.pay-cursor {
+  stroke: color-mix(in srgb, var(--ink) 34%, transparent);
+  stroke-width: 1;
+}
+.pay-wash {
+  fill: url(#ytWash);
+}
+.pay-line {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: opacity 0.3s var(--ease-v);
+}
+.pay-line-yt {
+  stroke: var(--ember);
+}
+.pay-line-pt {
+  stroke: var(--accent);
+}
+/* pointing at one of the trades below singles out its line */
+.pay-plot[data-focus="pt"] .pay-line-yt,
+.pay-plot[data-focus="pt"] .pay-wash,
+.pay-plot[data-focus="yt"] .pay-line-pt {
+  opacity: 0.18;
+}
+
+.pay-dot {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  pointer-events: none;
+}
+.pay-dot-yt {
+  background: var(--ember);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ember) 18%, transparent);
+}
+.pay-dot-pt {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.pay-gridlabel {
+  position: absolute;
+  left: 0;
+  width: var(--gutter);
+  padding-right: 8px;
+  transform: translateY(-50%);
+  text-align: right;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  color: var(--subtle);
+  pointer-events: none;
+}
+.pay-hint {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--subtle);
+  pointer-events: none;
+  transition: opacity 0.4s var(--ease-v);
+}
+/* arrows rather than a chip — a bordered pill is one more box */
+.pay-hint::before {
+  content: "← ";
+}
+.pay-hint::after {
+  content: " →";
+}
+.pay-plot[data-hint="off"] .pay-hint {
+  opacity: 0;
+}
+
+/* ---- what it means for each side ---- */
+/* stacked beside the chart and spread over its height — YT rides high,
+   PT sits low, the same way round as the lines themselves */
+.pay-outs {
+  display: grid;
+  align-content: space-between;
+  padding-left: clamp(20px, 2.4vw, 34px);
+  border-left: 1px solid var(--border);
+}
+.pay-out {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  transition: opacity 0.3s var(--ease-v);
+}
+.pay-out + .pay-out {
+  margin-top: clamp(20px, 2.6vh, 30px);
+  padding-top: clamp(20px, 2.6vh, 30px);
+  border-top: 1px solid var(--border);
+}
+.pay-out[data-dim="true"] {
+  opacity: 0.42;
+}
+.pay-out[data-kind="yt"] {
+  --tone: var(--ember);
+  --tone-text: var(--ember-text);
+}
+.pay-out[data-kind="pt"] {
+  --tone: var(--accent);
+  --tone-text: var(--accent-text);
+}
+.pay-out-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* the same colour as the line it belongs to — this is the labelling the
+   chart would otherwise need spelled out on the lines */
+.pay-out-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+.pay-out-ret {
+  font-family: var(--ff-display);
+  /* sized to hold "−100.00%" inside the narrow column beside the chart */
+  font-size: clamp(24px, 2.6vw, 32px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.pay-out-ret {
+  color: var(--tone-text);
+}
+.pay-out-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  color: var(--subtle);
+  font-variant-numeric: tabular-nums;
+}
+.pay-out-worth {
+  color: var(--ink);
+}
+/* three words, not a sentence — the trades below carry the argument */
+.pay-out-tag {
+  margin-top: 3px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--subtle);
+}
+
+/* ---- the three positions ---- */
+/* the three positions, as columns of a spread rather than three cards */
+.trade-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: clamp(30px, 4.4vh, 48px);
+  border-top: 1px solid var(--border);
+}
+.trade-card {
+  position: relative;
+  padding: clamp(24px, 3vw, 34px) clamp(18px, 2.4vw, 30px);
+  transition: background-color 0.35s var(--ease-v);
+}
+.trade-card + .trade-card {
+  border-left: 1px solid var(--border);
+}
+.trade-card:first-child {
+  padding-left: 0;
+}
+.trade-card:last-child {
+  padding-right: 0;
+}
+.trade-card[data-kind="yt"] {
+  --tone: var(--ember);
+  --tone-text: var(--ember-text);
+}
+.trade-card[data-kind="pt"] {
+  --tone: var(--accent);
+  --tone-text: var(--accent-text);
+}
+/* hover is a wash of the trade's own colour and a nudge of its mark —
+   no lift, no shadow, nothing that re-draws the edge */
+@media (hover: hover) and (pointer: fine) {
+  .trade-card:hover {
+    background: color-mix(in srgb, var(--tone, var(--ink)) 4%, transparent);
+  }
+  .trade-card:hover .trade-glyph {
+    transform: translateX(3px);
+  }
+  .trade-card:hover .trade-title {
+    color: var(--tone-text, var(--ink));
+  }
+}
+
+/* the shape of the trade, drawn: a ray, a flat line that lands, two
+   flows crossing — so the three read as different trades at a glance */
+.trade-glyph {
+  display: block;
+  width: 48px;
+  height: 30px;
+  margin-bottom: 16px;
+  stroke: var(--tone, color-mix(in srgb, var(--ink) 40%, transparent));
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: transform 0.35s var(--ease-v);
+}
+.trade-glyph circle {
+  fill: var(--tone, var(--ink));
+  stroke: none;
+}
+.trade-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: color 0.35s var(--ease-v);
+}
+.trade-stat {
+  flex: none;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--subtle);
+}
+.trade-body {
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* ---- the explorer, narrow ---- */
+@media (max-width: 899.98px) {
+  .pay-verdict {
+    padding-bottom: 0;
+    align-self: center;
+  }
+  .pay-axis-y {
+    display: none; /* the dots on the figures say it without a caption */
+  }
+  /* no room for a side column: the figures drop under the chart and go
+     back to sitting two abreast */
+  .pay-body {
+    display: block;
+  }
+  .pay-chart {
+    padding-right: 0;
+  }
+  .pay-outs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-content: start;
+    margin-top: clamp(22px, 3vh, 30px);
+    padding-left: 0;
+    padding-top: clamp(20px, 2.6vh, 26px);
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    gap: clamp(16px, 4vw, 26px);
+  }
+  .pay-out + .pay-out {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    padding-left: clamp(16px, 4vw, 26px);
+    border-left: 1px solid var(--border);
+  }
+  /* stacked and tightened: three text columns side by side is unreadable
+     on a phone, and three in a carousel hides two thirds of the argument */
+  .trade-row {
+    grid-template-columns: 1fr;
+  }
+  .trade-card {
+    padding: 20px 0;
+  }
+  /* the divider turns with the layout — a left border on a stacked
+     column is a stray vertical line down the page */
+  .trade-card + .trade-card {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .trade-card:last-child {
+    padding-right: 0;
+  }
+  .trade-glyph {
+    width: 38px;
+    height: 24px;
+    margin-bottom: 12px;
+  }
+}
+@media (max-width: 560px) {
+  .pay-outs {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .pay-out + .pay-out {
+    margin-top: 18px;
+    padding-top: 18px;
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
 /* what stands in until the file exists — a lit plate, not an empty box */
 .step-ph {
   position: absolute;
@@ -1326,8 +1887,14 @@
   }
 }
 @media (max-width: 480px) {
-  .drift-spark {
-    display: none;
+  /* both hero actions have to hold one row on a phone */
+  .btn {
+    padding: 14px 20px;
+    font-size: 14.5px;
+    gap: 7px;
+  }
+  .yt-link {
+    font-size: 12.5px;
   }
 }
 

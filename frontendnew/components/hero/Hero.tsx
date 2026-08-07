@@ -1,13 +1,15 @@
 "use client";
 
 import { SERIES, fmtUsd, fmtInt } from "@/lib/series";
-import { ArrowDown, DriftLock } from "@/components/icons";
+import { ArrowDown, ArrowRight, DriftLock } from "@/components/icons";
 import { useVaultScene } from "./useVaultScene";
 
 /**
- * The vault hero. Scrolling scrubs "the lock": the drifting market
- * rate converges to the fixed rate, turns green, the shackle closes,
- * the swash draws, and the terms engrave onto the vault floor.
+ * The vault hero. A machined dial — too big for its frame, so only its
+ * flanks show — turns behind the type while the market rate drifts.
+ * Scrolling scrubs "the lock": the scale parks 8.42 under the index,
+ * the bolts throw home, the seal runs down both flanks, the rate turns
+ * green, the swash draws, and the terms engrave onto the vault floor.
  */
 export default function Hero() {
   const s = useVaultScene();
@@ -21,10 +23,11 @@ export default function Hero() {
             className="stage relative h-full overflow-hidden rounded-[clamp(28px,3vw,44px)] bg-stage"
             aria-label="Spield — fixed income on Stellar"
           >
-            {/* ambient footage behind the vault, graded down into the dark;
-                hidden for reduced-motion users */}
+            {/* ambient footage, softened out of focus — it reads as moving
+                light behind the dial without becoming a picture that
+                competes with the type */}
             <video
-              className="absolute inset-0 z-0 h-full w-full object-cover opacity-60 [filter:brightness(0.55)_saturate(0.8)] motion-reduce:hidden"
+              className="absolute inset-0 z-0 h-full w-full scale-[1.02] object-cover opacity-70 [filter:brightness(0.58)_saturate(0.95)_blur(3px)] motion-reduce:hidden"
               src="/spield%20motion%20video%20v3%20OG.mp4"
               autoPlay
               muted
@@ -54,9 +57,9 @@ export default function Hero() {
               Series &middot; Dec 2026
             </div>
 
-            <div className="absolute inset-0 z-3 flex flex-col items-center justify-center px-[clamp(20px,4vw,56px)] py-[clamp(24px,3.4vw,52px)] max-[900px]:pb-[84px]">
-              <div className="hero-center flex max-w-[900px] flex-col items-center text-center">
-                <h1 className="font-display font-medium text-onstage leading-[1.06] tracking-[-0.022em] [text-rendering:optimizeLegibility] text-[clamp(40px,5.4vw,82px)] max-[480px]:text-[clamp(34px,9.5vw,46px)]">
+            <div className="absolute inset-0 z-3 flex flex-col items-center justify-center px-[clamp(20px,4vw,56px)] py-[clamp(24px,3.4vw,52px)] max-[900px]:pb-13">
+              <div className="hero-center flex w-full max-w-[960px] flex-col items-center text-center">
+                <h1 className="font-display font-medium text-onstage leading-[1.03] tracking-[-0.026em] [text-rendering:optimizeLegibility] text-[clamp(46px,6.6vw,96px)] max-[480px]:text-[clamp(38px,11.2vw,54px)]">
                   <span className="line">
                     <span className="line-inner" style={{ "--d": "200ms" } as React.CSSProperties}>
                       Tomorrow&rsquo;s yield,
@@ -75,27 +78,38 @@ export default function Hero() {
                   </span>
                 </h1>
 
-                <SplitTicket
-                  driftNumRef={s.driftNumRef}
-                  driftValRef={s.driftValRef}
-                  sparkRef={s.sparkRef}
-                />
+                <p
+                  className="hero-sub mt-[clamp(14px,1.9vh,22px)] max-w-[440px] text-[clamp(14.5px,1.15vw,17px)] leading-[1.55] text-onstage-dim"
+                  data-reveal
+                  style={{ "--d": "440ms" } as React.CSSProperties}
+                >
+                  Out there, rates drift. In here, they don&rsquo;t.
+                </p>
 
-                <div className="drift-status" data-reveal style={{ "--d": "560ms" } as React.CSSProperties} aria-hidden="true">
-                  <span className="status-a">Drifts with the market, every ledger</span>
-                  <span className="status-b">Locked &mdash; yours for {SERIES.days} days</span>
+                <Readout driftNumRef={s.driftNumRef} driftValRef={s.driftValRef} />
+
+                <div
+                  className="mt-[clamp(20px,2.8vh,30px)] flex flex-wrap items-center justify-center gap-3"
+                  data-reveal
+                  style={{ "--d": "660ms" } as React.CSSProperties}
+                >
+                  <a className="btn btn-primary" href="#">
+                    Lock the rate
+                    <ArrowRight />
+                  </a>
+                  <a className="btn btn-ghost" href="#split">
+                    How it works
+                  </a>
                 </div>
 
                 <a
-                  className="mt-4 inline-flex items-center gap-1.5 text-[12.5px] text-onstage-faint transition-colors duration-200 hover:text-onstage-dim"
-                  href="#split"
+                  className="yt-link mt-[clamp(14px,1.9vh,20px)]"
+                  href="#traders"
                   data-reveal
-                  style={{ "--d": "700ms" } as React.CSSProperties}
+                  style={{ "--d": "760ms" } as React.CSSProperties}
                 >
-                  How it works
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 4v16M6 14l6 6 6-6" />
-                  </svg>
+                  or take the other side &mdash; trade the yield at &asymp;{SERIES.ytLeverage}&times;
+                  <ArrowRight size={13} />
                 </a>
               </div>
             </div>
@@ -105,7 +119,7 @@ export default function Hero() {
               ref={s.hintRef}
               className="hint absolute inset-x-0 bottom-7 z-3 flex items-center justify-center gap-2.5 font-mono text-[10.5px] font-medium tracking-[0.22em] max-[900px]:tracking-[0.16em] uppercase text-onstage-faint"
               data-reveal
-              style={{ "--d": "700ms" } as React.CSSProperties}
+              style={{ "--d": "820ms" } as React.CSSProperties}
               aria-hidden="true"
             >
               Scroll &mdash; lock your rate
@@ -122,74 +136,39 @@ export default function Hero() {
   );
 }
 
-/* ---------- the split ticket: pick your side of the same deposit ---------- */
+/* ---------- the readout: the rate, machined into the dial face ---------- */
 
-function SplitTicket({
+function Readout({
   driftNumRef,
   driftValRef,
-  sparkRef,
 }: {
   driftNumRef: React.RefObject<HTMLDivElement | null>;
   driftValRef: React.RefObject<HTMLSpanElement | null>;
-  sparkRef: React.RefObject<SVGPathElement | null>;
 }) {
-  const tinyArrow = (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5 12h14M13 6l6 6-6 6" />
-    </svg>
-  );
-
   return (
     <div
-      className="ticket mt-[clamp(26px,4vh,40px)] flex items-stretch rounded-full text-left max-[560px]:flex-col max-[560px]:rounded-[22px]"
+      className="readout mt-[clamp(22px,3.4vh,38px)]"
       data-reveal
-      style={{ "--d": "480ms" } as React.CSSProperties}
-      aria-label="Choose your side"
+      style={{ "--d": "540ms" } as React.CSSProperties}
     >
-      {/* the fixed side — the vault */}
-      <a
-        className="tk-side flex items-center gap-3.5 rounded-l-full px-5 py-3 max-[560px]:justify-between max-[560px]:rounded-none max-[560px]:rounded-t-[22px]"
-        href="#"
-        aria-label="Lock the fixed rate"
-      >
-        <div
-          ref={driftNumRef}
-          className="drift-num mono inline-flex items-baseline gap-[0.06em] text-xl font-medium leading-none tracking-[-0.01em]"
-        >
+      <div className="readout-win">
+        {/* the left label tells you which world the number is in */}
+        <span className="readout-label rl-swap">
+          <span className="rl-a">Market rate</span>
+          <span className="rl-b">Fixed APY</span>
+        </span>
+        <div ref={driftNumRef} className="readout-num mono">
           <DriftLock />
           <span ref={driftValRef}>{SERIES.rate.toFixed(2)}</span>
-          <span className="pc text-[0.72em] opacity-75">%</span>
+          <span className="readout-pc">%</span>
         </div>
-        <svg
-          className="drift-bars block h-4.5 w-[132px] flex-none opacity-85 max-[560px]:w-auto max-[560px]:min-w-[70px] max-[560px]:flex-1"
-          viewBox="0 0 150 20"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <path ref={sparkRef} d="" />
-        </svg>
-        <span className="cs-act cs-act-fixed">
-          Lock it in
-          {tinyArrow}
-        </span>
-      </a>
+        <span className="readout-label readout-term">{SERIES.days} days</span>
+      </div>
 
-      <span className="tk-perf" aria-hidden="true" />
-
-      {/* the variable side — the market */}
-      <a
-        className="tk-side flex items-center gap-3.5 rounded-r-full px-5 py-3 max-[560px]:justify-between max-[560px]:rounded-none max-[560px]:rounded-b-[22px]"
-        href="#traders"
-        aria-label="Trade the yield"
-      >
-        <span className="mono text-base font-medium leading-none tracking-[-0.01em] text-[#FF9351]">
-          &asymp;{SERIES.ytLeverage}&times;
-        </span>
-        <span className="cs-act cs-act-var">
-          Trade it
-          {tinyArrow}
-        </span>
-      </a>
+      <div className="drift-status" aria-hidden="true">
+        <span className="status-a">Drifting with the market, every ledger</span>
+        <span className="status-b">Locked &mdash; yours for {SERIES.days} days</span>
+      </div>
     </div>
   );
 }

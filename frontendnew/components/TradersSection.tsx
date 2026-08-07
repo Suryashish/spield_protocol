@@ -1,16 +1,24 @@
 "use client";
 
+import { useState } from "react";
 import { SERIES } from "@/lib/series";
+import { IMPLIED } from "@/lib/payoff";
 import { useInView } from "@/lib/useInView";
 import { ArrowRight } from "@/components/icons";
+import PayoffExplorer from "@/components/PayoffExplorer";
 
 /**
- * Section 3 — "the yield market". The vault's counterparty: YT as
- * leveraged yield exposure, PT as the trader's fixed income, LP as
- * the market between them. The leverage bar fills as you arrive.
+ * Section 3 — "the yield market". The vault's counterparty, argued
+ * with a payoff chart rather than a paragraph: PT is a flat line, YT
+ * is a ray, and they cross at the rate the market has already priced.
+ * Drag the realized rate and the two sides trade places.
+ *
+ * The three trades underneath are the positions you can take on that
+ * same chart, so pointing at one singles out its line.
  */
 export default function TradersSection() {
   const sectionRef = useInView<HTMLElement>(0.15);
+  const [focus, setFocus] = useState<"yt" | "pt" | null>(null);
 
   const d = (ms: number) => ({ "--d": `${ms}ms` }) as React.CSSProperties;
 
@@ -40,65 +48,47 @@ export default function TradersSection() {
         className="io mt-[18px] max-w-[38em] text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
         style={d(180)}
       >
-        The vault&rsquo;s calm has a counterparty.{" "}
         <strong className="font-medium text-ink">YT</strong>&nbsp;is the variable half of every
         deposit &mdash; a cheap, liquid claim on all the yield a full position earns.
       </p>
 
-      {/* the leverage bar: you pay the sliver, you earn the bar */}
-      <div className="io mt-[clamp(40px,6vh,64px)] max-w-[760px]" style={d(280)} aria-label="Leverage">
-        <div className="flex justify-between gap-3 font-mono text-[11px] tracking-[0.1em] uppercase">
-          <span className="text-ember-text">You pay &middot; {SERIES.ytPrice.toFixed(4)}</span>
-          <span className="text-accent-text">You earn the yield of &middot; 1.0000</span>
-        </div>
-        <div className="lev-track relative mt-[10px] h-3.5 overflow-hidden rounded-full">
-          <span className="lev-fill absolute inset-y-0 left-0 rounded-full" aria-hidden="true" />
-        </div>
-        <p className="mt-3 font-mono text-[12.5px] text-muted">
-          <strong className="font-medium text-ink">&asymp;{SERIES.ytLeverage}&times;</strong>&nbsp;yield
-          exposure per dollar &middot; no margin account, no liquidation price
-        </p>
-      </div>
+      <PayoffExplorer focus={focus} />
 
-      {/* the three trades */}
-      <div className="mt-[clamp(36px,5vh,56px)] grid grid-cols-3 gap-[clamp(14px,2vw,24px)] max-[900px]:mx-auto max-[900px]:max-w-[420px] max-[900px]:grid-cols-1">
+      {/* the three positions you can take on that chart */}
+      <div className="trade-row">
         <TradeCard
-          rule="bg-ember"
+          kind="yt"
           title="Long yield"
           stat={`BUY YT · ${SERIES.ytPrice.toFixed(4)}`}
           delay={340}
+          onFocusLine={setFocus}
         >
-          Wins if realized yield beats the implied{" "}
-          <strong className="font-medium text-ink">{SERIES.rate.toFixed(2)}%</strong>. Decays toward
-          zero if it doesn&rsquo;t &mdash; and that is the entire downside.
+          Wins above <strong className="font-medium text-ink">{IMPLIED.toFixed(2)}%</strong>. Decays
+          toward zero below it &mdash; and that is the entire downside.
         </TradeCard>
         <TradeCard
-          rule="bg-accent"
+          kind="pt"
           title="Lock the rate"
           stat={`BUY PT · ${SERIES.ptPrice.toFixed(4)}`}
           delay={420}
+          onFocusLine={setFocus}
         >
-          The trader&rsquo;s fixed income: buy the certain half at a discount, redeem{" "}
-          <strong className="font-medium text-ink">exactly 1.0000</strong>&nbsp;at maturity, whatever
-          happens.
+          Buy the certain half at a discount, redeem{" "}
+          <strong className="font-medium text-ink">exactly 1.0000</strong>&nbsp;at maturity.
         </TradeCard>
-        <TradeCard rule="bg-ink/25" title="Make the market" stat="LP · PT + USDC" delay={500}>
-          Supply the time-decay AMM where every rate view trades, and earn{" "}
-          <strong className="font-medium text-ink">swap fees</strong>&nbsp;from both sides of the
-          argument.
+        <TradeCard kind="lp" title="Make the market" stat="LP · PT + USDC" delay={500}>
+          Supply the AMM where every rate view trades. Earn{" "}
+          <strong className="font-medium text-ink">swap fees</strong>&nbsp;from both sides.
         </TradeCard>
       </div>
 
-      <div
-        className="invariant io mx-auto mt-[clamp(30px,4.5vh,44px)] flex max-w-[880px] items-center justify-center gap-[18px] text-center font-mono text-[clamp(11px,1.05vw,13px)] tracking-[0.1em] uppercase text-subtle"
+      <p
+        className="invariant io mx-auto mt-[clamp(30px,4.5vh,44px)] max-w-[880px] text-center font-mono text-[clamp(11px,1.05vw,13px)] leading-[1.5] tracking-[0.1em] uppercase text-subtle"
         style={d(560)}
       >
-        <span>
-          Leverage without liquidation &mdash;{" "}
-          <span className="text-ink">YT can decay to zero</span>,{" "}
-          <span className="text-accent-text">but it can never be margin-called</span>
-        </span>
-      </div>
+        Leverage without liquidation &mdash;{" "}
+        <span className="text-ink">YT can decay to zero, but never be margin-called</span>
+      </p>
 
       <div className="io mt-[clamp(36px,5vh,52px)] text-center" style={d(620)}>
         <a
@@ -118,31 +108,58 @@ export default function TradersSection() {
 /* ---------- one trade ---------- */
 
 function TradeCard({
-  rule,
+  kind,
   title,
   stat,
   delay,
   children,
+  onFocusLine,
 }: {
-  rule: string;
+  kind: "yt" | "pt" | "lp";
   title: string;
   stat: string;
   delay: number;
   children: React.ReactNode;
+  /** pointing at a trade singles out its line on the chart above */
+  onFocusLine?: (k: "yt" | "pt" | null) => void;
 }) {
+  const line = kind === "lp" ? null : kind;
+  const signal = () => onFocusLine?.(line);
+  const clear = () => onFocusLine?.(null);
+
   return (
-    <div
-      className="io relative overflow-hidden rounded-[20px] border border-line bg-surface px-6 py-[22px] shadow-soft transition-all duration-300 ease-vault hover:-translate-y-[3px] hover:shadow-[0_18px_44px_rgba(18,18,18,0.1)]"
+    <article
+      className="trade-card io"
+      data-kind={kind}
       style={{ "--d": `${delay}ms` } as React.CSSProperties}
+      onPointerEnter={signal}
+      onPointerLeave={clear}
+      onFocus={signal}
+      onBlur={clear}
+      tabIndex={line ? 0 : undefined}
     >
-      <span className={`absolute inset-x-0 top-0 h-[3px] ${rule}`} aria-hidden="true" />
-      <h3 className="flex items-center justify-between gap-2 text-[15px] font-semibold tracking-[-0.01em]">
+      <Glyph kind={kind} />
+      <h3 className="trade-title">
         {title}
-        <span className="flex-none font-mono text-[10px] font-medium tracking-[0.08em] text-subtle">
-          {stat}
-        </span>
+        <span className="trade-stat">{stat}</span>
       </h3>
-      <p className="mt-[10px] text-[13.5px] leading-[1.55] text-muted">{children}</p>
-    </div>
+      <p className="trade-body">{children}</p>
+    </article>
+  );
+}
+
+/* the shape of the trade, drawn: a ray, a flat line, two crossing flows */
+function Glyph({ kind }: { kind: "yt" | "pt" | "lp" }) {
+  const d =
+    kind === "yt"
+      ? "M2 26 L46 4"
+      : kind === "pt"
+        ? "M2 15 L46 15"
+        : "M2 5 C18 5 30 25 46 25 M2 25 C18 25 30 5 46 5";
+  return (
+    <svg className="trade-glyph" viewBox="0 0 48 30" fill="none" aria-hidden="true">
+      <path d={d} vectorEffect="non-scaling-stroke" />
+      {kind === "pt" && <circle cx="46" cy="15" r="2.6" />}
+    </svg>
   );
 }

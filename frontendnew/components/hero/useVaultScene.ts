@@ -5,6 +5,7 @@ import { SERIES, fmtInt } from "@/lib/series";
 
 /* ---------- pure helpers ---------- */
 
+const TAU = Math.PI * 2;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const smooth = (t: number) => t * t * (3 - 2 * t);
 /** quintic — zero velocity AND zero acceleration at both ends */
@@ -18,10 +19,180 @@ function lerpColor(a: number[], b: number[], t: number) {
   const c = (i: number) => Math.round(a[i] + (b[i] - a[i]) * t);
   return `rgb(${c(0)},${c(1)},${c(2)})`;
 }
+function rgba(c: number[], a: number) {
+  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
+
+/* ---------- the dial: a vault door too big for its frame ----------
+
+   Only the flanks of the rim sit inside the stage, so every bright
+   thing the dial does (ticks, the engraved market scale, the bolts,
+   the closing sweep) happens well clear of the headline. The market
+   scale turns while the rate drifts and parks 8.42 under the index
+   the moment the lock completes.                                     */
+
+const DIAL_LABELS = ["4.10", "5.25", "6.00", "6.80", "7.15", "7.90", "8.42", "9.10", "9.60", "10.20", "11.05", "12.30"];
+/** where 8.42 sits on the ring — the ring parks so this lands at 0° */
+const LOCK_SLOT = DIAL_LABELS.indexOf("8.42");
+const SLOT = TAU / DIAL_LABELS.length;
+
+function dialRadius(W: number) {
+  return W < 760 ? W * 0.78 : Math.min(W * 0.4, 600);
+}
+
+function drawDial(
+  ctx: CanvasRenderingContext2D,
+  W: number, H: number,
+  lockT: number, rot: number,
+  mx: number, my: number,
+  monoFont: string,
+) {
+  const R = dialRadius(W);
+  const par = 1 - lockT * 0.5;
+  ctx.save();
+  ctx.translate(W / 2 + mx * 18 * par, H / 2 + my * 12 * par);
+
+  /* the machined face — barely there, just enough to seat the type */
+  const face = ctx.createRadialGradient(0, -R * 0.25, R * 0.05, 0, 0, R);
+  face.addColorStop(0, "rgba(250,250,248,0.032)");
+  face.addColorStop(0.55, "rgba(250,250,248,0.013)");
+  face.addColorStop(1, "rgba(250,250,248,0)");
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, TAU);
+  ctx.fill();
+
+  const ring = (r: number, a: number, dash?: number[]) => {
+    ctx.save();
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, TAU);
+    ctx.strokeStyle = `rgba(250,250,248,${a})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  };
+  ring(R * 0.42, 0.045);
+  ring(R * 0.62, 0.05, [2, 9]);
+  ring(R * 0.86, 0.06);
+  ring(R, 0.085);
+
+  /* ---- the turning scale ---- */
+  ctx.save();
+  ctx.rotate(rot);
+
+  const TICKS = 96;
+  for (let i = 0; i < TICKS; i++) {
+    const a = (i / TICKS) * TAU;
+    const major = i % 8 === 0;
+    const len = major ? R * 0.038 : R * 0.018;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(cos * R, sin * R);
+    ctx.lineTo(cos * (R - len), sin * (R - len));
+    ctx.strokeStyle = `rgba(250,250,248,${major ? 0.2 : 0.085})`;
+    ctx.lineWidth = major ? 1.6 : 1;
+    ctx.stroke();
+  }
+
+  /* engraved market scale — the slot that will be parked under the
+     index brightens and greens as the lock closes. Narrow frames skip
+     it: there, the ring is close enough that numerals would land on
+     the headline */
+  ctx.font = `500 ${Math.max(10, R * 0.024)}px ${monoFont}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let i = 0; W >= 760 && i < DIAL_LABELS.length; i++) {
+    const a = i * SLOT;
+    const rr = R * 0.925;
+    const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+    const isLock = i === LOCK_SLOT;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-rot); // labels stay upright while the ring turns
+    ctx.fillStyle = isLock
+      ? rgba(GREEN, 0.16 + 0.72 * lockT)
+      : `rgba(250,250,248,${0.16 * (1 - lockT * 0.45)})`;
+    ctx.fillText(DIAL_LABELS[i], 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  /* ---- the index marks: hairline notches fixed on both flanks,
+         with the scale running underneath them ---- */
+  for (const a of [0, Math.PI]) {
+    /* only the right-hand index is the one doing the reading — it is the
+       one 8.42 parks under, so it is the only one that greens */
+    const reading = a === 0;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    const tip = R * 0.95, back = R * 1.035, w = R * 0.0045;
+    ctx.beginPath();
+    ctx.moveTo(cos * tip, sin * tip);
+    ctx.lineTo(cos * back - sin * w, sin * back + cos * w);
+    ctx.lineTo(cos * back + sin * w, sin * back - cos * w);
+    ctx.closePath();
+    ctx.fillStyle = reading && lockT > 0.02
+      ? rgba(GREEN, 0.3 + 0.45 * lockT)
+      : "rgba(250,250,248,0.3)";
+    ctx.fill();
+  }
+
+  /* ---- the seal: two arcs run down the flanks and meet at the bottom ---- */
+  if (lockT > 0.001) {
+    ctx.save();
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = rgba(GREEN, 0.22 + 0.16 * lockT);
+    ctx.shadowColor = rgba(GREEN, 0.35);
+    ctx.shadowBlur = 12;
+    const sweep = lockT * Math.PI;
+    ctx.beginPath();
+    ctx.arc(0, 0, R, -Math.PI / 2, -Math.PI / 2 + sweep);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, R, -Math.PI / 2 - sweep, -Math.PI / 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---- four bolts, riding their tracks and thrown home as it locks ---- */
+  const seat = smooth(lockT);
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * (Math.PI / 2);
+    const cos = Math.cos(a), sin = Math.sin(a);
+    const from = R * 0.86, to = R * 0.735;
+    const rr = from + (to - from) * seat;
+
+    /* the track the bolt travels down */
+    ctx.beginPath();
+    ctx.moveTo(cos * from, sin * from);
+    ctx.lineTo(cos * to, sin * to);
+    ctx.strokeStyle = "rgba(250,250,248,0.05)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(cos * rr, sin * rr);
+    ctx.rotate(a);
+    const w = R * 0.045, h = R * 0.013;
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -h / 2, w, h, h / 2);
+    ctx.fillStyle = seat > 0.02 ? lerpColor([250, 250, 248], GREEN, seat) : "rgba(250,250,248,1)";
+    ctx.globalAlpha = 0.2 + 0.45 * seat;
+    if (seat > 0.5) {
+      ctx.shadowColor = rgba(GREEN, 0.55);
+      ctx.shadowBlur = 12 * (seat - 0.5) * 2;
+    }
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
 
 /* ---------- the drifting dust of variable yields ---------- */
 
-const DUST_YIELDS = ["5.9%", "7.2%", "9.4%", "6.1%", "8.9%", "4.8%", "10.2%", "7.7%", "6.6%", "9.1%"];
+const DUST_YIELDS = ["5.9%", "7.2%", "9.4%", "6.1%", "8.9%", "4.8%", "10.2%", "7.7%"];
 const DUST_MARKS = ["✳", "+", "×"];
 
 type Glyph = {
@@ -40,10 +211,10 @@ type Glyph = {
 
 function makeGlyphs(W: number, H: number): Glyph[] {
   const glyphs: Glyph[] = [];
-  const count = Math.round(Math.min(52, (W * H) / 34000));
+  const count = Math.round(Math.min(26, (W * H) / 62000));
   for (let i = 0; i < count; i++) {
     const roll = Math.random();
-    const type = roll < 0.42 ? "yield" : roll < 0.7 ? "mark" : "dot";
+    const type = roll < 0.34 ? "yield" : roll < 0.6 ? "mark" : "dot";
     const depth = rnd(0.35, 1);
     glyphs.push({
       type,
@@ -53,7 +224,7 @@ function makeGlyphs(W: number, H: number): Glyph[] {
       vy: (rnd(-4, 4) * depth) / 60,
       ix: 0, iy: 0,
       depth,
-      size: type === "dot" ? rnd(1.6, 3.2) : rnd(12, 17) * depth,
+      size: type === "dot" ? rnd(1.4, 2.6) : rnd(11, 15) * depth,
       phase: Math.random() * 6.28,
       flicker: rnd(0.3, 0.9),
       color: Math.random() < 0.26 ? "ember" : Math.random() < 0.1 ? "blue" : "dim",
@@ -63,9 +234,9 @@ function makeGlyphs(W: number, H: number): Glyph[] {
 }
 
 function glyphColor(g: Glyph, a: number) {
-  if (g.color === "ember") return `rgba(255, 138, 74, ${a * 0.75})`;
-  if (g.color === "blue") return `rgba(120, 160, 250, ${a * 0.7})`;
-  return `rgba(250, 250, 248, ${a * 0.5})`;
+  if (g.color === "ember") return `rgba(255, 138, 74, ${a * 0.7})`;
+  if (g.color === "blue") return `rgba(120, 160, 250, ${a * 0.65})`;
+  return `rgba(250, 250, 248, ${a * 0.45})`;
 }
 
 /* ---------- exclusion zones: dust never dirties the content ---------- */
@@ -73,7 +244,7 @@ function glyphColor(g: Glyph, a: number) {
 type Zone = { x1: number; y1: number; x2: number; y2: number };
 
 const ZONE_SELECTORS: Array<[string, number]> = [
-  [".hero-center", 60],
+  [".hero-center", 56],
   [".plate", 30],
   [".hint", 26],
   [".kicker", 26],
@@ -112,9 +283,9 @@ function zoneMul(zones: Zone[], px: number, py: number) {
 /* ---------- the hook ---------- */
 
 /**
- * Drives the whole vault scene imperatively (canvas dust, the
- * scroll-to-lock scrub, the rate wobble + sparkline, live counters)
- * against refs the Hero component pins to its markup.
+ * Drives the whole vault scene imperatively (the engraved dial, the
+ * drifting dust, the scroll-to-lock scrub, the rate wobble and the
+ * live counters) against refs the Hero component pins to its markup.
  */
 export function useVaultScene() {
   const scrubRef = useRef<HTMLDivElement>(null);
@@ -123,7 +294,6 @@ export function useVaultScene() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const driftNumRef = useRef<HTMLDivElement>(null);
   const driftValRef = useRef<HTMLSpanElement>(null);
-  const sparkRef = useRef<SVGPathElement>(null);
   const hintRef = useRef<HTMLDivElement>(null);
   const plateRef = useRef<HTMLDivElement>(null);
   const stageDimRef = useRef<HTMLDivElement>(null);
@@ -134,10 +304,10 @@ export function useVaultScene() {
     const scrub = scrubRef.current, stageScale = stageScaleRef.current,
       stage = stageRef.current, canvas = canvasRef.current,
       driftNum = driftNumRef.current, driftVal = driftValRef.current,
-      spark = sparkRef.current, hint = hintRef.current, plate = plateRef.current,
+      hint = hintRef.current, plate = plateRef.current,
       stageDim = stageDimRef.current,
       ledgerEl = ledgerRef.current, backingEl = backingRef.current;
-    if (!scrub || !stageScale || !stage || !canvas || !driftNum || !driftVal || !spark || !hint || !plate || !stageDim || !ledgerEl || !backingEl) return;
+    if (!scrub || !stageScale || !stage || !canvas || !driftNum || !driftVal || !hint || !plate || !stageDim || !ledgerEl || !backingEl) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -171,6 +341,9 @@ export function useVaultScene() {
     let progress = 0;
     let lockT = reduced ? 1 : 0;
     let isLocked = reduced;
+    /* free rotation of the market scale, accumulated while it drifts */
+    let spin = 0;
+    let lastT = performance.now();
 
     const layout = () => {
       W = stage.offsetWidth;
@@ -185,7 +358,6 @@ export function useVaultScene() {
     };
 
     const drawDust = (globalA: number, calm: number) => {
-      ctx.clearRect(0, 0, W, H);
       const t = performance.now() / 1000;
       for (const g of glyphs) {
         g.x += g.vx * (1 - calm) + g.ix;
@@ -195,12 +367,12 @@ export function useVaultScene() {
         if (g.y < -40) g.y = H + 40; if (g.y > H + 40) g.y = -40;
         const px = g.x + (mouse.x - 0.5) * g.depth * -26 * (1 - calm);
         const py = g.y + (mouse.y - 0.5) * g.depth * -18 * (1 - calm);
-        const a = (0.23 + 0.12 * Math.sin(t * g.flicker + g.phase) * (1 - calm))
-          * globalA * zoneMul(zones, px, py) * (1 - calm * 0.72);
+        const a = (0.2 + 0.1 * Math.sin(t * g.flicker + g.phase) * (1 - calm))
+          * globalA * zoneMul(zones, px, py) * (1 - calm * 0.75);
         if (a < 0.01) continue;
         if (g.type === "dot") {
           ctx.beginPath();
-          ctx.arc(px, py, g.size, 0, 6.2832);
+          ctx.arc(px, py, g.size, 0, TAU);
           ctx.fillStyle = glyphColor(g, a * 2.4);
           ctx.fill();
         } else {
@@ -211,6 +383,15 @@ export function useVaultScene() {
           ctx.fillText(g.text, px, py);
         }
       }
+    };
+
+    /** the scale turns while the rate drifts, then parks 8.42 on the index */
+    const dialAngle = () => -spin * (1 - lockT) - LOCK_SLOT * SLOT * lockT;
+
+    const paint = (dustA: number) => {
+      ctx.clearRect(0, 0, W, H);
+      drawDial(ctx, W, H, lockT, dialAngle(), mouse.x - 0.5, mouse.y - 0.5, monoFont);
+      drawDust(dustA, lockT);
     };
 
     /* ----- scroll scrub: the lock ----- */
@@ -258,39 +439,25 @@ export function useVaultScene() {
       }
     };
 
-    /* ----- rate wobble + sparkline history ----- */
-    const hist: number[] = new Array(46).fill(0);
-    let sparkTick = 0;
-
-    const drawSpark = (color: string) => {
-      /* the barcode: bars dance with the drift, settle uniform on lock */
-      let d = "";
-      for (let i = 0; i < hist.length; i++) {
-        const x = (2 + (146 * i) / (hist.length - 1)).toFixed(1);
-        const wob = 5 + Math.abs(hist[i]) * 9;
-        const h = wob * (1 - lockT) + 14 * lockT;
-        d += `M${x} ${(10 - h / 2).toFixed(1)}V${(10 + h / 2).toFixed(1)}`;
-      }
-      spark.setAttribute("d", d);
-      spark.style.stroke = color;
-    };
-
     /* ----- the single animation loop ----- */
     const born = performance.now();
     let rafId = 0;
     const frame = () => {
       applyProgress();
 
-      const t = performance.now() / 1000;
+      const now = performance.now();
+      const dt = Math.min((now - lastT) / 1000, 0.05);
+      lastT = now;
+      const t = now / 1000;
+
+      /* the scale keeps turning for as long as the rate is still loose */
+      spin += dt * 0.085 * (1 - lockT);
+
       const raw = Math.sin(t * 1.9) * 0.86 + Math.sin(t * 0.57 + 2.1) * 0.52;
       driftVal.textContent = (SERIES.rate + raw * (1 - lockT)).toFixed(2);
-      const color = lerpColor(EMBER, GREEN, lockT);
-      driftNum.style.color = color;
+      driftNum.style.color = lerpColor(EMBER, GREEN, lockT);
 
-      if (++sparkTick % 3 === 0) { hist.push(raw); hist.shift(); }
-      drawSpark(color);
-
-      drawDust(clamp01((performance.now() - born - 700) / 1800), lockT);
+      paint(clamp01((now - born - 700) / 1800));
 
       rafId = requestAnimationFrame(frame);
     };
@@ -303,8 +470,7 @@ export function useVaultScene() {
       plate.style.transform = "none";
       driftVal.textContent = SERIES.rate.toFixed(2);
       driftNum.style.color = lerpColor(GREEN, GREEN, 1);
-      drawSpark(lerpColor(GREEN, GREEN, 1));
-      drawDust(1, 1);
+      paint(1);
     } else {
       addEventListener("scroll", onScroll, { passive: true });
       cleanups.push(() => removeEventListener("scroll", onScroll));
@@ -313,7 +479,7 @@ export function useVaultScene() {
       cleanups.push(() => cancelAnimationFrame(rafId));
     }
 
-    /* ----- parallax (dust only — never the rate) ----- */
+    /* ----- parallax (dust and dial only — never the rate) ----- */
     if (finePointer && !reduced) {
       const onMove = (e: PointerEvent) => {
         const r = stage.getBoundingClientRect();
@@ -355,7 +521,7 @@ export function useVaultScene() {
     }
 
     /* ----- re-layout on fonts / load / resize ----- */
-    const relayout = () => { layout(); if (reduced) drawDust(1, 1); };
+    const relayout = () => { layout(); if (reduced) paint(1); };
     document.fonts?.ready.then(relayout).catch(() => {});
     addEventListener("load", relayout);
     cleanups.push(() => removeEventListener("load", relayout));
@@ -390,7 +556,7 @@ export function useVaultScene() {
 
   return {
     scrubRef, stageScaleRef, stageRef, canvasRef,
-    driftNumRef, driftValRef, sparkRef,
+    driftNumRef, driftValRef,
     hintRef, plateRef, stageDimRef, ledgerRef, backingRef,
   };
 }
