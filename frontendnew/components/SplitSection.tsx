@@ -37,11 +37,10 @@ type Step = {
 };
 
 /**
- * TEMPORARY — one stand-in reel in all three cards so the section can be
- * judged with footage actually moving in it. Set this to `null` and each
- * card goes back to its own file under /public/mechanism.
+ * Set to a path to force one stand-in reel into all three cards; null
+ * lets each card play its own file.
  */
-const PREVIEW_REEL: string | null = "/spield%20motion%20video%20v3%20OG.mp4";
+const PREVIEW_REEL: string | null = null;
 
 const STEPS: Step[] = [
   {
@@ -49,21 +48,23 @@ const STEPS: Step[] = [
     alt: "Step one — Deposit. Your USDC routes into Blend, Stellar's lending market, and earns the floating rate from the first ledger.",
     tone: "var(--usdc)",
     seq: 1,
-    video: "/mechanism/01-deposit.mp4",
+    video: "/videos/1.mp4",
   },
   {
     index: "02",
     alt: "Step two — Split. Spield separates the position into PT, the principal that comes back, and YT, every unit of yield it earns before maturity.",
     tone: "var(--accent)",
     seq: 0,
-    video: "/mechanism/02-split.mp4",
+    video: "/videos/2.mp4",
   },
   {
     index: "03",
     alt: "Step three — Choose. Hold PT and redeem exactly 1.0000 at maturity, or hold YT and carry a full position's yield for a sliver of the capital.",
     tone: "var(--ember)",
     seq: 1,
-    video: "/mechanism/03-choose.mp4",
+    /* 720x1280 where the other two are 720x960 — object-cover trims the
+       top and bottom of this one to sit in the same 3:4 card */
+    video: "/videos/3.mp4",
   },
 ];
 
@@ -108,9 +109,14 @@ export default function SplitSection() {
     <section
       ref={sectionRef}
       id="split"
-      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pt-[clamp(96px,14vh,180px)] pb-[clamp(90px,12vh,150px)]"
+      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pt-[clamp(52px,8vh,104px)] pb-[clamp(90px,12vh,150px)]"
       aria-label="How Spield works"
     >
+      {/* The thread the section hangs from. The sheet used to arrive over
+          130px of bare canvas before the first word; this gives the eye
+          something to follow across the seam. */}
+      <span className="seam io" aria-hidden="true" />
+
       {/* ---- the statement, centred ---- */}
       <div className="mx-auto max-w-[900px] text-center">
         <div className="io" style={d(0)}>
@@ -159,6 +165,7 @@ export default function SplitSection() {
                   /* null hands playback back to the card's own observer —
                      the fallback for anything that neither swipes nor hovers */
                   active={driven ? onScreen && i === liveIndex : null}
+                  warm={onScreen}
                   onHover={(on) => setHovered(on ? i : null)}
                 />
               ))}
@@ -191,11 +198,14 @@ export default function SplitSection() {
 function StepCard({
   step,
   active,
+  warm,
   onHover,
 }: {
   step: Step;
   /** true plays, false coasts to a stop, null = self-manage on visibility */
   active: boolean | null;
+  /** the row is in view — buffer the whole clip before it is wanted */
+  warm: boolean;
   onHover: (on: boolean) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -216,36 +226,29 @@ function StepCard({
     return () => io.disconnect();
   }, [playable, active]);
 
-  /* Spin up and coast down rather than cutting. playbackRate is eased to
-     the target and the element is only paused once it has slowed right
-     down, so a video winds to a halt instead of stopping dead. */
+  /* Hover plays, leaving stops — at full speed, both ways. The card
+     keeps its own position in the clip, so a stop is only a pause and
+     the next hover carries straight on from it. */
   useEffect(() => {
     const el = videoRef.current;
     if (!el || active === null) return;
-
-    const from = el.playbackRate;
-    const to = active ? 1 : RATE_FLOOR;
-    if (active && el.paused) {
-      el.playbackRate = Math.max(from, RATE_FLOOR);
-      void el.play().catch(() => {});
-    }
-
-    const t0 = performance.now();
-    let raf = requestAnimationFrame(function step(now) {
-      const k = Math.min(1, (now - t0) / RAMP_MS);
-      // ease-out: sheds speed early, then drifts gently onto the floor
-      const want = from + (to - from) * (1 - (1 - k) * (1 - k));
-      if (Math.abs(want - el.playbackRate) >= RATE_STEP || k === 1) {
-        el.playbackRate = want;
-      }
-      if (k < 1) {
-        raf = requestAnimationFrame(step);
-      } else if (!active) {
-        el.pause();
-      }
-    });
-    return () => cancelAnimationFrame(raf);
+    el.playbackRate = 1;
+    if (active) void el.play().catch(() => {});
+    else el.pause();
   }, [active, playable]);
+
+  /* Buffer the clip once the row is in view. preload="metadata" leaves a
+     card holding a couple of seconds, so the first hover spends its
+     opening moment fetching instead of playing — invisible on localhost,
+     very visible on a real connection. */
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !warm || el.preload === "auto") return;
+    /* Raising preload is enough — calling load() alongside it resets
+       currentTime and aborts playback, which stopped the middle card
+       dead the moment the row came into view. */
+    el.preload = "auto";
+  }, [warm, playable]);
 
   return (
     <div
@@ -311,19 +314,6 @@ const PREROLL = 0.55;
 /* How far through the pin the hand-off begins. The deal is long done by
    then; this is purely the exit that keeps the release from jolting. */
 const EXIT_AT = 0.7;
-
-/* Playback ramp. Slowing a video does not make it smoother — it thins
-   it out: the reels are 24fps, so playbackRate is literally a frame-rate
-   multiplier. A floor of 0.12 meant winding down to 2.9fps, which reads
-   as a stutter rather than a slow-down. 0.5 keeps the floor at 12fps,
-   the point where motion still reads as motion, and the video is paused
-   from there — a pause at 12fps lands as a settle, not a jolt.
-   The ramp is long and eased so the approach to the floor is gentle. */
-const RAMP_MS = 760;
-const RATE_FLOOR = 0.5;
-/* playbackRate writes re-sync the decoder, so skip the ones too small to
-   see rather than churning it 60 times a second */
-const RATE_STEP = 0.02;
 
 /** live media query. Starts false on both sides of hydration, then settles. */
 function useMedia(query: string) {

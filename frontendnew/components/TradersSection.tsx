@@ -26,31 +26,36 @@ export default function TradersSection() {
     <section
       ref={sectionRef}
       id="traders"
-      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pb-[clamp(96px,12vh,160px)]"
+      /* the tail ran to 102px of blank below the CTA on a phone */
+      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pb-[clamp(96px,12vh,160px)] max-[900px]:pb-[clamp(48px,7vh,76px)]"
       aria-label="The yield market — for traders"
     >
-      <div className="io" style={d(0)}>
-        <span className="inline-flex items-center gap-[9px] rounded-full border border-line bg-surface/60 px-[15px] py-2 font-mono text-[11px] font-medium tracking-[0.14em] uppercase text-muted">
-          <span className="pulse-dot-ember" aria-hidden="true" /> The yield market
-        </span>
+      {/* centred, the same way the mechanism section opens — the two
+          statements are the page's two theses and should sit alike */}
+      <div className="mx-auto max-w-[900px] text-center">
+        <div className="io" style={d(0)}>
+          <span className="inline-flex items-center gap-[9px] rounded-full border border-line bg-surface/60 px-[15px] py-2 font-mono text-[11px] font-medium tracking-[0.14em] uppercase text-muted">
+            <span className="pulse-dot-ember" aria-hidden="true" /> The yield market
+          </span>
+        </div>
+
+        <h2
+          className="io mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
+          style={d(90)}
+        >
+          Think yield goes higher?{" "}
+          <span className="font-serif italic font-normal text-[1.04em] text-ember-text">Trade</span>{" "}
+          it.
+        </h2>
+
+        <p
+          className="io mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
+          style={d(180)}
+        >
+          <strong className="font-medium text-ink">YT</strong>&nbsp;is the variable half of every
+          deposit &mdash; a cheap, liquid claim on all the yield a full position earns.
+        </p>
       </div>
-
-      <h2
-        className="io mt-[26px] max-w-[14em] font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
-        style={d(90)}
-      >
-        Think yield goes higher?{" "}
-        <span className="font-serif italic font-normal text-[1.04em] text-ember-text">Trade</span>{" "}
-        it.
-      </h2>
-
-      <p
-        className="io mt-[18px] max-w-[38em] text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
-        style={d(180)}
-      >
-        <strong className="font-medium text-ink">YT</strong>&nbsp;is the variable half of every
-        deposit &mdash; a cheap, liquid claim on all the yield a full position earns.
-      </p>
 
       <PayoffExplorer focus={focus} />
 
@@ -83,14 +88,14 @@ export default function TradersSection() {
       </div>
 
       <p
-        className="invariant io mx-auto mt-[clamp(30px,4.5vh,44px)] max-w-[880px] text-center font-mono text-[clamp(11px,1.05vw,13px)] leading-[1.5] tracking-[0.1em] uppercase text-subtle"
+        className="invariant io mx-auto mt-[clamp(30px,4.5vh,44px)] max-[900px]:mt-[clamp(24px,3.4vh,32px)] max-w-[880px] text-center font-mono text-[clamp(11px,1.05vw,13px)] leading-[1.5] tracking-[0.1em] uppercase text-subtle"
         style={d(560)}
       >
         Leverage without liquidation &mdash;{" "}
         <span className="text-ink">YT can decay to zero, but never be margin-called</span>
       </p>
 
-      <div className="io mt-[clamp(36px,5vh,52px)] text-center" style={d(620)}>
+      <div className="io mt-[clamp(36px,5vh,52px)] max-[900px]:mt-[clamp(22px,3.2vh,30px)] text-center" style={d(620)}>
         <a
           className="group inline-flex items-center gap-2 text-[15px] font-medium text-muted transition-colors duration-200 hover:text-ink"
           href="#"

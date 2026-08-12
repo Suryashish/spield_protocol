@@ -162,15 +162,22 @@
 /* ============================================================
    Load choreography — [data-reveal] fade-rises, masked lines
    ============================================================ */
+/* Everything in the hero resolves out of focus, not just the headline —
+   one language for the whole arrival. The blur clears faster than the
+   rise finishes, so a thing is legible before it has settled, which is
+   what makes it read as a focus pull rather than a slide. */
 .js [data-reveal] {
   opacity: 0;
-  transform: translateY(22px);
-  transition: opacity 0.8s var(--ease-v), transform 0.8s var(--ease-v);
+  transform: translateY(18px);
+  filter: blur(8px);
+  transition: opacity 0.7s var(--ease-v), transform 0.95s var(--ease-v),
+    filter 0.62s cubic-bezier(0.16, 1, 0.3, 1);
   transition-delay: var(--d, 0ms);
 }
 .js .loaded [data-reveal] {
   opacity: 1;
   transform: none;
+  filter: blur(0);
 }
 
 .line {
@@ -184,14 +191,18 @@
 .js .settled .line {
   overflow: visible;
 }
+/* The headline rises for 1.2s but sharpens in 0.85s and lifts out of
+   nothing in 0.6s — three different clocks. Running them all on one
+   duration, as before, made the blur clear exactly as the line stopped
+   moving, which is the least interesting moment to give it. */
 .js .line-inner {
   display: block;
   transform: translateY(118%);
-  filter: blur(10px);
-  opacity: 0.4;
+  filter: blur(18px);
+  opacity: 0;
   will-change: transform, filter;
-  transition: transform 1.05s var(--ease-v), filter 1.05s var(--ease-v),
-    opacity 1.05s var(--ease-v);
+  transition: transform 1.2s var(--ease-v),
+    filter 0.85s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s var(--ease-v);
   transition-delay: var(--d, 0ms);
 }
 .js .loaded .line-inner {
@@ -306,6 +317,22 @@
       transparent 100%
     ),
     linear-gradient(180deg, rgba(10, 10, 9, 0.5), rgba(10, 10, 9, 0.16) 40%, rgba(10, 10, 9, 0.6));
+}
+/* The radial above is shaped for a landscape stage: 46% of the width is
+   a narrow column on a portrait one, so the ends of every line of type
+   sat outside the dark core and read against raw footage. Portrait gets
+   a wide, low ellipse instead — and because the dial's canvas paints
+   above the scrim, holding the video down lifts the dial with it. */
+@media (max-width: 899.98px) {
+  .scrim {
+    background: radial-gradient(
+        92% 46% at 50% 43%,
+        rgba(10, 10, 9, 0.82) 0%,
+        rgba(10, 10, 9, 0.6) 58%,
+        rgba(10, 10, 9, 0.14) 100%
+      ),
+      linear-gradient(180deg, rgba(10, 10, 9, 0.62), rgba(10, 10, 9, 0.28) 38%, rgba(10, 10, 9, 0.72));
+  }
 }
 
 /* ---- the liquid-glass warp: a lens shockwave at every click ---- */
@@ -464,7 +491,39 @@
 
 /* the vault tips back from a point low on the card */
 .stage-scale {
+  position: relative;
+  z-index: 1;
   transform-origin: 50% 85%;
+}
+
+/* The hand-off leaves the vault small and dark in a wide field of bare
+   canvas. This is the light it throws into that field, so the gap
+   between the receding vault and the arriving sheet reads as air rather
+   than as nothing. Driven by scroll — it exists only during the
+   hand-off and is gone by the time the sheet has landed. */
+.vault-halo {
+  position: absolute;
+  inset: 4% -4% -6%;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      52% 44% at 50% 52%,
+      color-mix(in srgb, var(--accent) 26%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(78% 64% at 50% 56%, color-mix(in srgb, var(--ink) 15%, transparent), transparent 78%);
+}
+[data-theme="dark"] .vault-halo {
+  background:
+    radial-gradient(
+      52% 44% at 50% 52%,
+      color-mix(in srgb, var(--accent) 30%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(78% 64% at 50% 56%, rgba(0, 0, 0, 0.55), transparent 78%);
 }
 
 /* sections 2+ ride over the receding vault as an elevated sheet */
@@ -561,6 +620,10 @@
   align-items: center;
   gap: 9px;
   padding: 17px 30px;
+  /* the ghost variant carries a 1px border and the primary does not, so
+     the pair came out 2px different in height — matched with an
+     invisible border rather than by nudging the padding */
+  border: 1px solid transparent;
   border-radius: 9999px;
   font-size: 15.5px;
   font-weight: 500;
@@ -623,43 +686,53 @@
 /* ============================================================
    The readout — the rate, machined into the face of the dial
    ============================================================ */
+/* No container. A pill — bordered or milled — is a component sitting on
+   the page, and this page long ago stopped framing things: the traders
+   section is hairlines, the payoff chart is lit rather than panelled.
+   So the rate is typography, and what gives it ground over moving
+   footage is a pool of shadow with no edge at all. */
 .readout-win {
-  display: inline-flex;
-  align-items: center;
   position: relative;
-  border-radius: 15px;
-  border: 1px solid rgba(250, 250, 248, 0.1);
-  background: linear-gradient(180deg, rgba(10, 10, 9, 0.74), rgba(10, 10, 9, 0.52));
-  backdrop-filter: blur(14px) saturate(1.1);
-  -webkit-backdrop-filter: blur(14px) saturate(1.1);
-  padding: clamp(9px, 1.2vh, 14px) clamp(14px, 1.8vw, 22px);
-  /* a slot cut into metal: light on the top lip, shadow pooling inside */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    inset 0 -16px 26px -20px rgba(0, 0, 0, 0.9), 0 18px 44px -22px rgba(0, 0, 0, 0.75);
-  transition: border-color 0.5s var(--ease-v), box-shadow 0.5s var(--ease-v);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(7px, 1vh, 11px);
 }
-.locked .readout-win {
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 20px 50px -20px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-.readout-win::after {
+.readout-win::before {
   content: "";
   position: absolute;
-  inset: -1px;
-  border-radius: inherit;
+  inset: -46% -16%;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(56% 56% at 50% 54%, rgba(6, 6, 5, 0.6), transparent 72%);
   pointer-events: none;
+  transition: background 0.6s var(--ease-v);
 }
-.locked .readout-win::after {
-  animation: lockPing 0.9s var(--ease-v) 1;
+.locked .readout-win::before {
+  background: radial-gradient(
+    58% 58% at 50% 54%,
+    rgba(6, 6, 5, 0.58),
+    color-mix(in srgb, var(--accent) 5%, transparent) 46%,
+    transparent 74%
+  );
 }
-@keyframes lockPing {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 22px transparent;
-  }
+.readout-win > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* the one line of chrome: which world the number is in, and its term */
+.readout-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(9px, 1.1vw, 14px);
+}
+.readout-dot {
+  width: 3px;
+  height: 3px;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(250, 250, 248, 0.22);
 }
 
 .readout-label {
@@ -696,18 +769,17 @@
   color: color-mix(in srgb, var(--accent-bright) 45%, rgba(250, 250, 248, 0.3));
 }
 
-/* the number sits between two hairline rules, like a gauge window */
+/* Standing on its own it can be the size it deserves — it no longer has
+   to share a row with two labels inside a pill. */
 .readout-num {
+  position: relative;
   display: inline-flex;
   align-items: baseline;
-  margin: 0 clamp(13px, 1.7vw, 22px);
-  padding: 0 clamp(13px, 1.7vw, 22px);
-  border-left: 1px solid rgba(250, 250, 248, 0.09);
-  border-right: 1px solid rgba(250, 250, 248, 0.09);
-  font-size: clamp(30px, 3.4vw, 46px);
+  font-size: clamp(40px, 5vw, 68px);
   font-weight: 500;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
   color: var(--accent-bright); /* JS drives this from ember → green */
 }
 .readout-pc {
@@ -716,22 +788,28 @@
   opacity: 0.7;
 }
 .readout-num .drift-lock svg {
-  width: 0.42em;
+  width: 0.34em;
   height: auto;
 }
+/* Hung outside the number rather than sitting in the flow. Inline it
+   added width on one side only, so the digits ended up ~45px right of
+   the centre the meta line above them is set on — the block read as
+   crooked. Out here the digits centre honestly and the lock still leads. */
 .readout-num .drift-lock {
-  margin-right: 0.18em;
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  margin-right: 0.24em;
+  transform: translateY(-52%);
+  opacity: 0.85;
 }
 
 @media (max-width: 460px) {
-  /* the term label steps out before the window can squeeze the number */
-  .readout-term {
+  /* the term steps out on the narrowest phones — and its separator with
+     it, or the line ends on a dangling dot */
+  .readout-term,
+  .readout-dot {
     display: none;
-  }
-  .readout-num {
-    border-right: 0;
-    margin-right: 0;
-    padding-right: 0;
   }
 }
 
@@ -856,6 +934,30 @@
 .in .io {
   opacity: 1;
   transform: none;
+}
+
+/* the thread across the seam: a hairline the section hangs from, with
+   the vault's own accent at its foot as the full stop */
+.seam {
+  position: relative;
+  display: block;
+  width: 1px;
+  height: clamp(40px, 6.5vh, 78px);
+  margin: 0 auto clamp(24px, 3.4vh, 40px);
+  background: linear-gradient(to bottom, transparent, var(--border) 55%, var(--border));
+  transform-origin: 50% 0;
+}
+.seam::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -2px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 /* ---- the three beats: tall colour-blocked cards that ride up with
@@ -1278,10 +1380,37 @@
   letter-spacing: 0.06em;
   color: var(--subtle);
 }
+/* The plot sits in a shallow recess rather than flat on the page: light
+   falls in from the top edge and the floor catches it at the bottom.
+   Same two-sided read as the vault's steps and the hero's rate aperture,
+   so the depth here belongs to the same world — and it is drawn with a
+   background and an inset lip, never an outline, so nothing comes back
+   as a box. */
 .pay-plot {
   --gutter: 42px;
   position: relative;
   height: clamp(210px, 25vw, 320px);
+  border-radius: 12px;
+  /* Radial, not a top-down band: a linear gradient reached the left and
+     right edges at full strength and the plot read as a grey rectangle —
+     the box, back again by another route. A dome centred on the top edge
+     fades out before it reaches any side, so there is shade without a
+     shape. The floor line is the only straight edge, and it reads as the
+     chart's baseline rather than as a border. */
+  background:
+    /* the floor the chart stands on, catching light at the near edge */
+    radial-gradient(
+      120% 44% at 50% 100%,
+      color-mix(in srgb, var(--ink) 7%, transparent),
+      transparent 76%
+    ),
+    /* and the shade falling in over the back of the well */
+    radial-gradient(
+      96% 86% at 50% 1%,
+      color-mix(in srgb, var(--ink) 13%, transparent),
+      transparent 72%
+    );
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 11%, transparent);
   cursor: ew-resize;
   /* let a vertical swipe scroll the page and keep horizontal drags here */
   touch-action: pan-y;
@@ -1300,8 +1429,8 @@
      is sized to fade out before the box edge instead. */
   inset: -16% 0 -20%;
   background: radial-gradient(
-    56% 62% at 62% 60%,
-    color-mix(in srgb, var(--ember) 9%, transparent),
+    58% 64% at 62% 60%,
+    color-mix(in srgb, var(--ember) 13%, transparent),
     transparent 72%
   );
   pointer-events: none;
@@ -1312,12 +1441,23 @@
   position: absolute;
   inset: 0 0 0 var(--gutter);
 }
+/* The single strongest depth cue on a flat page is something casting a
+   shadow onto it. The whole plot — both lines and the lit area under the
+   ray — is thrown a little above the floor of the recess, so the chart
+   is an object standing in the well rather than a drawing printed on it.
+   The filter goes on the SVG element, in CSS pixels: inside the viewBox
+   it would be stretched by preserveAspectRatio="none" and the offset
+   would come out skewed. */
 .pay-svg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
+  filter: drop-shadow(0 4px 7px rgba(18, 18, 18, 0.17));
+}
+[data-theme="dark"] .pay-svg {
+  filter: drop-shadow(0 4px 9px rgba(0, 0, 0, 0.6));
 }
 .pay-grid {
   stroke: color-mix(in srgb, var(--ink) 8%, transparent);
@@ -1544,6 +1684,8 @@
   stroke: var(--tone, color-mix(in srgb, var(--ink) 40%, transparent));
   stroke-width: 2;
   stroke-linecap: round;
+  /* the mark lifts off the page instead of being printed on it */
+  filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--tone, var(--ink)) 26%, transparent));
   transition: transform 0.35s var(--ease-v);
 }
 .trade-glyph circle {
@@ -1577,6 +1719,23 @@
 
 /* ---- the explorer, narrow ---- */
 @media (max-width: 899.98px) {
+  /* The explorer opened loosely on a phone — 50px to its rule and
+     another 35px to the first word, 85px before anything is said. */
+  .pay {
+    margin-top: clamp(26px, 4vh, 36px);
+    padding-top: clamp(18px, 2.8vh, 26px);
+  }
+  .pay-body {
+    margin-top: clamp(15px, 2.6vh, 23px);
+  }
+  /* "REALIZED YIELD AT MATURITY" at 11px/0.14em is 230px wide. On a 351px
+     frame that plus the verdict overflowed the row, the head wrapped, and
+     the gap under the rate blew out to 66px. Smaller and tighter, it fits
+     beside the verdict again. */
+  .pay-label {
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+  }
   .pay-verdict {
     padding-bottom: 0;
     align-self: center;
@@ -1591,6 +1750,16 @@
   }
   .pay-chart {
     padding-right: 0;
+  }
+  /* the chart was squat at its 210px floor on a phone, and a 42px axis
+     gutter ate 11% of a 366px frame */
+  .pay-plot {
+    --gutter: 32px;
+    height: clamp(238px, 62vw, 290px);
+  }
+  .pay-gridlabel {
+    font-size: 9.5px;
+    padding-right: 6px;
   }
   .pay-outs {
     display: grid;
@@ -1614,9 +1783,32 @@
      on a phone, and three in a carousel hides two thirds of the argument */
   .trade-row {
     grid-template-columns: 1fr;
+    margin-top: clamp(24px, 3.6vh, 32px);
   }
+  /* Stacked, the mark sat on its own line above the title with a lot of
+     air around it — three near-empty rows before any words. Inline it
+     leads the title instead, and each trade reads as one block. */
   .trade-card {
-    padding: 20px 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 13px;
+    align-items: center;
+    padding: 18px 0;
+  }
+  .trade-glyph {
+    grid-area: 1 / 1;
+    width: 34px;
+    height: 20px;
+    margin: 0;
+  }
+  .trade-title {
+    grid-area: 1 / 2;
+  }
+  /* the body runs the full measure rather than indenting to the title —
+     a 105px indent on a 366px frame is a third of the line gone */
+  .trade-body {
+    grid-area: 2 / 1 / 3 / -1;
+    margin-top: 9px;
   }
   /* the divider turns with the layout — a left border on a stacked
      column is a stray vertical line down the page */
@@ -1633,17 +1825,33 @@
     margin-bottom: 12px;
   }
 }
+/* The two figures stay side by side all the way down. Stacked they cost
+   240px and, worse, you cannot compare them — and the comparison IS the
+   point: they are the two halves of one deposit, and the whole section
+   exists to show one beating the other. The type scales to fit the
+   column instead of the column giving way. */
 @media (max-width: 560px) {
   .pay-outs {
-    grid-template-columns: 1fr;
-    gap: 0;
+    gap: clamp(12px, 3.6vw, 18px);
   }
   .pay-out + .pay-out {
-    margin-top: 18px;
-    padding-top: 18px;
-    padding-left: 0;
-    border-left: 0;
-    border-top: 1px solid var(--border);
+    padding-left: clamp(12px, 3.6vw, 18px);
+  }
+  .pay-out-name {
+    font-size: 9px;
+    letter-spacing: 0.07em;
+    gap: 5px;
+  }
+  .pay-out-ret {
+    font-size: clamp(20px, 5.8vw, 26px);
+  }
+  .pay-out-flow {
+    font-size: 11px;
+    gap: 5px;
+  }
+  .pay-out-tag {
+    font-size: 9px;
+    letter-spacing: 0.04em;
   }
 }
 
@@ -1886,11 +2094,83 @@
     display: none;
   }
 }
+
+/* The engraved terms, on a phone. Four facts and three separators wrapped
+   to three lines and landed inside the dial's terrace, across the bolts —
+   the densest corner of the screen carrying the least urgent copy. One
+   fact survives: what the deposit comes back as. Maturity is already
+   implied by "149 days" in the readout above it, and the live counters
+   are desktop texture. */
+@media (max-width: 899.98px) {
+  /* the caption reserves its height whether or not it has anything to
+     say, so on a phone it was 30px of blank between the rate and the
+     buttons on top of their own margin */
+  .drift-status {
+    margin-top: 8px;
+    height: 15px;
+  }
+  .plate {
+    flex-wrap: nowrap;
+  }
+  .plate-item-secondary,
+  .plate-sep {
+    display: none;
+  }
+}
+/* The mono chrome, on a phone. Every small label in the hero was set at
+   desktop size and desktop tracking — 11.5px at 0.18em is generous on a
+   1440 stage and simply wide on a 366 one, where four of them stacked up
+   made the frame feel busier than its four actual words deserve. Smaller
+   and tighter across the board, so the type is the only loud thing. */
+@media (max-width: 899.98px) {
+  .kicker {
+    font-size: 9.5px;
+    letter-spacing: 0.13em;
+    gap: 8px;
+  }
+  .readout-label {
+    font-size: 9.5px;
+    letter-spacing: 0.13em;
+  }
+  .hint {
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+  }
+  .plate {
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+  }
+  /* and the rate takes the weight the labels gave up — it was smaller
+     than the headline, which is the wrong way round for the one live
+     number on the page */
+  .readout-num {
+    font-size: clamp(44px, 12.5vw, 58px);
+  }
+}
+
+/* Short phones. The hero type is sized off WIDTH, so a 375x667 gets the
+   same headline as a 375x844 with 177px less room to put it in — which
+   is why the block ran into the dial there and nowhere else. Height has
+   to be part of the sizing on a short screen. */
+@media (max-width: 900px) and (max-height: 700px) {
+  .hero-center h1 {
+    font-size: clamp(30px, 8.8vw, 42px);
+  }
+  .readout-num {
+    font-size: clamp(34px, 9vw, 44px);
+  }
+  .drift-status {
+    margin-top: 9px;
+  }
+}
+
 @media (max-width: 480px) {
-  /* both hero actions have to hold one row on a phone */
+  /* Both hero actions hold one row on a phone. 50px tall against a 43px
+     headline read as heavy furniture; 45px is still above the 44px touch
+     minimum and sits under the type rather than over it. */
   .btn {
-    padding: 14px 20px;
-    font-size: 14.5px;
+    padding: 12.5px 19px;
+    font-size: 14px;
     gap: 7px;
   }
   .yt-link {

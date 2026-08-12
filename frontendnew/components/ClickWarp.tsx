@@ -35,6 +35,12 @@ export default function ClickWarp() {
 
   useEffect(() => {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    /* Pointer devices only. The lens is a cursor affordance: under a
+       fingertip it is hidden by the finger that summoned it, and on
+       touch `pointerdown` also fires at the start of every scroll and
+       every tap on a link — so on a phone it is an invisible effect
+       that stamps a filtered layer on essentially every interaction. */
+    if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     const layer = layerRef.current;
     if (!layer) return;
 

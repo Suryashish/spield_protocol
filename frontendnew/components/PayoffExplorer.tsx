@@ -164,17 +164,15 @@ export default function PayoffExplorer({ focus }: { focus: Focus }) {
                 aria-hidden="true"
               >
                 <defs>
+                  {/* Not a flat tint fading out. The band is brightest
+                      just under the ray and falls away beneath it, so the
+                      area reads as a lit surface catching light along its
+                      leading edge rather than as a shape filled in. */}
                   <linearGradient id="ytWash" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="0%"
-                      stopColor="var(--ember)"
-                      stopOpacity="0.2"
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor="var(--ember)"
-                      stopOpacity="0"
-                    />
+                    <stop offset="0%" stopColor="var(--ember)" stopOpacity="0.34" />
+                    <stop offset="26%" stopColor="var(--ember)" stopOpacity="0.19" />
+                    <stop offset="62%" stopColor="var(--ember)" stopOpacity="0.07" />
+                    <stop offset="100%" stopColor="var(--ember)" stopOpacity="0.01" />
                   </linearGradient>
                 </defs>
 
