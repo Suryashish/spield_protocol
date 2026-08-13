@@ -43,6 +43,11 @@ export default function Hero() {
             />
             <div className="scrim" aria-hidden="true" />
 
+            {/* The boot curtain sits over the footage but under the dial's
+                canvas, so the instrument draws on plain black while
+                everything else waits. It lifts once the dial is done. */}
+            <div className="boot-curtain" aria-hidden="true" />
+
             <canvas ref={s.canvasRef} className="absolute inset-0 z-2 h-full w-full" aria-hidden="true" />
 
             <div
@@ -126,6 +131,11 @@ export default function Hero() {
             </div>
 
             <TermsPlate plateRef={s.plateRef} ledgerRef={s.ledgerRef} backingRef={s.backingRef} />
+
+            {/* and this one sits over everything, so the dial draws in a
+                pool of light with the frame falling away into dark — the
+                vignette opens last, after the page is already up */}
+            <div className="boot-vignette" aria-hidden="true" />
 
             <div ref={s.stageDimRef} className="stage-dim" aria-hidden="true" />
           </section>

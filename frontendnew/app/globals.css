@@ -160,6 +160,92 @@
 }
 
 /* ============================================================
+   Boot — the instrument arrives alone, then the page behind it
+
+   Everything below is gated on .js, so with scripting off the page
+   simply renders: no curtain, no held-back nav, nothing to un-hide.
+   ============================================================ */
+body {
+  transition: background-color 1s var(--ease-v);
+}
+/* the page itself holds the stage's black until the dial has drawn, so
+   the margins around the frame are not a bright border round a dark hole */
+.js body:not(.loaded) {
+  background: var(--stage);
+}
+
+/* Over the footage, under the dial's canvas: the instrument draws on
+   plain black and the film comes up behind it afterwards.
+
+   It does not fade — it LIFTS. The curtain is twice the height of the
+   stage with a soft edge along its bottom, and it slides off the top, so
+   the footage is uncovered from the floor upward with a feathered front
+   running ahead of it. Geometry: at rest it spans -40%..160% of the
+   stage, and the gradient turns solid 30% of its own height above its
+   bottom — 160 − 60 = 100% — so the solid part starts exactly at the
+   stage's bottom edge and nothing is soft where it should be covering. */
+.boot-curtain {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40%;
+  height: 200%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to top, transparent 0%, var(--stage) 30%);
+  transform: translateY(-62%);
+  transition: transform 1.45s cubic-bezier(0.62, 0, 0.22, 1);
+}
+.js body:not(.loaded) .boot-curtain {
+  transform: translateY(0);
+  /* the boot state is where the page starts — it must not animate into it */
+  transition: none;
+}
+
+/* and the film moves with it: held large and pushed down under the
+   curtain, settling as it clears. It runs longer than the sweep, so the
+   picture is still easing when the curtain has already gone. */
+.stage video {
+  transition: transform 1.9s var(--ease-v), opacity 1.3s var(--ease-v);
+}
+.js body:not(.loaded) .stage video {
+  transform: scale(1.13) translateY(3.5%);
+  opacity: 0.35;
+}
+
+/* over everything: the dial draws in a pool of light with the frame
+   falling away into dark. This is the last thing to clear, so the page
+   is already up by the time the corners open out. */
+.boot-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  opacity: 0;
+  pointer-events: none;
+  /* a frame, not a blackout: at 0.55/0.94 it crushed the instrument it is
+     supposed to be framing, and the dial's own marks are faint by design */
+  background: radial-gradient(
+    124% 92% at 50% 50%,
+    transparent 42%,
+    rgba(5, 5, 4, 0.3) 72%,
+    rgba(5, 5, 4, 0.74) 94%
+  );
+  transition: opacity 1.6s var(--ease-v) 0.2s;
+}
+.js body:not(.loaded) .boot-vignette {
+  opacity: 1;
+}
+
+/* the chrome waits with everything else */
+.site-nav {
+  transition: opacity 0.9s var(--ease-v), transform 0.9s var(--ease-v);
+}
+.js body:not(.loaded) .site-nav {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+/* ============================================================
    Load choreography — [data-reveal] fade-rises, masked lines
    ============================================================ */
 /* Everything in the hero resolves out of focus, not just the headline —
@@ -925,15 +1011,20 @@
 /* ============================================================
    Section 2 — scroll-in reveals + the split
    ============================================================ */
+/* The same focus pull the hero arrives on, so the whole page speaks one
+   language: sharp before it has settled, three clocks rather than one. */
 .io {
   opacity: 0;
-  transform: translateY(26px);
-  transition: opacity 0.8s var(--ease-v), transform 0.8s var(--ease-v);
+  transform: translateY(24px);
+  filter: blur(9px);
+  transition: opacity 0.66s var(--ease-v), transform 0.92s var(--ease-v),
+    filter 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   transition-delay: var(--d, 0ms);
 }
 .in .io {
   opacity: 1;
   transform: none;
+  filter: blur(0);
 }
 
 /* the thread across the seam: a hairline the section hangs from, with
@@ -1029,8 +1120,12 @@
    so the page cannot leave the section with cards still in the air.
    Only worth doing three-up: stacked, the column is taller than the
    viewport and there is nothing to hold still. */
+/* 175vh left ~500px of bare canvas under the row once the pin let go —
+   a screenful of nothing between the last card and the section below.
+   145 keeps the deal unhurried and hands over while the row is still
+   on screen. */
 .cards-scrub {
-  height: 175vh;
+  height: 145vh;
 }
 .cards-pin {
   position: sticky;
@@ -1208,6 +1303,210 @@
 }
 
 /* ============================================================
+   The close — the vault, once more, at the end of the argument
+
+   The page opened on a dark stage and then spent two sections on paper
+   making its case; it should not simply stop at the foot of the last
+   table. The stage comes back, smaller, with the two doors the page has
+   been describing side by side.
+
+   Behind the type: the flank of the hero's dial seen from further off —
+   three rings, deliberately too big for the card, drawn as it arrives.
+   ============================================================ */
+.close-wrap {
+  padding: clamp(34px, 6vh, 76px) clamp(20px, 4vw, 48px) 0;
+}
+.close {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: clamp(28px, 3vw, 44px);
+  background: var(--stage);
+  color: var(--onstage);
+  box-shadow: 0 30px 70px -30px rgba(18, 18, 18, 0.35);
+}
+[data-theme="dark"] .close {
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.7);
+}
+.close-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    50% 52% at 50% 116%,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    transparent 72%
+  );
+}
+/* too big for its frame, exactly as on the hero: only the flanks show,
+   so nothing bright ever lands behind the type */
+.close-rings {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: min(148%, 1180px);
+  aspect-ratio: 1;
+  overflow: visible;
+  pointer-events: none;
+  /* -90deg starts every ring at twelve o'clock */
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+.close-ring {
+  fill: none;
+  stroke: rgba(250, 250, 248, 0.07);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  /* pathLength="1" on the element, so one dasharray fits every radius */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1.7s var(--ease-v);
+  transition-delay: var(--d, 0ms);
+}
+.in .close-ring {
+  stroke-dashoffset: 0;
+}
+/* the innermost ring is the seal — it closes last, and in green */
+.close-ring-seal {
+  stroke: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.close-inner {
+  position: relative;
+  z-index: 2;
+  max-width: 780px;
+  margin-inline: auto;
+  padding: clamp(58px, 9.5vh, 108px) clamp(24px, 4vw, 56px) clamp(54px, 8vh, 96px);
+  text-align: center;
+}
+.close-kicker {
+  display: inline-block;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--onstage-faint);
+}
+.close-title {
+  margin-top: clamp(18px, 2.6vh, 26px);
+  font-family: var(--ff-display);
+  font-size: clamp(32px, 4.3vw, 58px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+/* the other side is the variable one, so it takes the ember */
+.close-em {
+  font-family: var(--ff-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.04em;
+  letter-spacing: -0.01em;
+  background-image: linear-gradient(178deg, #ffb488 6%, #ff8a45 52%, #f2701f 96%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #ff9351;
+}
+.close-sub {
+  margin: clamp(16px, 2.4vh, 22px) auto 0;
+  max-width: 40em;
+  font-size: clamp(14.5px, 1.2vw, 16.5px);
+  line-height: 1.62;
+  text-wrap: pretty;
+  color: var(--onstage-dim);
+}
+.close-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: clamp(26px, 3.8vh, 38px);
+}
+.close-terms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0 18px;
+  margin-top: clamp(30px, 4.4vh, 44px);
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(250, 250, 248, 0.26);
+}
+.close-term-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(250, 250, 248, 0.2);
+}
+/* the short CTA label is the phone's — see the media query below */
+.close-cta-brief {
+  display: none;
+}
+
+/* ---- the close, on a phone ----
+   It arrived as a wall: a four-line paragraph, two full-width solid
+   bars back to back, three stacked lines of tracked-out mono, and the
+   rings — which only show their flanks on a wide card — drawing whole
+   arcs straight through the type on a tall narrow one. Everything here
+   is about giving the card back its air. */
+@media (max-width: 560px) {
+  .close-inner {
+    padding: clamp(46px, 6.5vh, 62px) 22px clamp(42px, 6vh, 56px);
+  }
+  /* The rings are sized off the card's WIDTH, which on a portrait card
+     leaves them shorter than it is tall — so they close into complete
+     circles behind the copy instead of passing through the frame. Sized
+     off the height instead, they are far wider than the card again and
+     only their flanks show, which is the whole idea. */
+  .close-rings {
+    width: auto;
+    height: 132%;
+  }
+  .close-sub {
+    font-size: 14.5px;
+    line-height: 1.58;
+  }
+  /* auto width, not 100%: two solid bars stacked is the single heaviest
+     thing on the page. With the short label they sit side by side, and
+     if a narrower screen cannot hold them they wrap as two pills rather
+     than two slabs. */
+  .close-cta-full {
+    display: none;
+  }
+  .close-cta-brief {
+    display: inline;
+  }
+  .close-actions {
+    gap: 10px;
+  }
+  .close-actions .btn {
+    padding: 12px 16px;
+    font-size: 13.5px;
+    gap: 6px;
+  }
+  .close-terms {
+    gap: 0 12px;
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+  }
+  /* two facts on one line beats three on three — the rest is in the
+     footer directly below this card */
+  .close-term-lead,
+  .close-term-opt {
+    display: none;
+  }
+}
+
+/* ============================================================
    The payoff explorer — the yield market, argued as a chart
 
    PT is a flat line and YT is a ray, and they cross at the rate
@@ -1217,18 +1516,35 @@
 /* No panel. A card here would be a box holding boxes holding boxes —
    the structure comes from hairlines and light instead, so the chart
    sits on the page rather than on a tray. */
+/* Four cells, and the order they sit in is the argument: what you set,
+   what it is worth, the axis you set it on, and the picture underneath.
+   Putting the figures level with the control is what frees the chart to
+   run the full width — and the full width is what lets the slider and
+   the chart's x-axis finally be the same axis. */
 .pay {
+  --pay-gutter: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  grid-template-areas:
+    "head outs"
+    "slider slider"
+    "chart chart";
+  column-gap: clamp(30px, 5vw, 84px);
   margin-top: clamp(38px, 6vh, 64px);
   padding-top: clamp(26px, 4vh, 40px);
   border-top: 1px solid var(--border);
 }
-
 .pay-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
+  grid-area: head;
+}
+.pay-outs {
+  grid-area: outs;
+}
+.pay-slider {
+  grid-area: slider;
+}
+.pay-chart {
+  grid-area: chart;
 }
 .pay-label {
   display: block;
@@ -1256,9 +1572,10 @@
   color: var(--muted);
 }
 
-/* who is winning at the current rate — the answer, in two words */
+/* who is winning at the current rate — the answer, in two words, sat
+   directly under the number it is the verdict on */
 .pay-verdict {
-  padding-bottom: 8px;
+  margin-top: 6px;
   font-family: var(--ff-display);
   font-size: clamp(19px, 2.2vw, 26px);
   font-weight: 700;
@@ -1274,9 +1591,14 @@
 }
 
 /* ---- the control ---- */
+/* Inset by the chart's axis gutter so the track and the plotting field
+   share both edges. Before this the slider ran the full width while the
+   chart was squeezed beside the figures, and the same value landed 71px
+   apart on the two — a slider that IS an axis, disagreeing with it. */
 .pay-slider {
   --v: 35%;
-  margin-top: clamp(18px, 2.5vh, 26px);
+  margin-top: clamp(20px, 3vh, 30px);
+  padding-left: var(--pay-gutter);
 }
 .pay-range {
   display: block;
@@ -1361,16 +1683,8 @@
 }
 
 /* ---- the chart ---- */
-/* chart and figures side by side, so each number sits level with the
-   line it reads instead of a screen away from it */
-.pay-body {
-  display: grid;
-  grid-template-columns: 1fr clamp(180px, 19vw, 250px);
-  margin-top: clamp(24px, 3.6vh, 36px);
-}
-/* keeps the plot and its caption off the divider */
 .pay-chart {
-  padding-right: clamp(18px, 2.2vw, 30px);
+  margin-top: clamp(22px, 3.2vh, 32px);
 }
 .pay-axis-y {
   margin-bottom: 8px;
@@ -1387,7 +1701,7 @@
    background and an inset lip, never an outline, so nothing comes back
    as a box. */
 .pay-plot {
-  --gutter: 42px;
+  --gutter: var(--pay-gutter);
   position: relative;
   height: clamp(210px, 25vw, 320px);
   border-radius: 12px;
@@ -1435,11 +1749,22 @@
   );
   pointer-events: none;
 }
-/* the plot proper starts past the axis labels, so nothing is ever drawn
-   underneath one */
+/* The plot proper starts past the axis labels, so nothing is ever drawn
+   underneath one.
+
+   It also plots itself: the well, its floor and its shadow are already
+   there, and the data is laid onto them left to right — the direction
+   the axis reads. Everything inside the clip goes with it, so the lines,
+   the lit area and the crossing dots all arrive as the front passes,
+   rather than the chart appearing whole. */
 .pay-field {
   position: absolute;
   inset: 0 0 0 var(--gutter);
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 1.15s cubic-bezier(0.66, 0, 0.28, 1) 0.42s;
+}
+.in .pay-field {
+  clip-path: inset(0 0 0 0);
 }
 /* The single strongest depth cue on a flat page is something casting a
    shadow onto it. The whole plot — both lines and the lit area under the
@@ -1548,13 +1873,14 @@
 }
 
 /* ---- what it means for each side ---- */
-/* stacked beside the chart and spread over its height — YT rides high,
-   PT sits low, the same way round as the lines themselves */
+/* Two abreast, level with the control. As a tall column beside the chart
+   they were two small blocks spread over 320px with a void between them;
+   side by side they read as the pair they are. */
 .pay-outs {
   display: grid;
-  align-content: space-between;
-  padding-left: clamp(20px, 2.4vw, 34px);
-  border-left: 1px solid var(--border);
+  grid-template-columns: 1fr 1fr;
+  align-content: end;
+  gap: clamp(18px, 2.6vw, 36px);
 }
 .pay-out {
   display: grid;
@@ -1563,9 +1889,8 @@
   transition: opacity 0.3s var(--ease-v);
 }
 .pay-out + .pay-out {
-  margin-top: clamp(20px, 2.6vh, 30px);
-  padding-top: clamp(20px, 2.6vh, 30px);
-  border-top: 1px solid var(--border);
+  padding-left: clamp(18px, 2.6vw, 36px);
+  border-left: 1px solid var(--border);
 }
 .pay-out[data-dim="true"] {
   opacity: 0.42;
@@ -1637,6 +1962,8 @@
   grid-template-columns: repeat(3, 1fr);
   margin-top: clamp(30px, 4.4vh, 48px);
   border-top: 1px solid var(--border);
+  /* the section now ends here, so it is closed rather than left open */
+  border-bottom: 1px solid var(--border);
 }
 .trade-card {
   position: relative;
@@ -1688,6 +2015,27 @@
   filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--tone, var(--ink)) 26%, transparent));
   transition: transform 0.35s var(--ease-v);
 }
+/* Each trade's mark is a line, so it draws like one — a stroke laid down
+   rather than a shape switched on. 60 clears the longest of the three
+   paths (the ray, at 49 user units). */
+.trade-glyph path {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  transition: stroke-dashoffset 0.95s var(--ease-v);
+  transition-delay: calc(var(--d, 0ms) + 140ms);
+}
+.in .trade-glyph path {
+  stroke-dashoffset: 0;
+}
+/* the dot PT redeems at lands once its line has reached it */
+.trade-glyph circle {
+  opacity: 0;
+  transition: opacity 0.45s var(--ease-v);
+  transition-delay: calc(var(--d, 0ms) + 820ms);
+}
+.in .trade-glyph circle {
+  opacity: 1;
+}
 .trade-glyph circle {
   fill: var(--tone, var(--ink));
   stroke: none;
@@ -1725,9 +2073,6 @@
     margin-top: clamp(26px, 4vh, 36px);
     padding-top: clamp(18px, 2.8vh, 26px);
   }
-  .pay-body {
-    margin-top: clamp(15px, 2.6vh, 23px);
-  }
   /* "REALIZED YIELD AT MATURITY" at 11px/0.14em is 230px wide. On a 351px
      frame that plus the verdict overflowed the row, the head wrapped, and
      the gap under the rate blew out to 66px. Smaller and tighter, it fits
@@ -1736,25 +2081,38 @@
     font-size: 9.5px;
     letter-spacing: 0.1em;
   }
-  .pay-verdict {
-    padding-bottom: 0;
-    align-self: center;
-  }
   .pay-axis-y {
     display: none; /* the dots on the figures say it without a caption */
   }
-  /* no room for a side column: the figures drop under the chart and go
-     back to sitting two abreast */
-  .pay-body {
-    display: block;
+  /* One column, and the figures move BELOW the chart: on a phone you
+     want to see the picture before the numbers taken off it, which is
+     the opposite of the desktop reading order. */
+  .pay {
+    --pay-gutter: 32px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "slider" "chart" "outs";
+  }
+  /* Stacked, the head stops being a column beside the figures and
+     becomes the opening of the block — so it takes the same centre the
+     section's own headline and paragraph are set on, rather than trying
+     to hold a left edge against an axis it is not on. */
+  .pay-head {
+    text-align: center;
+  }
+  /* The figures do hold that edge. The slider and the plotting field
+     have to agree with each other — the implied tick sits under the
+     chart's dashed line — so neither can move, and the readouts taken
+     off the chart line up with them. The only thing left hanging in the
+     margin is the y-axis scale, which is what a margin is for. */
+  .pay-outs {
+    padding-left: var(--pay-gutter);
   }
   .pay-chart {
-    padding-right: 0;
+    margin-top: clamp(15px, 2.6vh, 23px);
   }
   /* the chart was squat at its 210px floor on a phone, and a 42px axis
      gutter ate 11% of a 366px frame */
   .pay-plot {
-    --gutter: 32px;
     height: clamp(238px, 62vw, 290px);
   }
   .pay-gridlabel {
@@ -1762,22 +2120,14 @@
     padding-right: 6px;
   }
   .pay-outs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
     align-content: start;
     margin-top: clamp(22px, 3vh, 30px);
-    padding-left: 0;
     padding-top: clamp(20px, 2.6vh, 26px);
-    border-left: 0;
     border-top: 1px solid var(--border);
     gap: clamp(16px, 4vw, 26px);
   }
   .pay-out + .pay-out {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
     padding-left: clamp(16px, 4vw, 26px);
-    border-left: 1px solid var(--border);
   }
   /* stacked and tightened: three text columns side by side is unreadable
      on a phone, and three in a carousel hides two thirds of the argument */
@@ -2241,5 +2591,8 @@
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
+  }
+  .close-ring {
+    stroke-dashoffset: 0 !important;
   }
 }

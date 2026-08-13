@@ -76,18 +76,41 @@ export default function PayoffExplorer({ focus }: { focus: Focus }) {
       className="pay io"
       style={{ "--d": "260ms" } as React.CSSProperties}
     >
-      {/* ---- the control ---- */}
+      {/* ---- the control: the number you set, and who it favours ---- */}
       <div className="pay-head">
-        <div>
-          <span className="pay-label">Realized yield at maturity</span>
-          <output className="pay-rate" htmlFor="rate">
-            {rate.toFixed(2)}
-            <span className="pay-rate-unit">%</span>
-          </output>
-        </div>
+        <span className="pay-label">Realized yield at maturity</span>
+        <output className="pay-rate" htmlFor="rate">
+          {rate.toFixed(2)}
+          <span className="pay-rate-unit">%</span>
+        </output>
         <p className="pay-verdict" data-lead={lead}>
           {VERDICT[lead]}
         </p>
+      </div>
+
+      {/* Level with the control rather than beside the chart. These are
+          what the number you just set is worth, so they belong next to
+          the number — and moving them out of the chart's row is what
+          lets the chart run the full width. */}
+      <div className="pay-outs">
+        <Readout
+          kind="yt"
+          name="YT · variable"
+          paid={SERIES.ytPrice.toFixed(4)}
+          worth={ytRedeem(rate).toFixed(4)}
+          ret={ytReturn(rate)}
+          tag={`${SERIES.ytLeverage}× exposure`}
+          dim={focus === "pt"}
+        />
+        <Readout
+          kind="pt"
+          name="PT · certain"
+          paid={SERIES.ptPrice.toFixed(4)}
+          worth="1.0000"
+          ret={PT_RETURN}
+          tag="fixed at purchase"
+          dim={focus === "yt"}
+        />
       </div>
 
       <div
@@ -124,9 +147,8 @@ export default function PayoffExplorer({ focus }: { focus: Focus }) {
         </div>
       </div>
 
-      {/* ---- the chart, with the numbers alongside the lines they read ---- */}
-      <div className="pay-body">
-        <div className="pay-chart">
+      {/* ---- the chart, now running the full width ---- */}
+      <div className="pay-chart">
           <p className="pay-axis-y">value at maturity, per 1.0000 invested</p>
           <div
             className="pay-plot"
@@ -242,33 +264,6 @@ export default function PayoffExplorer({ focus }: { focus: Focus }) {
               drag
             </span>
           </div>
-        </div>
-
-        {/* Alongside, not underneath: each readout sits level with the
-            line it reads, and the dot is the same colour as that line —
-            which is the labelling the chart would otherwise need in
-            words. The prose that used to live here said what the three
-            trades below already say. */}
-        <div className="pay-outs">
-          <Readout
-            kind="yt"
-            name="YT · variable"
-            paid={SERIES.ytPrice.toFixed(4)}
-            worth={ytRedeem(rate).toFixed(4)}
-            ret={ytReturn(rate)}
-            tag={`${SERIES.ytLeverage}× exposure`}
-            dim={focus === "pt"}
-          />
-          <Readout
-            kind="pt"
-            name="PT · certain"
-            paid={SERIES.ptPrice.toFixed(4)}
-            worth="1.0000"
-            ret={PT_RETURN}
-            tag="fixed at purchase"
-            dim={focus === "yt"}
-          />
-        </div>
       </div>
     </div>
   );
@@ -318,6 +313,8 @@ function Readout({
 
 const SWEEP_TO = IMPLIED * 1.9;
 const SWEEP_MS = 2200;
+/** the plot's own draw-in runs 420ms → 1570ms; this follows it */
+const SWEEP_WAIT = 1650;
 
 function useDemoSweep(touched: boolean, set: (v: number) => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -335,9 +332,13 @@ function useDemoSweep(touched: boolean, set: (v: number) => void) {
         done.current = true;
         io.disconnect();
 
-        const t0 = performance.now();
+        /* after the chart has finished plotting itself, not on top of it —
+           two things moving at once reads as one thing glitching */
+        const t0 = performance.now() + SWEEP_WAIT;
         raf = requestAnimationFrame(function step(now) {
-          const k = Math.min(1, (now - t0) / SWEEP_MS);
+          // clamped low as well as high: t0 is in the future during the
+          // wait, and a negative k would swing the rate the wrong way
+          const k = Math.max(0, Math.min(1, (now - t0) / SWEEP_MS));
           // out and back, eased at both ends so it never snaps
           const swing = Math.sin(k * Math.PI);
           const e = swing * swing * (3 - 2 * swing);

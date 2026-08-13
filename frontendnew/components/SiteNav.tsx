@@ -62,7 +62,7 @@ export default function SiteNav() {
   };
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 flex h-20 items-center justify-between px-[clamp(20px,4vw,48px)]">
+    <header className="site-nav fixed inset-x-0 top-0 z-30 flex h-20 items-center justify-between px-[clamp(20px,4vw,48px)]">
       <a
         className="flex items-center gap-[10px] font-display text-[21px] font-bold tracking-[-0.02em]"
         href="#"

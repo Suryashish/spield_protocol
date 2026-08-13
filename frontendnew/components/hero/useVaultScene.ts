@@ -52,6 +52,11 @@ const FLANK = 0.66;
    the scroll acts on, not something busy on its own. */
 const DIAL_DAMP = 2.2;
 
+/* How long the instrument has the screen to itself. The dial's own wipe
+   runs 240ms → 1420ms, so this clears it by a beat and the page comes up
+   the moment the ring closes. */
+const BOOT_MS = 1520;
+
 /** where the ring must sit for a given rate to read under the index */
 const angleForRate = (v: number, windowA: number) =>
   windowA - ((v - DIAL_START) / DIAL_STEP) * SLOT;
@@ -289,8 +294,12 @@ function drawDial(
   geo: DialGeo,
   /** 0 → 1 as the instrument arrives on load */
   birth: number,
+  /** alpha multiplier while the dial is alone on black */
+  lift: number,
 ) {
   const { R, cx, cy, windowA } = geo;
+  /** every white mark on the dial goes through this */
+  const L = (a: number) => Math.min(1, a * lift);
   /* the pointer's say all but disappears once locked — from there the
      scroll owns everything the dial does */
   const par = 1 - lockT * 0.8;
@@ -352,7 +361,8 @@ function drawDial(
       lightA, hi, lo,
     );
 
-  const ring = (r: number, a: number, dash?: number[]) => {
+  const ring = (r: number, aRaw: number, dash?: number[]) => {
+    const a = L(aRaw);
     ctx.save();
     if (dash) ctx.setLineDash(dash);
     ctx.beginPath();
@@ -367,7 +377,8 @@ function drawDial(
 
   ctx.save();
   if (birth < 1) {
-    ctx.globalAlpha = birth;
+    // multiply, not assign: paint composes a second pass on top of this
+    ctx.globalAlpha *= birth;
     const s = 1.055 - 0.055 * birth;
     ctx.translate(cx, cy);
     ctx.scale(s, s);
@@ -378,7 +389,7 @@ function drawDial(
   at(Z.core, () => {
     // no ring inside the core: it sat under the headline and only ever
     // added one more circle to count
-    plate(ctx, R * R_MID_IN, 0, lightA, 0.02, 0.004);
+    plate(ctx, R * R_MID_IN, 0, lightA, L(0.02), L(0.004));
     contact(ctx, R * R_MID_IN, R * 0.05, lightA, 0.4);
   }, 0.34);
 
@@ -387,7 +398,7 @@ function drawDial(
 
   /* ---------- plate 3: the mid plate ---------- */
   at(Z.mid, () => {
-    plate(ctx, R * R_SCALE_IN, R * R_MID_IN, lightA, 0.026, 0.005);
+    plate(ctx, R * R_SCALE_IN, R * R_MID_IN, lightA, L(0.026), L(0.005));
     contact(ctx, R * R_SCALE_IN, R * 0.06, lightA, 0.44);
     stepEdge(ctx, R * R_MID_IN, lightA, 0.045, 0.22, 1, STEP_SEGS);
     /* an inner ring running the other way: differential motion is what
@@ -402,7 +413,7 @@ function drawDial(
 
   /* ---------- plate 2: the scale, where the numbers live ---------- */
   at(Z.scale, () => {
-    plate(ctx, R * R_BEZEL_IN, R * R_SCALE_IN, lightA, 0.032, 0.007);
+    plate(ctx, R * R_BEZEL_IN, R * R_SCALE_IN, lightA, L(0.032), L(0.007));
     /* the deepest occlusion on the dial: the bezel is the tallest thing
        overhanging anything, so it darkens the most of what is under it */
     contact(ctx, R * R_BEZEL_IN, R * 0.075, lightA, 0.5);
@@ -410,7 +421,7 @@ function drawDial(
     /* the ring that used to sit at 0.86R is gone: the ticks are already
        drawing a circle a few pixels outside it, and two concentric lines
        that close together read as clutter rather than as machining */
-    drawScale(ctx, R, rot, lockT, lightA, rate, monoFont, windowA, geo.flank, geo.ink, birth);
+    drawScale(ctx, R, rot, lockT, lightA, rate, monoFont, windowA, geo.flank, geo.ink, birth, lift);
     drawBolts(ctx, R, lockT, lightA);
   }, 0.11);
 
@@ -420,7 +431,7 @@ function drawDial(
 
   /* ---------- plate 1: the bezel, nearest the viewer ---------- */
   at(Z.bezel, () => {
-    plate(ctx, R, R * R_BEZEL_IN, lightA, 0.052, 0.01);
+    plate(ctx, R, R * R_BEZEL_IN, lightA, L(0.052), L(0.01));
 
     /* The fill's outer edge dissolves instead of ending on a hard circle,
        so the dial sits in the frame rather than on top of it. Only the
@@ -449,13 +460,13 @@ function drawDial(
       ctx.beginPath();
       ctx.moveTo(cos * R * 0.998, sin * R * 0.998);
       ctx.lineTo(cos * R * R_BEZEL_IN, sin * R * R_BEZEL_IN);
-      ctx.strokeStyle = `rgba(250,250,248,${0.012 + 0.075 * litAt(a, lightA)})`;
+      ctx.strokeStyle = `rgba(250,250,248,${L(0.012 + 0.075 * litAt(a, lightA))})`;
       ctx.stroke();
     }
 
     /* the rim carries the most gain of anything here: it is the furthest
        element from the type, so it can be the brightest without competing */
-    litRing(ctx, R, 0.028, 0.155, lightA, 1.2, 72, windowA, birth);
+    litRing(ctx, R, L(0.028), L(0.155), lightA, 1.2, 72, windowA, birth);
     /* the deep step from bezel down to the scale — the strongest shadow
        on the dial, because it is the biggest drop */
     stepEdge(ctx, R * R_BEZEL_IN, lightA, 0.075, 0.34, 1.4, STEP_SEGS);
@@ -464,7 +475,7 @@ function drawDial(
     ctx.save();
     ctx.lineWidth = 2.2;
     ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(255,255,252,0.13)";
+    ctx.strokeStyle = `rgba(255,255,252,${L(0.13)})`;
     ctx.shadowColor = "rgba(255,255,252,0.32)";
     ctx.shadowBlur = 14;
     ctx.beginPath();
@@ -472,7 +483,7 @@ function drawDial(
     ctx.stroke();
     ctx.restore();
 
-    drawIndex(ctx, R, lockT, windowA);
+    drawIndex(ctx, R, lockT, windowA, lift);
     drawSeal(ctx, R, lockT, geo.seal);
   });
 
@@ -484,8 +495,9 @@ function drawScale(
   ctx: CanvasRenderingContext2D,
   R: number, rot: number, lockT: number, lightA: number,
   rate: number, monoFont: string, windowA: number,
-  flank: number, ink: number, birth: number,
+  flank: number, ink: number, birth: number, lift: number,
 ) {
+  const L = (a: number) => Math.min(1, a * lift);
   ctx.save();
   ctx.rotate(rot);
 
@@ -507,7 +519,7 @@ function drawScale(
     ctx.lineTo(cos * (out - len), sin * (out - len));
     const w = wipeAlpha(a + rot, windowA, birth);
     if (w <= 0.01) continue;
-    ctx.strokeStyle = `rgba(250,250,248,${((major ? 0.14 : 0.05) + (major ? 0.16 : 0.06) * l) * ink * w})`;
+    ctx.strokeStyle = `rgba(250,250,248,${L(((major ? 0.14 : 0.05) + (major ? 0.16 : 0.06) * l) * ink * w)})`;
     ctx.lineWidth = major ? 1.5 : 1;
     ctx.stroke();
   }
@@ -546,8 +558,8 @@ function drawScale(
     ctx.translate(Math.cos(a) * R * 0.862, Math.sin(a) * R * 0.862);
     ctx.rotate(-rot); // numerals stay upright while the ring turns
     ctx.fillStyle = isLock
-      ? rgba(GREEN, (0.3 + 0.6 * lockT) * fade)
-      : `rgba(250,250,248,${0.3 * fade * ink * (1 - lockT * 0.5)})`;
+      ? rgba(GREEN, Math.min(1, (0.3 + 0.6 * lockT) * fade * lift))
+      : `rgba(250,250,248,${L(0.3 * fade * ink * (1 - lockT * 0.5))})`;
     ctx.fillText(v.toFixed(2), 0, 0);
     ctx.restore();
   }
@@ -556,7 +568,8 @@ function drawScale(
 
 /* the index marks: hairline notches fixed on both flanks, with the
    scale running underneath them */
-function drawIndex(ctx: CanvasRenderingContext2D, R: number, lockT: number, windowA: number) {
+function drawIndex(ctx: CanvasRenderingContext2D, R: number, lockT: number, windowA: number, lift: number) {
+  const L = (a: number) => Math.min(1, a * lift);
   for (const a of [windowA, windowA + Math.PI]) {
     /* only the right-hand index is the one doing the reading — it is the
        one 8.42 parks under, so it is the only one that greens */
@@ -569,8 +582,8 @@ function drawIndex(ctx: CanvasRenderingContext2D, R: number, lockT: number, wind
     ctx.lineTo(cos * back + sin * w, sin * back - cos * w);
     ctx.closePath();
     ctx.fillStyle = reading && lockT > 0.02
-      ? rgba(GREEN, 0.3 + 0.45 * lockT)
-      : "rgba(250,250,248,0.3)";
+      ? rgba(GREEN, L(0.3 + 0.45 * lockT))
+      : `rgba(250,250,248,${L(0.3)})`;
     ctx.fill();
 
     /* the reading window: two short arcs bracketing the index, so the
@@ -578,8 +591,8 @@ function drawIndex(ctx: CanvasRenderingContext2D, R: number, lockT: number, wind
     ctx.save();
     ctx.lineWidth = 1;
     ctx.strokeStyle = reading
-      ? rgba(GREEN, 0.1 + 0.3 * lockT)
-      : "rgba(250,250,248,0.075)";
+      ? rgba(GREEN, L(0.1 + 0.3 * lockT))
+      : `rgba(250,250,248,${L(0.075)})`;
     for (const dir of [-1, 1]) {
       ctx.beginPath();
       ctx.arc(0, 0, R * 0.995, a + dir * 0.055, a + dir * 0.2);
@@ -796,16 +809,21 @@ export function useVaultScene() {
     /* the sheet lives outside this component (page layout), so reach for it */
     const sheet = document.querySelector<HTMLElement>(".sheet");
 
-    /* ----- load choreography ----- */
-    const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
+    /* ----- load choreography -----
+       The dial draws first and alone: the curtain holds the footage down,
+       the nav and the type are still out, and the page is carrying the
+       stage's own black. `loaded` is what releases all of it, so it waits
+       for the wipe to finish rather than firing on the second frame. */
+    const boot = setTimeout(
+      () => {
         document.body.classList.add("loaded");
         const t = setTimeout(() => document.body.classList.add("settled"), 1500);
         cleanups.push(() => clearTimeout(t));
-      });
-    });
+      },
+      reduced ? 0 : BOOT_MS,
+    );
     cleanups.push(() => {
-      cancelAnimationFrame(raf1);
+      clearTimeout(boot);
       document.body.classList.remove("loaded", "settled", "locked");
     });
 
@@ -894,12 +912,28 @@ export function useVaultScene() {
     const paint = (dustA: number) => {
       ctx.clearRect(0, 0, W, H);
       const geo = dialGeometry(W, H, lockT);
+      const now = performance.now();
       /* held back a beat behind the type, then a shade over a second */
-      const birth = reduced ? 1 : smoother(clamp01((performance.now() - born - 240) / 1180));
+      const birth = reduced ? 1 : smoother(clamp01((now - born - 240) / 1180));
+      const rot = angleForRate(shownRate, geo.windowA) + (1 - birth) * 0.42;
+
+      /* Every mark on the dial is deliberately faint — a few percent
+         alpha — so it sits under the footage without competing. On the
+         plain black of the boot that same restraint makes it nearly
+         invisible, so while it has the screen to itself its alphas are
+         multiplied up, easing back to 1 as the film comes up behind it.
+         A multiplier costs nothing; the two obvious alternatives both
+         failed — redrawing only doubles the alpha and cost 18fps, and
+         compositing the canvas onto itself in `lighter` forces a readback
+         every frame and cost 54. */
+      const lift = reduced
+        ? 1
+        : 1 + 2.4 * (1 - smooth(clamp01((now - born - BOOT_MS) / 1100)));
       drawDial(
-        ctx, W, H, lockT, angleForRate(shownRate, geo.windowA) + (1 - birth) * 0.42,
-        eased.x - 0.5, eased.y - 0.5, monoFont, performance.now() / 1000, shownRate, geo, birth,
+        ctx, W, H, lockT, rot,
+        eased.x - 0.5, eased.y - 0.5, monoFont, now / 1000, shownRate, geo, birth, lift,
       );
+
       drawDust(dustA, lockT);
     };
 

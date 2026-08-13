@@ -62,9 +62,9 @@ const STEPS: Step[] = [
     alt: "Step three — Choose. Hold PT and redeem exactly 1.0000 at maturity, or hold YT and carry a full position's yield for a sliver of the capital.",
     tone: "var(--ember)",
     seq: 1,
-    /* 720x1280 where the other two are 720x960 — object-cover trims the
-       top and bottom of this one to sit in the same 3:4 card */
-    video: "/videos/3.mp4",
+    /* 582x776 — 3:4 like the other two, so object-cover has nothing to
+       trim and the whole frame is what the card shows */
+    video: "/videos/4.mp4",
   },
 ];
 

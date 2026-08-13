@@ -4,7 +4,6 @@ import { useState } from "react";
 import { SERIES } from "@/lib/series";
 import { IMPLIED } from "@/lib/payoff";
 import { useInView } from "@/lib/useInView";
-import { ArrowRight } from "@/components/icons";
 import PayoffExplorer from "@/components/PayoffExplorer";
 
 /**
@@ -87,25 +86,6 @@ export default function TradersSection() {
         </TradeCard>
       </div>
 
-      <p
-        className="invariant io mx-auto mt-[clamp(30px,4.5vh,44px)] max-[900px]:mt-[clamp(24px,3.4vh,32px)] max-w-[880px] text-center font-mono text-[clamp(11px,1.05vw,13px)] leading-[1.5] tracking-[0.1em] uppercase text-subtle"
-        style={d(560)}
-      >
-        Leverage without liquidation &mdash;{" "}
-        <span className="text-ink">YT can decay to zero, but never be margin-called</span>
-      </p>
-
-      <div className="io mt-[clamp(36px,5vh,52px)] max-[900px]:mt-[clamp(22px,3.2vh,30px)] text-center" style={d(620)}>
-        <a
-          className="group inline-flex items-center gap-2 text-[15px] font-medium text-muted transition-colors duration-200 hover:text-ink"
-          href="#"
-        >
-          Open the yield market
-          <span className="transition-transform duration-200 group-hover:translate-x-[3px]">
-            <ArrowRight size={15} />
-          </span>
-        </a>
-      </div>
     </section>
   );
 }
