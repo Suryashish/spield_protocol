@@ -82,7 +82,7 @@ export default function VaultSection() {
 
         <h2
           className="blur-in mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
-          style={d(140)}
+          style={d(110)}
         >
           Know exactly what you&rsquo;ll{" "}
           <span className="font-serif italic font-normal text-[1.04em] text-accent-text">earn</span>.
@@ -90,7 +90,7 @@ export default function VaultSection() {
 
         <p
           className="blur-in mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
-          style={d(280)}
+          style={d(220)}
         >
           Set an amount, pick a date, and the vault quotes the{" "}
           <strong className="font-medium text-ink">exact figure</strong>&nbsp;that comes back

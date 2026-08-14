@@ -60,6 +60,23 @@
   --edge-hl: rgba(255, 255, 255, 0.7);
   --ease-v: cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* The scroll-in reveals run on their own two curves, and the reason is
+     worth writing down: --ease-v is an expo-out, and an expo-out is 67%
+     resolved a fifth of the way through its own duration. So the section
+     reveals — nominally 0.9s to 1.4s — were doing all of their visible
+     work in the first ~250ms and spending the rest creeping through the
+     last few percent, where nothing can be seen. The effect read as a
+     snap no matter how long the duration said it was.
+
+     These two are gentle at the top instead. --ease-reveal is 21% at a
+     fifth of the way in (against the expo's 67%), and --ease-focus, which
+     carries the blur, is 13% — it holds the softness, then resolves
+     through the MIDDLE of the timeline, which is the part you can
+     actually watch. Same trick as a rack focus on a lens: the interesting
+     frames are the ones between the two ends. */
+  --ease-reveal: cubic-bezier(0.3, 0.06, 0.3, 1);
+  --ease-focus: cubic-bezier(0.4, 0.05, 0.35, 1);
+
   /* --font-satoshi is next/font/local's family, which already carries a
      metric-matched Arial fallback behind it — see app/layout.tsx */
   --ff-display: var(--font-satoshi), var(--font-geist), -apple-system, sans-serif;
@@ -1042,8 +1059,12 @@ body {
   opacity: 0;
   transform: translateY(24px);
   filter: blur(9px);
-  transition: opacity 0.66s var(--ease-v), transform 0.92s var(--ease-v),
-    filter 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Slower too, but not as slow as .blur-in: these are cards and rows
+     that arrive in groups of three to twelve, each already carrying its
+     own stagger, and a two-second reveal on the twelfth FAQ row is a
+     block that never finishes settling. Same curves, shorter clocks. */
+  transition: opacity 0.55s var(--ease-reveal), transform 0.8s var(--ease-reveal),
+    filter 0.62s var(--ease-focus);
   transition-delay: var(--d, 0ms);
 }
 .in .io {
@@ -1068,8 +1089,19 @@ body {
   opacity: 0;
   transform: translateY(16px);
   filter: blur(14px);
-  transition: opacity 0.9s var(--ease-v), transform 1.4s var(--ease-v),
-    filter 1.15s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Three clocks still, and now on curves that spend their time where it
+     shows (see --ease-focus). The blur is the slowest of the three and
+     resolves between roughly 0.2s and 0.7s in, so the line is legibly
+     coming into focus rather than having arrived; the type is still
+     drifting the last few pixels after that.
+
+     These durations are the dial, not the fix — the curves are the fix.
+     They have been down to 1.15s and up to 2s; what makes the pull
+     readable at any of those lengths is --ease-focus refusing to spend
+     its first fifth doing four fifths of the work. Tuned by eye from
+     there, and this is the setting that reads without becoming a wait. */
+  transition: opacity 0.75s var(--ease-reveal), transform 1.1s var(--ease-reveal),
+    filter 0.95s var(--ease-focus);
   transition-delay: var(--d, 0ms);
 }
 .seen .blur-in {
@@ -2520,7 +2552,9 @@ body {
 .f-up {
   opacity: 0;
   transform: translateY(34px);
-  transition: opacity 0.9s var(--ease-v), transform 0.9s var(--ease-v);
+  /* the footer's cascade, on the same curve as everything else so the
+     page ends in the language it spent the whole scroll speaking */
+  transition: opacity 0.7s var(--ease-reveal), transform 0.8s var(--ease-reveal);
   transition-delay: var(--d, 0ms);
 }
 .in .f-up {

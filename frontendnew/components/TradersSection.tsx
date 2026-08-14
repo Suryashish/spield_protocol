@@ -46,7 +46,7 @@ export default function TradersSection() {
 
         <h2
           className="blur-in mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
-          style={d(140)}
+          style={d(110)}
         >
           Think yield goes higher?{" "}
           <span className="font-serif italic font-normal text-[1.04em] text-ember-text">Trade</span>{" "}
@@ -55,7 +55,7 @@ export default function TradersSection() {
 
         <p
           className="blur-in mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
-          style={d(280)}
+          style={d(220)}
         >
           <strong className="font-medium text-ink">YT</strong>&nbsp;is the variable half of every
           deposit &mdash; a cheap, liquid claim on all the yield a full position earns.

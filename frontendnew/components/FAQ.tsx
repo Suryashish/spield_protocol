@@ -51,7 +51,7 @@ export default function FAQ() {
 
         <h2
           className="blur-in mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
-          style={d(140)}
+          style={d(110)}
         >
           Everything you&rsquo;d ask{" "}
           <span className="font-serif italic font-normal text-[1.04em] text-accent-text">
@@ -62,7 +62,7 @@ export default function FAQ() {
 
         <p
           className="blur-in mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
-          style={d(280)}
+          style={d(220)}
         >
           Including the ones with{" "}
           {/* &nbsp;: Next's minifier eats the leading space on a
