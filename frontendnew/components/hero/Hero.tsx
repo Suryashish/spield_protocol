@@ -33,9 +33,20 @@ export default function Hero() {
             {/* ambient footage, softened out of focus — it reads as moving
                 light behind the dial without becoming a picture that
                 competes with the type */}
+            {/* The footage is blurred 3px, dimmed to 58% and run at 70%
+                opacity, so almost none of its detail survives to the
+                screen — it was still shipping as 3.8MB of 720p at 3Mbps,
+                which is most of a page load spent on pixels nobody can
+                resolve. Re-encoded at 480p/CRF32 it is 523KB and looks
+                identical through the filter stack.
+
+                The poster is the same frame as a 21KB JPEG: it paints on
+                the first frame of the boot curtain lifting, so the stage
+                is never a black hole waiting on a video decode. */}
             <video
               className="absolute inset-0 z-0 h-full w-full scale-[1.02] object-cover opacity-70 [filter:brightness(0.58)_saturate(0.95)_blur(3px)] motion-reduce:hidden"
               src="/spield%20motion%20video%20v3%20OG.mp4.mp4"
+              poster="/hero-poster.jpg"
               autoPlay
               muted
               loop

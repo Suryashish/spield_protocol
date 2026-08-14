@@ -49,12 +49,16 @@ const PREVIEW_REEL: string | null = null;
  * live in `lib/mechanism.ts` because the HowTo schema reads them too;
  * only the treatment is decided here.
  */
+/* Each reel carries a poster of its own first frame — the card shows the
+   footage the instant it deals rather than a hole that fills in when the
+   decode lands, and a phone that never scrolls this far pays 30KB
+   instead of 500. */
 const LOOK: Array<Pick<Step, "tone" | "seq" | "video" | "poster">> = [
-  { tone: "var(--usdc)", seq: 1, video: "/videos/1.mp4" },
-  { tone: "var(--accent)", seq: 0, video: "/videos/2.mp4" },
+  { tone: "var(--usdc)", seq: 1, video: "/videos/1.mp4", poster: "/videos/1.jpg" },
+  { tone: "var(--accent)", seq: 0, video: "/videos/2.mp4", poster: "/videos/2.jpg" },
   /* 582x776 — 3:4 like the other two, so object-cover has nothing to
      trim and the whole frame is what the card shows */
-  { tone: "var(--ember)", seq: 1, video: "/videos/4.mp4" },
+  { tone: "var(--ember)", seq: 1, video: "/videos/4.mp4", poster: "/videos/4.jpg" },
 ];
 
 const STEPS: Step[] = MECHANISM.map((beat, i) => ({

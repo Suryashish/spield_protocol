@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import localFont from "next/font/local";
 import SmoothScroll from "@/components/SmoothScroll";
 import ClickWarp from "@/components/ClickWarp";
 import { SITE } from "@/lib/seo/site";
@@ -26,6 +27,38 @@ const instrumentSerif = Instrument_Serif({
   weight: "400",
   style: "italic",
   display: "swap",
+});
+
+/**
+ * Satoshi — the display face — self-hosted.
+ *
+ * It used to come from Fontshare's CDN via a plain <link>, and that cost
+ * two things. A third origin to resolve, connect and TLS-handshake before
+ * the stylesheet even started (measured: 608ms to the CSS, against 215ms
+ * for the three self-hosted faces). And, worse, a raw @font-face has no
+ * fallback metrics, so when Satoshi finally landed every line set in it
+ * reflowed — one 0.132 layout shift on /learn at 1066ms, over Google's
+ * 0.1 CLS threshold, because that page has twenty-four rows of it.
+ *
+ * `next/font/local` fixes both: the files are served from our own origin
+ * with the rest of the static assets, and `adjustFontFallback` synthesises
+ * a metric-matched Arial so the pre-swap layout is the same size as the
+ * post-swap one. The shift goes to zero rather than getting smaller.
+ *
+ * The three weights are the three the site actually sets — 400/500/700 —
+ * at 24KB each. Licensed under the ITF Free Font License via Fontshare,
+ * which permits self-hosting; the files are committed rather than fetched
+ * at build so a Fontshare outage cannot fail a deploy.
+ */
+const satoshi = localFont({
+  src: [
+    { path: "./fonts/Satoshi-Regular.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/Satoshi-Medium.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/Satoshi-Bold.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-satoshi",
+  display: "swap",
+  adjustFontFallback: "Arial",
 });
 
 export const metadata: Metadata = {
@@ -144,7 +177,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geist.variable} ${geistMono.variable} ${instrumentSerif.variable}`}
+      className={`${geist.variable} ${geistMono.variable} ${instrumentSerif.variable} ${satoshi.variable}`}
     >
       <body>
         <script dangerouslySetInnerHTML={{ __html: bootstrap }} />
@@ -154,13 +187,6 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(siteGraph()) }}
-        />
-        {/* Satoshi (display face) ships from Fontshare */}
-        <link rel="preconnect" href="https://api.fontshare.com" />
-        <link
-          rel="stylesheet"
-          precedence="default"
-          href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap"
         />
         <SmoothScroll />
         <ClickWarp />

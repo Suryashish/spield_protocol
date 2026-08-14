@@ -60,7 +60,9 @@
   --edge-hl: rgba(255, 255, 255, 0.7);
   --ease-v: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --ff-display: "Satoshi", var(--font-geist), -apple-system, sans-serif;
+  /* --font-satoshi is next/font/local's family, which already carries a
+     metric-matched Arial fallback behind it — see app/layout.tsx */
+  --ff-display: var(--font-satoshi), var(--font-geist), -apple-system, sans-serif;
   --ff-serif: var(--font-instrument), Georgia, serif;
   --ff-body: var(--font-geist), -apple-system, sans-serif;
   --ff-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;

@@ -392,6 +392,17 @@ function articleBase(
     datePublished: doc.datePublished,
     dateModified: doc.dateModified,
     keywords: doc.keywords.join(", "),
+    /* Recommended by Google's Article guidelines and lifted into AI
+       Overviews, so an Article without one is quietly less citable than
+       the same Article with one. Every guide shares the site card today;
+       when the [slug] routes grow their own opengraph-image this should
+       point at the page's own. */
+    image: {
+      "@type": "ImageObject",
+      url: absUrl("/opengraph-image"),
+      width: 1200,
+      height: 630,
+    },
     inLanguage: "en",
     isPartOf: { "@id": SITE_ID },
     author: { "@id": ORG_ID },
