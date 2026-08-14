@@ -3,27 +3,42 @@
 /* ============================================================
    Spield design tokens — raw values, themed via [data-theme]
    ============================================================ */
+/* The light theme is PAPER, and paper is not a lightbulb. #FBFAF7 was
+   only a whisper off white and #FFFFFF on top of it was the real thing,
+   so the page ran at very nearly maximum luminance across most of its
+   area — which is what makes a screen tiring to sit in front of rather
+   than anything you can point at.
+   Canvas comes down a real step into warm stock, and the raised surface
+   comes off pure white entirely: things that lift off the page still
+   read lighter than it, but nothing on the page is a light source now.
+   Muted and subtle are nudged a hair darker to hold exactly the contrast
+   they had against the brighter ground — the calmer page costs no
+   legibility. */
 :root {
-  --canvas: #fbfaf7;
-  --surface: #ffffff;
-  --border: #e7e4de;
+  --canvas: #f6f3ec;
+  --surface: #fdfcf8;
+  --border: #e5e1d9;
   --ink: #121212;
-  --muted: #6e6e6e;
-  --subtle: #a4a3a0;
+  --muted: #6a6a6a;
+  --subtle: #9e9d99;
 
   --accent: #0fbe7c;
-  --accent-text: #089663;
+  /* the -text variants are the ones type is set in on paper, so they
+     came down with the canvas — each is the shade that holds exactly
+     the contrast ratio it had against the brighter ground */
+  --accent-text: #089160;
   --accent-bright: #2bd894;
   --accent-ink: #06130c;
   --ember: #ff7a2f;
-  --ember-text: #d95b14;
+  --ember-text: #d15813;
   /* the USDC blue — the deposit, before it is anything else */
   --usdc: #4a87f2;
-  --usdc-text: #3c74ce;
+  --usdc-text: #3a6fc6;
 
   /* the closing plate: a deeper paper than the page it ends, and the
-     engraved wordmark cut into it */
-  --footer-bg: #f3f0e9;
+     engraved wordmark cut into it — it moves down with the canvas so it
+     stays the same step below it */
+  --footer-bg: #eeeae0;
   --footer-line: rgba(18, 18, 18, 0.11);
   /* dark ink on pale paper carries less weight per unit of alpha than
      light ink on black — these are pitched to land at the same contrast
@@ -168,9 +183,15 @@
 body {
   transition: background-color 1s var(--ease-v);
 }
-/* the page itself holds the stage's black until the dial has drawn, so
-   the margins around the frame are not a bright border round a dark hole */
-.js body:not(.loaded) {
+/* The page itself holds the stage's black until the dial has drawn, so
+   the margins around the frame are not a bright border round a dark hole.
+
+   `:has(.stage)` scopes this to the landing page. `loaded` is set by the
+   hero's own scene, and the Learn pages have no hero to set it — without
+   the guard they would hold the stage's black forever and never paint.
+   In a browser without :has() the whole rule drops, which loses the boot
+   curtain and keeps every page readable: the safe direction to fail. */
+.js body:has(.stage):not(.loaded) {
   background: var(--stage);
 }
 
@@ -240,7 +261,9 @@ body {
 .site-nav {
   transition: opacity 0.9s var(--ease-v), transform 0.9s var(--ease-v);
 }
-.js body:not(.loaded) .site-nav {
+/* scoped like the black above — the nav waits for the dial only on the
+   page that has one */
+.js body:has(.stage):not(.loaded) .site-nav {
   opacity: 0;
   transform: translateY(-10px);
 }
@@ -1027,28 +1050,141 @@ body {
   filter: blur(0);
 }
 
-/* the thread across the seam: a hairline the section hangs from, with
-   the vault's own accent at its foot as the full stop */
-.seam {
-  position: relative;
-  display: block;
-  width: 1px;
-  height: clamp(40px, 6.5vh, 78px);
-  margin: 0 auto clamp(24px, 3.4vh, 40px);
-  background: linear-gradient(to bottom, transparent, var(--border) 55%, var(--border));
-  transform-origin: 50% 0;
+/* ---- the two statements ----
+   The same focus pull as everything else, but slower and deeper, and on
+   its OWN trigger. `.io` rides the section's `.in`, and both of this
+   page's sections run to thousands of pixels — theirs fires while the
+   statement is still most of a screen below the fold, so by the time you
+   reached the words they had long since settled. `.seen` is added to the
+   statement block itself, so the type resolves as you arrive at it.
+
+   Three clocks again, further apart than `.io` runs them: it lifts out
+   of nothing in 0.9s, sharpens over 1.15s, and is still travelling at
+   1.4s. Reading the line before it has stopped moving is what makes this
+   a focus pull rather than a slide. */
+.blur-in {
+  opacity: 0;
+  transform: translateY(16px);
+  filter: blur(14px);
+  transition: opacity 0.9s var(--ease-v), transform 1.4s var(--ease-v),
+    filter 1.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--d, 0ms);
 }
-.seam::after {
-  content: "";
+.seen .blur-in {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+}
+
+/* ---- the split, drawn ----
+   One stream over the sheet's lip, forking into two rails. It replaces
+   the plain hairline seam that used to hang here: same job — give the
+   eye something to follow across the boundary — but it now says what
+   the section is about on the way down. Geometry all comes from
+   DepositFlow, which keeps the viewBox 1:1 with this box; the only
+   things CSS owns are the strokes and the two tags. */
+/* The stream is a full-bleed layer BEHIND the statement, not a band
+   above it: it forks near the top, runs flat across the upper third, and
+   then falls away down either side and out past the window — so the
+   headline stands between the two things it names. */
+.flow-stage {
+  --flow-h: clamp(520px, 70vh, 800px);
+  position: relative;
+}
+.flow {
+  /* how far the stream reaches up past its own box, into the section's
+     top padding, so it comes over the sheet's lip rather than beginning
+     in mid-air. A canvas clips at its bounds, so the surface has to be
+     this much taller than the layout box rather than overflowing it. */
+  --over: clamp(36px, 6vh, 72px);
+  position: relative;
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+  height: clamp(300px, 42vh, 440px);
+  margin-bottom: clamp(18px, 3vh, 40px);
+  pointer-events: none;
+}
+.flow-statement {
+  position: relative;
+  z-index: 1;
+}
+/* the scene itself — ribbons, centrelines and particles, all painted in
+   DepositFlow. The canvas is the whole drawing; CSS owns only the box it
+   sits in and the two tags hung under the rails. */
+.flow-canvas {
   position: absolute;
-  left: 50%;
-  bottom: -2px;
+  left: 0;
+  right: 0;
+  top: calc(-1 * var(--over));
+  width: 100%;
+  height: calc(100% + var(--over));
+}
+
+/* set under each rail rather than over it: above, they landed on the
+   branch curves on a narrow screen */
+.flow-tag {
+  position: absolute;
+  /* under the run — with nothing turning down the page any more, the
+     whole width below each half is clear. The drop clears the ember
+     wave's troughs as well as the band, and is published by the scene. */
+  top: calc(var(--rail, 62%) + var(--tag-drop, 44px));
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--subtle);
+  opacity: 0;
+  transform: translateY(7px);
+  transition: opacity 0.55s var(--ease-v), transform 0.55s var(--ease-v);
+}
+.flow[data-on="true"] .flow-tag {
+  opacity: 1;
+  transform: none;
+}
+.flow-tag-pt {
+  left: var(--tag-l, 19%);
+  --tone: var(--accent);
+}
+.flow-tag-yt {
+  right: var(--tag-r, 19%);
+  --tone: var(--ember);
+}
+.flow-tag-dot {
+  flex: none;
   width: 5px;
   height: 5px;
-  margin-left: -2.5px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+  background: var(--tone);
+}
+.flow-tag-short {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  /* a phone's column cannot carry a 400px drawing and the statement
+     under it in the same screen */
+  .flow {
+    height: clamp(232px, 33vh, 320px);
+    margin-bottom: clamp(14px, 2.4vh, 28px);
+  }
+  /* the two tags meet in the middle long before this — the long half
+     of each label stands down rather than the pair colliding */
+  .flow-tag {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    gap: 6px;
+  }
+  .flow-tag-long {
+    display: none;
+  }
+  .flow-tag-short {
+    display: inline;
+  }
 }
 
 /* ---- the three beats: tall colour-blocked cards that ride up with
@@ -2317,6 +2453,29 @@ body {
   );
 }
 
+/* The disclosure, on the plate above the copyright line. Set at the
+   plate's own size rather than in fine print — a disclosure nobody can
+   read is a decision to not have made one. The hollow dot leads it, so
+   it is visibly the long form of every marker further up the page. */
+.footer-note {
+  max-width: 82ch;
+  margin-top: clamp(16px, 2.2vh, 22px);
+  font-size: 12px;
+  line-height: 1.62;
+  text-wrap: pretty;
+  color: var(--subtle);
+}
+.footer-note::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  vertical-align: middle;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
 .footer-link {
   display: inline-block;
   font-size: 14.5px;
@@ -2427,6 +2586,630 @@ body {
   }
 }
 
+/* ============================================================
+   The illustrative marker
+
+   Every figure on this page is a worked example — the protocol is on
+   testnet and publishes nothing live yet — and this is what says so.
+   It is chrome, not a warning: mono, tracked, at the size of every
+   other micro-caption on the page. The meaning is carried by the dot.
+   Live things here pulse on a FILLED dot; this one is the same dot
+   left HOLLOW, so once you have seen the pair you can read the page's
+   honesty at a glance without reading a word of it.
+   ============================================================ */
+.illus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ff-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--subtle);
+  cursor: help;
+}
+.illus-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+/* on the dark cards, where --subtle would disappear */
+.illus-stage {
+  color: rgba(250, 250, 248, 0.32);
+}
+
+/* ---- where the marker lands ---- */
+/* On the hero's meta line it has to pass for one of the labels beside
+   it, so it takes their size and tracking rather than its own. */
+.readout-illus {
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+}
+/* The phone carries this on the engraved plate instead. The meta line
+   is three items and two dots at 9.5px on a 366px frame, and a fourth
+   would wrap the one line the readout is allowed. */
+@media (max-width: 899.98px) {
+  .readout-illus,
+  .readout-dot-illus {
+    display: none;
+  }
+}
+/* under the verdict, closing the explorer's head */
+.pay-illus {
+  margin-top: 11px;
+}
+@media (max-width: 899.98px) {
+  /* the head centres when it stacks, and the marker goes with it */
+  .pay-head .pay-illus {
+    justify-content: center;
+  }
+  .pay-illus {
+    display: flex;
+  }
+}
+/* in the closing card's terms row it is one of the terms, so it takes
+   the row's size rather than carrying its own */
+.close-terms .illus {
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+/* ============================================================
+   Section 3 — the Fixed-Rate Vault (the front door)
+
+   The flagship, so it is the only section on the page whose largest
+   element is a number the protocol actually promises. Built from the
+   same hairlines and light as the payoff explorer rather than from
+   panels: what you set on the left, what it is worth on the right,
+   one rule between them.
+   ============================================================ */
+.vault {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+  column-gap: clamp(32px, 5vw, 76px);
+  margin-top: clamp(38px, 6vh, 64px);
+  padding-top: clamp(26px, 4vh, 40px);
+  border-top: 1px solid var(--border);
+}
+
+.vault-label {
+  display: block;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vault-label-2 {
+  margin-top: clamp(26px, 3.4vh, 38px);
+}
+
+/* ---- what you set ---- */
+/* The field is the type, and its rule is the whole control. A boxed
+   input here would be the one framed thing on a page that frames
+   nothing — and it would make the amount look like a form field
+   rather than like the figure it is about to be turned into. */
+.vault-field {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  transition: box-shadow 0.3s var(--ease-v), border-color 0.3s var(--ease-v);
+}
+.vault-field:focus-within {
+  border-color: transparent;
+  /* the rule thickens into the accent — a 2px indicator, so the focus
+     ring can be dropped without dropping the affordance */
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* over capacity the rule turns with the readout beneath it, so the
+   field itself says which number the decline is about */
+.vault-field[data-over="true"] {
+  border-color: color-mix(in srgb, var(--ember) 50%, var(--border));
+}
+.vault-field[data-over="true"]:focus-within {
+  box-shadow: inset 0 -2px 0 var(--ember);
+}
+.vault-amount {
+  /* sized to its own digits where the engine can, so USDC sits beside
+     the figure rather than out at the far edge of the column. `size`
+     on the element is the fallback everywhere else. */
+  flex: 0 1 auto;
+  field-sizing: content;
+  min-width: 3ch;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--ff-display);
+  font-size: clamp(34px, 4.2vw, 54px);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.vault-amount:focus-visible {
+  outline: none; /* the rule above is the indicator */
+}
+.vault-amount::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+.vault-unit {
+  flex: none;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--subtle);
+}
+
+.vault-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.vault-chip {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--surface);
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-v), border-color 0.2s var(--ease-v),
+    background-color 0.2s var(--ease-v), color 0.2s var(--ease-v);
+}
+.vault-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--muted);
+  color: var(--ink);
+}
+.vault-chip:active {
+  transform: scale(0.97);
+}
+.vault-chip[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent-text);
+}
+
+/* The capacity of the series, on screen BEFORE the decline rather than
+   as its excuse: this is the reason the vault is allowed to say no. */
+.vault-cap {
+  margin-top: clamp(20px, 2.6vh, 28px);
+}
+.vault-cap-track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.vault-cap-fill {
+  display: block;
+  width: var(--fill, 0%);
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--accent);
+  transition: width 0.45s var(--ease-v), background-color 0.35s var(--ease-v);
+}
+.vault-cap[data-over="true"] .vault-cap-fill {
+  background: var(--ember);
+}
+.vault-cap-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 9px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--subtle);
+}
+.vault-cap-num {
+  color: var(--muted);
+}
+.vault-cap[data-over="true"] .vault-cap-line,
+.vault-cap[data-over="true"] .vault-cap-num {
+  color: var(--ember-text);
+}
+
+.vault-terms-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.vault-term {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-v), border-color 0.2s var(--ease-v),
+    background-color 0.2s var(--ease-v);
+}
+.vault-term:hover {
+  transform: translateY(-1px);
+  border-color: var(--muted);
+}
+.vault-term-date {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.vault-term-meta {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--subtle);
+}
+.vault-term[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.vault-term[aria-pressed="true"] .vault-term-meta {
+  color: var(--accent-text);
+}
+
+/* ---- what it is worth ---- */
+.vault-out {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-left: clamp(28px, 4vw, 60px);
+  border-left: 1px solid var(--border);
+}
+/* The quote is lit rather than boxed — the same move the payoff chart
+   makes, and the hero's readout before it.
+
+   The strength is per-ground, because a glow is not a thing paper does.
+   On the dark canvas a 12% radial is light coming off the figure; on
+   #FBFAF7 the identical radial is a green cloud sitting behind it, and
+   it read as a smudge rather than as lift. Paper gets a quarter of it,
+   pulled in tight around the number. */
+.vault-out::before {
+  content: "";
+  position: absolute;
+  inset: -10% -6% 26% 6%;
+  z-index: 0;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    48% 44% at 40% 34%,
+    color-mix(in srgb, var(--accent) var(--lift, 12%), transparent),
+    transparent 70%
+  );
+  transition: opacity 0.5s var(--ease-v), background 0.4s var(--ease-v);
+}
+:root:not([data-theme="dark"]) .vault-out::before {
+  --lift: 4.5%;
+}
+[data-theme="dark"] .vault-out::before {
+  inset: -14% -8% 20% 2%;
+}
+.vault-out[data-state="ok"]::before {
+  opacity: 1;
+}
+.vault-out[data-state="declined"]::before {
+  opacity: 1;
+  background: radial-gradient(
+    48% 44% at 40% 34%,
+    color-mix(in srgb, var(--ember) var(--lift, 13%), transparent),
+    transparent 70%
+  );
+}
+:root:not([data-theme="dark"]) .vault-out[data-state="declined"]::before {
+  --lift: 5.5%;
+}
+.vault-out > * {
+  position: relative;
+  z-index: 1;
+}
+.vault-out-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+/* takes the slack, so the CTA sits on the floor of the column whichever
+   state is showing rather than sliding up and down with the copy */
+.vault-out-body {
+  flex: 1;
+  margin-top: clamp(14px, 2vh, 20px);
+}
+
+.vault-payout {
+  display: flex;
+  align-items: baseline;
+  gap: 0.2em;
+  font-family: var(--ff-display);
+  font-size: clamp(38px, 5.4vw, 74px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.032em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.vault-payout-unit {
+  font-family: var(--ff-mono);
+  font-size: 0.28em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--subtle);
+}
+.vault-on {
+  margin-top: 12px;
+  font-size: 15px;
+  color: var(--muted);
+}
+.vault-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: clamp(18px, 2.4vh, 24px);
+  padding-top: clamp(14px, 2vh, 18px);
+  border-top: 1px solid var(--border);
+}
+.vault-facts li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.vault-facts-key {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.vault-facts-val {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.vault-facts-gain {
+  color: var(--accent-text);
+}
+
+/* The decline. Not an error state — a policy, stated plainly, with the
+   two things that would fix it sitting under it. */
+.vault-decline {
+  font-family: var(--ff-display);
+  font-size: clamp(24px, 2.9vw, 36px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.026em;
+  text-wrap: balance;
+  color: var(--ember-text);
+}
+.vault-decline-sub {
+  max-width: 34em;
+  margin-top: 13px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  text-wrap: pretty;
+  color: var(--muted);
+}
+.vault-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.vault-cta {
+  align-self: flex-start;
+  margin-top: clamp(22px, 3vh, 32px);
+  transition: opacity 0.35s var(--ease-v), filter 0.35s var(--ease-v),
+    box-shadow 0.35s var(--ease-v), transform 0.2s var(--ease-v);
+}
+/* This is the page's only primary button standing on paper — the hero's
+   and the closing card's both sit on the black stage, where `.btn-primary`'s
+   30%-accent bloom is the light it casts. On #FBFAF7 that same bloom is a
+   soft green halo under the button. Paper gets a contact shadow and a
+   short tint instead: the button sits ON the page rather than glowing
+   through it. */
+:root:not([data-theme="dark"]) .vault-cta {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 1px 2px rgb(18 18 18 / 0.1),
+    0 5px 14px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+:root:not([data-theme="dark"]) .vault-cta:hover {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 2px 4px rgb(18 18 18 / 0.12),
+    0 9px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+/* stood down while the vault is declining — present, so the column does
+   not re-flow around its hole, but plainly not the next thing to press */
+.vault-cta[data-off="true"] {
+  pointer-events: none;
+  opacity: 0.32;
+  filter: saturate(0.25);
+  box-shadow: none;
+}
+
+/* ---- the vault, narrow ---- */
+@media (max-width: 899.98px) {
+  .vault {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: clamp(26px, 4vh, 36px);
+    padding-top: clamp(18px, 2.8vh, 26px);
+  }
+  /* the rule between the two halves turns with the layout */
+  .vault-out {
+    margin-top: clamp(24px, 3.2vh, 32px);
+    padding-top: clamp(20px, 2.8vh, 26px);
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .vault-out::before {
+    inset: -6% -8% 30% -4%;
+  }
+  .vault-cta {
+    align-self: stretch;
+    justify-content: center;
+  }
+}
+@media (max-width: 560px) {
+  /* three dates side by side is three two-line chips on a 350px frame —
+     stacked, each is one row that reads left to right like a line of a
+     term sheet */
+  .vault-terms-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .vault-term {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 14px;
+  }
+}
+
+/* ============================================================
+   The FAQ
+
+   Rows, not cards — the same hairlines as the three trades above it.
+   Every answer stays in the markup whether or not its row is open:
+   the panel collapses by animating a grid track to 0fr, so nothing is
+   unmounted and nothing is display:none, and this page is the
+   protocol's main answer surface for anything that reads rather than
+   scrolls. Closed rows are `inert`, so what a crawler can read is
+   still not something a keyboard can tab into by accident.
+   ============================================================ */
+/* Narrower and quieter than the sections above it. This is reference
+   material, not an argument: the measure is set for scanning a list of
+   twelve questions, and the type sits a step below the page's body so
+   the block reads as an appendix rather than as a fifth section
+   competing with the four that carry the case. */
+.faq-list {
+  max-width: 840px;
+  margin: clamp(30px, 4.4vh, 48px) auto 0;
+  border-top: 1px solid var(--border);
+}
+.faq-item {
+  border-bottom: 1px solid var(--border);
+}
+.faq-h {
+  margin: 0;
+}
+.faq-q {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: clamp(16px, 3vw, 40px);
+  width: 100%;
+  padding: clamp(15px, 1.9vh, 18px) 0;
+  text-align: left;
+  font-size: clamp(14.5px, 1.1vw, 15.5px);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  cursor: pointer;
+  transition: color 0.3s var(--ease-v);
+}
+@media (hover: hover) and (pointer: fine) {
+  .faq-q:hover {
+    color: var(--accent-text);
+  }
+}
+.faq-item[data-open="true"] .faq-q {
+  color: var(--accent-text);
+}
+
+/* a plus that turns into a minus — one bar rotates, the other holds */
+.faq-mark {
+  position: relative;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 4px;
+  opacity: 0.5;
+  transition: opacity 0.3s var(--ease-v);
+}
+.faq-mark::before,
+.faq-mark::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 1.5px;
+  margin-top: -0.75px;
+  border-radius: 1px;
+  background: currentColor;
+  transition: transform 0.45s var(--ease-v);
+}
+.faq-mark::after {
+  transform: rotate(90deg);
+}
+.faq-item[data-open="true"] .faq-mark {
+  opacity: 1;
+}
+.faq-item[data-open="true"] .faq-mark::after {
+  transform: rotate(0deg);
+}
+
+.faq-a {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.5s var(--ease-v);
+}
+.faq-item[data-open="true"] .faq-a {
+  grid-template-rows: 1fr;
+}
+/* the clip has to be its own element: padding on a 0fr grid item still
+   renders, and the row would never close all the way */
+.faq-a-clip {
+  overflow: hidden;
+}
+.faq-a-inner {
+  padding-bottom: clamp(17px, 2.2vh, 22px);
+}
+.faq-body {
+  max-width: 62ch;
+  font-size: clamp(13.5px, 1vw, 14.5px);
+  line-height: 1.62;
+  text-wrap: pretty;
+  color: var(--muted);
+}
+.faq-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--accent-text);
+  transition: gap 0.25s var(--ease-v);
+}
+.faq-link:hover {
+  gap: 10px;
+}
 /* ============================================================
    Responsive tweaks for component classes
    ============================================================ */
@@ -2584,6 +3367,7 @@ body {
     transform: none !important;
   }
   .io,
+  .blur-in,
   .rise,
   .f-up,
   .f-wipe,

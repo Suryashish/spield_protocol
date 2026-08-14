@@ -17,6 +17,9 @@ import PayoffExplorer from "@/components/PayoffExplorer";
  */
 export default function TradersSection() {
   const sectionRef = useInView<HTMLElement>(0.15);
+  /* its own trigger: this section is thousands of pixels tall, so its
+     own `.in` fires long before the statement is on screen */
+  const statementRef = useInView<HTMLDivElement>(0.25, "seen");
   const [focus, setFocus] = useState<"yt" | "pt" | null>(null);
 
   const d = (ms: number) => ({ "--d": `${ms}ms` }) as React.CSSProperties;
@@ -25,22 +28,25 @@ export default function TradersSection() {
     <section
       ref={sectionRef}
       id="traders"
-      /* the tail ran to 102px of blank below the CTA on a phone */
-      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pb-[clamp(96px,12vh,160px)] max-[900px]:pb-[clamp(48px,7vh,76px)]"
+      /* pt: the vault section ends on a solid green CTA and this one
+         opens on a small pill, and the vault's own tail alone left the
+         two too close to read as separate arguments.
+         pb: the tail ran to 102px of blank below the CTA on a phone */
+      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pt-[clamp(96px,14vh,200px)] pb-[clamp(96px,12vh,160px)] max-[900px]:pt-[clamp(64px,9vh,110px)] max-[900px]:pb-[clamp(48px,7vh,76px)]"
       aria-label="The yield market — for traders"
     >
       {/* centred, the same way the mechanism section opens — the two
           statements are the page's two theses and should sit alike */}
-      <div className="mx-auto max-w-[900px] text-center">
-        <div className="io" style={d(0)}>
+      <div ref={statementRef} className="mx-auto max-w-[900px] text-center">
+        <div className="blur-in" style={d(0)}>
           <span className="inline-flex items-center gap-[9px] rounded-full border border-line bg-surface/60 px-[15px] py-2 font-mono text-[11px] font-medium tracking-[0.14em] uppercase text-muted">
             <span className="pulse-dot-ember" aria-hidden="true" /> The yield market
           </span>
         </div>
 
         <h2
-          className="io mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
-          style={d(90)}
+          className="blur-in mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
+          style={d(140)}
         >
           Think yield goes higher?{" "}
           <span className="font-serif italic font-normal text-[1.04em] text-ember-text">Trade</span>{" "}
@@ -48,8 +54,8 @@ export default function TradersSection() {
         </h2>
 
         <p
-          className="io mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
-          style={d(180)}
+          className="blur-in mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
+          style={d(280)}
         >
           <strong className="font-medium text-ink">YT</strong>&nbsp;is the variable half of every
           deposit &mdash; a cheap, liquid claim on all the yield a full position earns.

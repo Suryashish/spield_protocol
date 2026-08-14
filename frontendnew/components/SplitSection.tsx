@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useInView } from "@/lib/useInView";
+import DepositFlow from "@/components/DepositFlow";
+import { MECHANISM, beatLabel } from "@/lib/mechanism";
 
 /**
  * Section 2 — "the mechanism". A centred statement, then the three
@@ -42,37 +44,31 @@ type Step = {
  */
 const PREVIEW_REEL: string | null = null;
 
-const STEPS: Step[] = [
-  {
-    index: "01",
-    alt: "Step one — Deposit. Your USDC routes into Blend, Stellar's lending market, and earns the floating rate from the first ledger.",
-    tone: "var(--usdc)",
-    seq: 1,
-    video: "/videos/1.mp4",
-  },
-  {
-    index: "02",
-    alt: "Step two — Split. Spield separates the position into PT, the principal that comes back, and YT, every unit of yield it earns before maturity.",
-    tone: "var(--accent)",
-    seq: 0,
-    video: "/videos/2.mp4",
-  },
-  {
-    index: "03",
-    alt: "Step three — Choose. Hold PT and redeem exactly 1.0000 at maturity, or hold YT and carry a full position's yield for a sliver of the capital.",
-    tone: "var(--ember)",
-    seq: 1,
-    /* 582x776 — 3:4 like the other two, so object-cover has nothing to
-       trim and the whole frame is what the card shows */
-    video: "/videos/4.mp4",
-  },
+/**
+ * How each beat looks, keyed by its position in `MECHANISM`. The words
+ * live in `lib/mechanism.ts` because the HowTo schema reads them too;
+ * only the treatment is decided here.
+ */
+const LOOK: Array<Pick<Step, "tone" | "seq" | "video" | "poster">> = [
+  { tone: "var(--usdc)", seq: 1, video: "/videos/1.mp4" },
+  { tone: "var(--accent)", seq: 0, video: "/videos/2.mp4" },
+  /* 582x776 — 3:4 like the other two, so object-cover has nothing to
+     trim and the whole frame is what the card shows */
+  { tone: "var(--ember)", seq: 1, video: "/videos/4.mp4" },
 ];
+
+const STEPS: Step[] = MECHANISM.map((beat, i) => ({
+  index: beat.index,
+  alt: beatLabel(beat),
+  ...LOOK[i],
+}));
 
 /** the card that leads the deal, and the one that plays when nothing is hovered */
 const LEAD = 1;
 
 export default function SplitSection() {
   const sectionRef = useInView<HTMLElement>(0.15);
+  const statementRef = useInView<HTMLDivElement>(0.25, "seen");
 
   /* Playback follows the deal. While the cards are still arriving only
      the middle one runs; once they have all landed, hovering picks the
@@ -112,22 +108,26 @@ export default function SplitSection() {
       className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pt-[clamp(52px,8vh,104px)] pb-[clamp(90px,12vh,150px)]"
       aria-label="How Spield works"
     >
-      {/* The thread the section hangs from. The sheet used to arrive over
-          130px of bare canvas before the first word; this gives the eye
-          something to follow across the seam. */}
-      <span className="seam io" aria-hidden="true" />
+      {/* The section opens by showing what it is about to say: one stream
+          comes over the sheet's lip, forks, and the two halves run flat
+          and leave straight out of both sides of the window. Only then
+          does the statement underneath name them. */}
+      <div className="flow-stage">
+        <DepositFlow />
 
-      {/* ---- the statement, centred ---- */}
-      <div className="mx-auto max-w-[900px] text-center">
-        <div className="io" style={d(0)}>
+        {/* ---- the statement, centred, standing in the stream ----
+            its own observer: the section's `.in` fires while this is still
+            most of a screen below the fold */}
+        <div ref={statementRef} className="flow-statement mx-auto max-w-[900px] text-center">
+        <div className="blur-in" style={d(0)}>
           <span className="inline-flex items-center gap-[9px] rounded-full border border-line bg-surface/60 px-[15px] py-2 font-mono text-[11px] font-medium tracking-[0.14em] uppercase text-muted">
             <span className="pulse-dot" aria-hidden="true" /> The mechanism
           </span>
         </div>
 
         <h2
-          className="io mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
-          style={d(90)}
+          className="blur-in mx-auto mt-[26px] max-w-[13em] text-balance font-display text-[clamp(34px,4.6vw,68px)] font-bold leading-[1.02] tracking-[-0.028em]"
+          style={d(140)}
         >
           Your deposit was{" "}
           <span className="font-serif italic font-normal text-[1.04em] text-accent-text">always</span>{" "}
@@ -135,14 +135,15 @@ export default function SplitSection() {
         </h2>
 
         <p
-          className="io mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
-          style={d(180)}
+          className="blur-in mx-auto mt-[18px] max-w-[40em] text-pretty text-[clamp(15.5px,1.3vw,18px)] leading-[1.6] text-muted"
+          style={d(280)}
         >
           Spield routes your USDC into Blend, Stellar&rsquo;s lending market, then splits the
           position. <strong className="font-medium text-ink">Certainty</strong> and{" "}
           <strong className="font-medium text-ink">upside</strong>&nbsp;become separate tokens
           &mdash; hold one, trade the other.
         </p>
+        </div>
       </div>
 
       {/* ---- the three beats, standing up with the scroll.

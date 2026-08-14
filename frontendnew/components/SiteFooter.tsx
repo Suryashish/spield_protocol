@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useInView } from "@/lib/useInView";
 import { ArrowRight } from "@/components/icons";
 import BrandMark from "@/components/BrandMark";
+import { NETWORK } from "@/lib/series";
+import { SITE } from "@/lib/seo/site";
 
 /**
  * The closing plate: the directory, then SPIELD cut into the floor at
@@ -20,41 +23,51 @@ import BrandMark from "@/components/BrandMark";
  * the hero headline uses, so the page ends the way it began.
  */
 
-type Column = { title: string; links: Array<{ label: string; href: string }> };
+type Link = { label: string; href: string; external?: boolean };
+type Column = { title: string; links: Link[] };
 
 const COLUMNS: Column[] = [
   {
+    /* Rooted, like the nav's — the footer is on the guides too now, and
+       a bare `#split` there points at nothing. */
     title: "Protocol",
     links: [
-      { label: "Why Spield", href: "#split" },
-      { label: "How it works", href: "#split" },
-      { label: "Products", href: "#" },
-      { label: "FAQ", href: "#" },
+      { label: "How it works", href: "/#split" },
+      { label: "Fixed Vault", href: "/#vault" },
+      { label: "The yield market", href: "/#traders" },
+      { label: "FAQ", href: "/#faq" },
     ],
   },
   {
     title: "App",
     links: [
       { label: "Launch app", href: "#" },
-      { label: "Fixed Vault", href: "#" },
-      { label: "Markets", href: "#traders" },
-      { label: "Solvency", href: "#" },
+      { label: "Protocol facts", href: "/learn/spield-protocol-facts" },
+      { label: "Solvency & backing", href: "/learn/verifiable-transparent-defi" },
+      { label: "Is Stellar DeFi safe?", href: "/learn/is-stellar-defi-safe" },
     ],
   },
   {
+    /* The four entry points into the corpus: the hub, the two pillars a
+       first-time reader actually starts on, and the glossary. */
     title: "Learn",
     links: [
-      { label: "Learn hub", href: "#" },
-      { label: "Fixed income on Stellar", href: "#" },
-      { label: "How to earn yield", href: "#" },
-      { label: "Glossary", href: "#" },
+      { label: "Learn hub", href: "/learn" },
+      { label: "Fixed income on Stellar", href: "/learn/fixed-income-on-stellar" },
+      { label: "How to earn yield", href: "/learn/how-to-earn-yield-on-stellar" },
+      { label: "Glossary", href: "/glossary" },
     ],
   },
   {
+    /* The two rows here are the only outbound links on the page, and the
+       Organization schema names both in `sameAs` — a profile claimed in
+       structured data and never linked to from the page is the weaker
+       half of the signal, so these point at the real accounts. */
     title: "Community",
     links: [
-      { label: "Twitter / X", href: "#" },
-      { label: "Contact", href: "mailto:contact@spield.live" },
+      { label: "Twitter / X", href: SITE.twitterUrl, external: true },
+      { label: "Source", href: SITE.github, external: true },
+      { label: "Contact", href: `mailto:${SITE.email}` },
     ],
   },
 ];
@@ -81,15 +94,15 @@ export default function SiteFooter() {
         {/* ---- the address, and the directory ---- */}
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] gap-[clamp(36px,6vw,88px)] max-[1000px]:grid-cols-1 max-[1000px]:gap-10">
           <div className="flex flex-col">
-            <a
+            <Link
               className="f-up inline-flex items-center gap-[10px] self-start font-display text-[21px] font-bold tracking-[-0.02em] text-ink"
               style={d(0)}
-              href="#"
+              href="/"
               aria-label="Spield home"
             >
               <BrandMark />
               Spield
-            </a>
+            </Link>
 
             <p
               className="f-up mt-[18px] max-w-[34em] text-pretty text-[14.5px] leading-[1.62] text-muted"
@@ -115,20 +128,40 @@ export default function SiteFooter() {
           >
             {COLUMNS.map((col, ci) => (
               <div key={col.title}>
-                <h2
+                {/* A directory label, not a section of the document. It
+                    was an <h2>, which put "Protocol" and "Community" on
+                    the same rung of the outline as the page's actual
+                    arguments — and that outline is what a search engine
+                    and an answer engine both read the page's structure
+                    off. The styling never came from the tag. */}
+                <p
                   className="f-up font-mono text-[10.5px] font-medium tracking-[0.18em] uppercase text-subtle"
                   style={d(150 + ci * 80)}
                 >
                   {col.title}
-                </h2>
+                </p>
                 <ul className="mt-[15px] flex flex-col gap-[11px]">
                   {col.links.map((link, li) => (
                     /* the reveal rides the li — the anchor owns transform
                        for its own hover shift and the two would collide */
                     <li key={link.label} className="f-up" style={d(195 + ci * 80 + li * 45)}>
-                      <a className="footer-link" href={link.href}>
-                        {link.label}
-                      </a>
+                      {link.href.startsWith("/") ? (
+                        /* a real route — Link so it prefetches and
+                           navigates rather than reloading the document */
+                        <Link className="footer-link" href={link.href}>
+                          {link.label}
+                        </Link>
+                      ) : (
+                        <a
+                          className="footer-link"
+                          href={link.href}
+                          {...(link.external
+                            ? { target: "_blank", rel: "noopener noreferrer" }
+                            : {})}
+                        >
+                          {link.label}
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -150,15 +183,32 @@ export default function SiteFooter() {
           {/* padded well past the glyph overhang, so the mask never crops
               the ascenders or the descender on the p once it has landed */}
           <div className="footer-mark-mask">
-            <h2 className="footer-mark" style={d(0)} aria-hidden="true">
+            {/* the wordmark cut into the floor — an ornament, and it was
+                an aria-hidden <h2>, which is a heading that exists in the
+                outline for machines and nowhere for people */}
+            <div className="footer-mark" style={d(0)} aria-hidden="true">
               Spield
-            </h2>
+            </div>
           </div>
         </div>
 
         {/* ---- the plate ---- */}
         <div className="relative z-1 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pb-[clamp(26px,4vh,40px)]">
           <div className="footer-rule f-wipe" style={d(340)} aria-hidden="true" />
+
+          {/* The disclosure, in full, at the foot of the page: the marker
+              beside each figure says "example", and this says what the
+              example is instead of. Set at the plate's size rather than
+              in fine print — a disclosure nobody can read is a decision
+              to not have made one. */}
+          <p className="footer-note f-up" style={d(390)}>
+            Every figure on this page &mdash; rates, prices, payouts, balances &mdash; is a worked
+            example chosen to explain the mechanism, not live protocol data and not a quote. Spield
+            is deployed on{" "}
+            <span className="text-muted">{NETWORK}</span>; real numbers come from the app, read
+            from the contracts at the moment you ask for them.
+          </p>
+
           <div className="mt-[18px] flex flex-wrap items-center justify-between gap-x-8 gap-y-3 font-mono text-[11.5px] tracking-[0.04em] text-subtle">
             <p className="f-up" style={d(420)}>
               &copy; 2026 Spield Protocol. Built on{" "}

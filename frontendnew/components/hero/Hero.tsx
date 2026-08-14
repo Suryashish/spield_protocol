@@ -2,6 +2,7 @@
 
 import { SERIES, fmtUsd, fmtInt } from "@/lib/series";
 import { ArrowDown, ArrowRight, DriftLock } from "@/components/icons";
+import Illustrative from "@/components/Illustrative";
 import { useVaultScene } from "./useVaultScene";
 
 /**
@@ -68,7 +69,7 @@ export default function Hero() {
               style={{ "--d": "200ms" } as React.CSSProperties}
               aria-hidden="true"
             >
-              Series &middot; Dec 2026
+              Series &middot; Dec 2026 &middot; Illustrative
             </div>
 
             {/* Portrait reserves the bottom band for the dial, so the
@@ -171,6 +172,11 @@ function Readout({
           </span>
           <span className="readout-dot" aria-hidden="true" />
           <span className="readout-label readout-term">{SERIES.days} days</span>
+          {/* The truth about the number, on the one line that describes
+              it. Desktop only — the phone carries it on the engraved
+              plate instead, where there is room for it to be read. */}
+          <span className="readout-dot readout-dot-illus" aria-hidden="true" />
+          <Illustrative tone="stage" className="readout-illus" />
         </span>
         <div ref={driftNumRef} className="readout-num mono">
           <DriftLock />
@@ -205,7 +211,11 @@ function TermsPlate({
       className="plate absolute inset-x-0 bottom-7 z-3 flex flex-wrap items-center justify-center gap-y-2.25 px-6 font-mono text-[11px] tracking-widest uppercase text-onstage-faint"
       aria-hidden="true"
     >
+      {/* the marker rides INSIDE the payout fact rather than standing as
+          its own item: this is the one thing on the plate that survives
+          to a phone, so the qualifier has to survive with it */}
       <span className="inline-flex items-center gap-2 whitespace-nowrap">
+        <Illustrative tone="stage" label="Example" className="mr-0.5" />
         {fmtInt(SERIES.deposit)} <span className="text-[rgba(250,250,248,0.25)]">&rarr;</span>{" "}
         <span className="val">{fmtUsd(SERIES.payout)}</span> USDC
       </span>

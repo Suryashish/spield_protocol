@@ -1,0 +1,972 @@
+/* ============================================================
+   The Learn hub, the glossary and the comparisons.
+
+   Same page, different job. The landing page argues; these pages
+   explain, and the difference has to show up as density rather than as
+   a different design. So everything here is built from the tokens
+   globals.css already defines, and from the one structural idea that
+   page settled on: things are separated by hairlines and by space, not
+   by boxes. There is no card in this file. An answer box, a callout, a
+   set of takeaways — each is a rule and a measure of silence, because a
+   page with nine framed panels down it reads as a dashboard, and this
+   is prose.
+
+   Type is set on the same three faces: Satoshi for anything that is a
+   heading, Geist for reading, Geist Mono for the small tracked-out
+   labels that say what a thing is. One word per display heading takes
+   the serif italic, exactly as the sections downstairs do.
+   ============================================================ */
+
+/* ---------- the column ----------
+   65ch of body text, and a rail beside it on a wide screen. The rail
+   is the table of contents; it is not sticky chrome, it is a margin
+   note that happens to stay put. */
+
+.doc {
+  position: relative;
+  z-index: 1;
+  margin-inline: auto;
+  max-width: 1220px;
+  padding-inline: clamp(20px, 4vw, 48px);
+  /* clears the fixed 80px nav, plus air */
+  padding-top: clamp(112px, 15vh, 168px);
+  padding-bottom: clamp(72px, 10vh, 120px);
+}
+
+.doc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(36px, 5vw, 72px);
+}
+@media (min-width: 1060px) {
+  .doc-grid.has-rail {
+    grid-template-columns: minmax(0, 1fr) 232px;
+  }
+}
+
+.doc-body {
+  min-width: 0;
+  /* the reading measure. A guide is prose and prose has one right
+     width; the rail beside it is what uses the rest of the screen */
+  max-width: 68ch;
+}
+/* A hub is not prose — it is a list you scan, and its rows want the
+   width the rail would otherwise take. The descriptions inside stay
+   capped at their own measure, so nothing here is set wider than it
+   can be read at. */
+.doc-body-wide {
+  max-width: 1000px;
+}
+
+/* ---------- the head of a document ---------- */
+
+.doc-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  padding: 8px 15px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.doc-title {
+  margin-top: 24px;
+  font-family: var(--ff-display);
+  font-weight: 700;
+  /* smaller than the landing page's display sizes on purpose: that
+     page has one idea per screen, this one has an argument to get
+     through, and 68px of headline above 4000 words is a poster */
+  font-size: clamp(33px, 4vw, 54px);
+  line-height: 1.05;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.doc-title em {
+  font-family: var(--ff-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.04em;
+  color: var(--accent-text);
+}
+
+.doc-standfirst {
+  margin-top: 18px;
+  max-width: 46em;
+  font-size: clamp(16px, 1.35vw, 18.5px);
+  line-height: 1.6;
+  text-wrap: pretty;
+  color: var(--muted);
+}
+
+/* the byline row: mono, tracked out, hairline above and below */
+.doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: clamp(26px, 3.4vh, 34px);
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.doc-meta-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 3px;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* ---------- breadcrumbs ---------- */
+
+.crumbs {
+  margin-bottom: 22px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  list-style: none;
+}
+.crumbs li + li::before {
+  content: "/";
+  margin-right: 9px;
+  opacity: 0.45;
+}
+.crumbs a {
+  position: relative;
+  color: var(--subtle);
+  transition: color 0.25s var(--ease-v);
+}
+.crumbs a:hover {
+  color: var(--ink);
+}
+/* 11px mono sets a 14px-tall link, which is a real miss on a phone.
+   The hit area is grown with a pseudo-element rather than with padding
+   so the crumb row does not move a pixel — padding here would push the
+   whole document down and change the space under the nav. Inline links
+   inside a sentence are left alone: WCAG 2.5.8 exempts them, and
+   padding them would break the line rhythm of the prose. */
+.crumbs a::after {
+  content: "";
+  position: absolute;
+  inset: -9px -7px;
+}
+.crumbs [aria-current="page"] {
+  color: var(--muted);
+}
+
+/* ---------- prose ----------
+   The measure is set on .doc-body; everything here is rhythm. */
+
+/* A NOTE ON THE CLAMPS BELOW.
+   Every size here is clamp(min, vw, max), and on a phone the vw term is
+   tiny — 1.15vw of 390px is 4.5px — so the MINIMUM is what a phone
+   actually gets. The minimum is therefore the mobile size, not a panic
+   floor, and it is set to what is comfortable to read at arm's length:
+   16.5px for body copy, ~15px for secondary text. Under 16px body text
+   is where a phone reader starts pinching to zoom, and these are pages
+   people read for four minutes at a time. */
+
+.prose {
+  /* the air under the byline rule. It lives here rather than on the
+     body's first block because that block varies — an answer box on a
+     guide, a paragraph on a term page — and the gap should not. */
+  margin-top: clamp(30px, 4vh, 42px);
+  font-size: clamp(16.5px, 1.15vw, 17px);
+  line-height: 1.72;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.prose > * + * {
+  margin-top: 1.15em;
+}
+
+.prose h2,
+.prose h3,
+.prose h4 {
+  position: relative;
+  font-family: var(--ff-display);
+  color: var(--ink);
+  letter-spacing: -0.022em;
+  line-height: 1.18;
+  text-wrap: balance;
+  scroll-margin-top: 104px; /* the fixed nav, when you land on an anchor */
+}
+.prose h2 {
+  margin-top: 2.1em;
+  font-size: clamp(23px, 2vw, 30px);
+  font-weight: 700;
+}
+.prose h3 {
+  margin-top: 1.9em;
+  font-size: clamp(18.5px, 1.5vw, 21px);
+  font-weight: 600;
+}
+.prose h4 {
+  margin-top: 1.7em;
+  font-size: clamp(16px, 1.25vw, 17.5px);
+  font-weight: 600;
+}
+/* the first heading of a body should not push off the meta row */
+.prose > :first-child {
+  margin-top: 0;
+}
+
+/* the anchor: a hairline # that only exists once you are near it */
+.prose .anchor {
+  position: absolute;
+  left: -0.85em;
+  color: var(--accent-text);
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 0.2s var(--ease-v);
+}
+@media (hover: hover) and (pointer: fine) {
+  .prose h2:hover .anchor,
+  .prose h3:hover .anchor,
+  .prose h4:hover .anchor {
+    opacity: 0.55;
+  }
+}
+.prose .anchor:focus-visible {
+  opacity: 1;
+}
+@media (max-width: 900px) {
+  .prose .anchor {
+    display: none;
+  }
+}
+
+.prose strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+.prose em {
+  font-style: italic;
+}
+.prose a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-text) 34%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.25s var(--ease-v);
+}
+.prose a:hover {
+  text-decoration-color: currentColor;
+}
+
+.prose code {
+  font-family: var(--ff-mono);
+  font-size: 0.88em;
+  /* an inline code span is usually a contract address here, and those
+     break anywhere rather than pushing the column open */
+  word-break: break-word;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.35em;
+}
+.prose li + li {
+  margin-top: 0.5em;
+}
+.prose ul > li {
+  list-style: none;
+  position: relative;
+}
+.prose ul > li::before {
+  content: "";
+  position: absolute;
+  left: -1em;
+  top: 0.72em;
+  width: 5px;
+  height: 1px;
+  background: var(--subtle);
+}
+.prose ol > li {
+  list-style: decimal;
+}
+.prose ol > li::marker {
+  font-family: var(--ff-mono);
+  font-size: 0.85em;
+  color: var(--subtle);
+}
+
+/* ---------- the answer box ----------
+   The single most-lifted element on the page, so it is the first thing
+   under the title and it is set large. Not a panel: a rule down the
+   left and the accent on the question. */
+
+.answer-box {
+  margin-top: 2em;
+  padding-left: clamp(18px, 2.4vw, 26px);
+  border-left: 2px solid var(--accent);
+}
+.answer-q {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.answer-a {
+  margin-top: 12px;
+  font-size: clamp(17px, 1.45vw, 19.5px);
+  line-height: 1.6;
+  color: var(--ink);
+}
+.answer-a strong {
+  font-weight: 500;
+}
+
+/* ---------- key takeaways ----------
+   Hairline top and bottom, mono label, and the list set tight. */
+
+.takeaways {
+  margin-top: 2.4em;
+  padding: clamp(20px, 2.6vh, 26px) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.takeaways-title {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+/* Same specificity story as .steps — scoped rather than shouted, so the
+   !important these two rules used to carry can go. */
+.prose .takeaways ul,
+.takeaways ul {
+  margin-top: 14px;
+  padding-left: 1.1em;
+}
+.takeaways li {
+  font-size: clamp(15.5px, 1.05vw, 15.5px);
+  line-height: 1.6;
+}
+.prose .takeaways ul > li::before,
+.takeaways li::before {
+  background: var(--accent);
+  width: 7px;
+}
+
+/* ---------- callouts ----------
+   A rule in the variant's colour, and nothing else. */
+
+.callout {
+  margin-top: 1.9em;
+  padding-left: clamp(16px, 2vw, 22px);
+  border-left: 2px solid var(--border);
+  font-size: 0.96em;
+}
+.callout-title {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.callout-info {
+  border-left-color: var(--usdc);
+}
+.callout-info .callout-title {
+  color: var(--usdc-text);
+}
+.callout-tip,
+.callout-success {
+  border-left-color: var(--accent);
+}
+.callout-tip .callout-title,
+.callout-success .callout-title {
+  color: var(--accent-text);
+}
+.callout-warning {
+  border-left-color: var(--ember);
+}
+.callout-warning .callout-title {
+  color: var(--ember-text);
+}
+
+/* ---------- tables ----------
+   Mono headers, hairline rows, and a horizontal scroll of its own so a
+   six-column comparison never pushes the page sideways. */
+
+.table-wrap {
+  margin-top: 1.9em;
+  overflow-x: auto;
+  /* the column is 68ch; a table is allowed the full width of the grid
+     cell, which is what makes a comparison legible */
+  width: 100%;
+}
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: clamp(14.5px, 1vw, 15px);
+  line-height: 1.55;
+}
+.table-wrap caption {
+  caption-side: top;
+  text-align: left;
+  padding-bottom: 12px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.table-wrap th {
+  text-align: left;
+  padding: 0 18px 11px 0;
+  border-bottom: 1px solid var(--ink);
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.table-wrap td {
+  padding: 13px 18px 13px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--muted);
+}
+.table-wrap td:first-child {
+  color: var(--ink);
+}
+.table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+/* On a phone, a table has to be allowed to be wider than the phone.
+   `width: 100%` alone does not overflow — it SQUASHES, and a
+   three-column comparison crammed into 350px gives every cell about
+   70px, which wraps the prose to one word a line and is unreadable in a
+   way that looks deliberate. Floors on the cells mean the table asks for
+   the width it needs and the wrapper scrolls when it cannot have it.
+   Narrow two-column tables still fit and never scroll. */
+@media (max-width: 720px) {
+  .table-wrap th,
+  .table-wrap td {
+    min-width: 8.5em;
+  }
+  /* the label column is short by nature — "Rate", "Best for" */
+  .table-wrap th:first-child,
+  .table-wrap td:first-child {
+    min-width: 6.5em;
+  }
+  .table-wrap th {
+    /* nowrap plus a floor would force a two-word header to set the
+       column width for the whole table */
+    white-space: normal;
+  }
+
+  /* And say so. A table that scrolls but does not look like it is a
+     table whose last three columns nobody reads.
+
+     Only three of the twenty-five tables in the corpus are wider than
+     three columns, so this is the whole treatment they get — a stacked
+     card mode for three tables would be more machinery than the problem
+     deserves. But the edge has to announce itself.
+
+     The two cover gradients are painted `local` so they travel with the
+     content; the two shadows are painted `scroll` so they stay pinned to
+     the box. A shadow is therefore only visible once its cover has slid
+     away — which is exactly when there is more table in that direction.
+     No measuring, no JS, and it is correct at every scroll position. */
+  .table-wrap {
+    background:
+      linear-gradient(to right, var(--canvas) 42%, transparent) 0 0 / 44px 100% no-repeat local,
+      linear-gradient(to left, var(--canvas) 42%, transparent) 100% 0 / 44px 100% no-repeat local,
+      radial-gradient(
+          farthest-side at 0 50%,
+          color-mix(in srgb, var(--ink) 30%, transparent),
+          transparent
+        )
+        0 0 / 22px 100% no-repeat scroll,
+      radial-gradient(
+          farthest-side at 100% 50%,
+          color-mix(in srgb, var(--ink) 30%, transparent),
+          transparent
+        )
+        100% 0 / 22px 100% no-repeat scroll;
+  }
+}
+
+/* ---------- steps ----------
+   The numeral is the ornament — mono, tracked out, in the subtle grey,
+   sitting in the margin the way the beat numbers do on the landing
+   page's mechanism cards. */
+
+/* Scoped through .prose. `.prose ol > li { list-style: decimal }` is a
+   more specific selector than a bare `.steps`, so the browser drew its
+   own "1." next to the counter's "01" — every step numbered twice — and
+   `.prose ol { padding-left }` pushed the whole list off the rule that
+   is supposed to connect the beats. */
+.prose .steps,
+.steps {
+  margin-top: 1.9em;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.prose .steps > li,
+.steps > li {
+  position: relative;
+  list-style: none;
+  counter-increment: step;
+  padding-left: clamp(38px, 4vw, 52px);
+  padding-bottom: clamp(20px, 2.4vh, 26px);
+}
+.prose .steps > li + li {
+  /* the beats own their spacing through padding-bottom */
+  margin-top: 0;
+}
+.steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 0.1em;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--accent-text);
+}
+.steps > li::after {
+  /* the rule runs down the gutter, connecting the beats */
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 2em;
+  bottom: 0.4em;
+  width: 1px;
+  background: var(--border);
+}
+.steps > li:last-child {
+  padding-bottom: 0;
+}
+.steps > li:last-child::after {
+  display: none;
+}
+.step-title {
+  font-weight: 500;
+  color: var(--ink);
+}
+.step-title + p {
+  margin-top: 6px;
+}
+
+/* ---------- the in-article FAQ ----------
+   The same hairline rows as the landing page's, but open. Downstairs
+   the accordion exists because twelve questions are a wall between you
+   and the footer; here the questions ARE the page, and a reader who
+   scrolled this far has already decided to read. */
+
+.doc-faq {
+  margin-top: 2.4em;
+  border-top: 1px solid var(--border);
+}
+.doc-faq-item {
+  padding: clamp(18px, 2.2vh, 22px) 0;
+  border-bottom: 1px solid var(--border);
+}
+/* Scoped through .prose deliberately. The question is an <h3>, so the
+   bare `.doc-faq-q` lost to `.prose h3` on specificity and the rows
+   inherited a section heading's size and its 1.9em top margin — which
+   is a section's worth of air inside a list row. */
+.prose .doc-faq-q,
+.doc-faq-q {
+  margin-top: 0;
+  font-family: var(--ff-display);
+  font-size: clamp(17px, 1.3vw, 18px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  scroll-margin-top: 104px;
+}
+.doc-faq-a {
+  margin-top: 9px;
+  font-size: clamp(15.5px, 1.05vw, 15.5px);
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+/* ---------- quotes and code ---------- */
+
+.prose blockquote {
+  margin-top: 1.9em;
+  padding-left: clamp(16px, 2vw, 22px);
+  border-left: 2px solid var(--border);
+  font-family: var(--ff-serif);
+  font-style: italic;
+  font-size: 1.12em;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.prose blockquote cite {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--ff-mono);
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+
+.prose pre {
+  margin-top: 1.9em;
+  overflow-x: auto;
+  padding: clamp(16px, 2vw, 22px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.prose pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  word-break: normal;
+}
+
+/* ---------- the rail ----------
+   A margin note. It holds itself at reading height and never gets a
+   border, a background, or a heading bigger than the label it is. */
+
+.rail {
+  display: none;
+}
+@media (min-width: 1060px) {
+  .rail {
+    display: block;
+    position: sticky;
+    top: 108px;
+    align-self: start;
+    max-height: calc(100vh - 148px);
+    overflow-y: auto;
+    /* the scrollbar, when the contents are long, should not draw a
+       second rule beside the one the list already has */
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+}
+.rail-title {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.rail ul {
+  margin-top: 14px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+.rail li a {
+  display: block;
+  padding: 7px 0 7px 16px;
+  margin-left: -1px;
+  border-left: 1px solid transparent;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--subtle);
+  transition: color 0.25s var(--ease-v), border-color 0.25s var(--ease-v);
+}
+.rail li a:hover {
+  color: var(--ink);
+  border-left-color: var(--accent);
+}
+.rail .rail-l3 a {
+  padding-left: 28px;
+  font-size: 12.5px;
+}
+
+/* ---------- the foot of a document: related, sources ---------- */
+
+.doc-foot {
+  margin-top: clamp(52px, 7vh, 80px);
+  padding-top: clamp(28px, 3.6vh, 38px);
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: clamp(30px, 4vw, 48px);
+}
+@media (min-width: 760px) {
+  .doc-foot.two-up {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.doc-foot h2 {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+.doc-foot ul {
+  margin-top: 15px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.doc-foot a {
+  position: relative;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--muted);
+  transition: color 0.25s var(--ease-v);
+}
+.doc-foot a:hover {
+  color: var(--accent-text);
+}
+/* same hit-area treatment as the crumbs — the 10px list gap means this
+   grows the target to ~31px without two rows ever overlapping */
+.doc-foot a::after {
+  content: "";
+  position: absolute;
+  inset: -5px -4px;
+}
+
+/* the disclosure that closes every educational page */
+.doc-disclosure {
+  margin-top: clamp(34px, 4.4vh, 46px);
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  max-width: 62em;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--subtle);
+}
+
+/* ============================================================
+   The hubs — /learn, /glossary, /compare
+   ============================================================ */
+
+.hub-head {
+  max-width: 780px;
+}
+
+/* ---- the index: rows, not a grid of cards ----
+   Twenty-four guides as tiles is a wall of identical rectangles you
+   scan rather than read. As rows the titles line up, which is what you
+   are actually comparing, and the whole hub fits in far less scroll. */
+
+/* the air between the hub's header and its first group */
+.hub-groups {
+  margin-top: clamp(44px, 6vh, 68px);
+}
+.hub-group + .hub-group {
+  margin-top: clamp(48px, 6vh, 70px);
+}
+.hub-group-title {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--subtle);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.hub-list {
+  list-style: none;
+}
+.hub-row {
+  display: block;
+  padding: clamp(18px, 2.2vh, 24px) 0;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.3s var(--ease-v);
+}
+.hub-row-in {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px clamp(20px, 3vw, 44px);
+}
+.hub-row-title {
+  font-family: var(--ff-display);
+  font-size: clamp(17px, 1.5vw, 20.5px);
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.018em;
+  color: var(--ink);
+  text-wrap: balance;
+  transition: color 0.25s var(--ease-v);
+}
+.hub-row:hover .hub-row-title {
+  color: var(--accent-text);
+}
+.hub-row-desc {
+  grid-column: 1;
+  margin-top: 7px;
+  max-width: 62ch;
+  font-size: clamp(15px, 1.05vw, 15px);
+  line-height: 1.6;
+  text-wrap: pretty;
+  color: var(--muted);
+}
+.hub-row-meta {
+  grid-row: 1;
+  grid-column: 2;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--subtle);
+  white-space: nowrap;
+}
+@media (max-width: 620px) {
+  .hub-row-meta {
+    display: none;
+  }
+}
+
+/* pillars get the accent marker, so the four pages that carry the
+   category are findable in a list of twenty-four */
+.hub-row[data-pillar="true"] .hub-row-meta {
+  color: var(--accent-text);
+}
+
+/* ---- the glossary index: a definition list, two columns ---- */
+
+.glossary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 clamp(28px, 4vw, 56px);
+  border-top: 1px solid var(--ink);
+}
+@media (min-width: 860px) {
+  .glossary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.glossary-row {
+  display: block;
+  padding: clamp(16px, 2vh, 20px) 0;
+  border-bottom: 1px solid var(--border);
+}
+/* both are spans inside the row's anchor, so they need blockifying —
+   inline they run the term straight into its own definition */
+.glossary-term {
+  display: block;
+  font-family: var(--ff-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  transition: color 0.25s var(--ease-v);
+}
+.glossary-row:hover .glossary-term {
+  color: var(--accent-text);
+}
+.glossary-def {
+  display: block;
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.6;
+  text-wrap: pretty;
+  color: var(--muted);
+}
+
+/* ---- the closing call, at the foot of a hub ---- */
+
+.hub-cta {
+  margin-top: clamp(56px, 8vh, 88px);
+  padding-top: clamp(30px, 4vh, 42px);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px clamp(24px, 4vw, 48px);
+}
+.hub-cta-text {
+  max-width: 44ch;
+  font-size: clamp(15px, 1.2vw, 16.5px);
+  line-height: 1.55;
+  text-wrap: pretty;
+  color: var(--muted);
+}
+.hub-cta-text strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* The page's ghost button is drawn for the dark stage — light type on a
+   translucent white. On paper it is invisible, so this is the paper
+   twin: a hairline and the ink. */
+.btn-outline {
+  border: 1px solid var(--border);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-float-sm);
+}
+.btn-outline:hover {
+  transform: translateY(-2px);
+  border-color: var(--muted);
+}
+
+/* ---------- a glossary term page ----------
+   Short by nature — a definition, a few paragraphs, and the way back
+   into the guides. The definition itself is set at display size,
+   because on this page it is the headline's equal, not its footnote. */
+
+.term-def {
+  margin-top: 22px;
+  max-width: 40em;
+  font-family: var(--ff-serif);
+  font-style: italic;
+  font-size: clamp(21px, 2.1vw, 28px);
+  line-height: 1.38;
+  text-wrap: pretty;
+  color: var(--ink);
+}
+.term-aliases {
+  margin-top: 16px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}

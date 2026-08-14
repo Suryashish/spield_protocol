@@ -14,6 +14,7 @@ import {
   ytRedeem,
   ytReturn,
 } from "@/lib/payoff";
+import Illustrative from "@/components/Illustrative";
 
 /**
  * The payoff explorer. Two instruments, one number between them: drag
@@ -86,6 +87,9 @@ export default function PayoffExplorer({ focus }: { focus: Focus }) {
         <p className="pay-verdict" data-lead={lead}>
           {VERDICT[lead]}
         </p>
+        {/* every price this instrument is struck on is a worked example —
+            said once, here, under the number they all hang off */}
+        <Illustrative className="pay-illus" />
       </div>
 
       {/* Level with the control rather than beside the chart. These are

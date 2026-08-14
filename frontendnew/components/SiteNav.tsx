@@ -1,15 +1,28 @@
 "use client";
 
 import { useRef } from "react";
+import Link from "next/link";
 import { SunIcon, MoonIcon } from "@/components/icons";
 import BrandMark from "@/components/BrandMark";
 
+/**
+ * Rooted paths, not bare fragments. The nav is on every page now, and
+ * `#vault` from inside a guide points at an anchor that page does not
+ * have; `/#vault` goes home and lands on it. From the landing page it is
+ * still a same-document fragment jump, so nothing about that page's
+ * behaviour changes.
+ *
+ * Liquidity / Solvency / Docs were placeholders pointing at `#`. The
+ * three routes that replace them are real pages with real content, which
+ * also gives the corpus an internal link from every page on the site —
+ * the thing a Learn hub most needs and least often gets.
+ */
 const LINKS: Array<{ label: string; href: string }> = [
-  { label: "Vault", href: "#" },
-  { label: "Market", href: "#traders" },
-  { label: "Liquidity", href: "#" },
-  { label: "Solvency", href: "#" },
-  { label: "Docs", href: "#" },
+  { label: "Vault", href: "/#vault" },
+  { label: "Market", href: "/#traders" },
+  { label: "Learn", href: "/learn" },
+  { label: "Glossary", href: "/glossary" },
+  { label: "Compare", href: "/compare" },
 ];
 
 export default function SiteNav() {
@@ -63,14 +76,14 @@ export default function SiteNav() {
 
   return (
     <header className="site-nav fixed inset-x-0 top-0 z-30 flex h-20 items-center justify-between px-[clamp(20px,4vw,48px)]">
-      <a
+      <Link
         className="flex items-center gap-[10px] font-display text-[21px] font-bold tracking-[-0.02em]"
-        href="#"
+        href="/"
         aria-label="Spield home"
       >
         <BrandMark />
         Spield
-      </a>
+      </Link>
 
       <nav
         ref={navRef}
@@ -81,7 +94,7 @@ export default function SiteNav() {
       >
         <span ref={gliderRef} className="nav-glider" aria-hidden="true" />
         {LINKS.map(({ label, href }) => (
-          <a
+          <Link
             key={label}
             href={href}
             onPointerEnter={show}
@@ -89,7 +102,7 @@ export default function SiteNav() {
             className="relative z-1 rounded-full px-[15px] py-2 text-[14.5px] font-medium text-muted transition-colors duration-250 hover:text-ink"
           >
             {label}
-          </a>
+          </Link>
         ))}
       </nav>
 

@@ -3,6 +3,7 @@
 import { SERIES } from "@/lib/series";
 import { ArrowRight } from "@/components/icons";
 import { useInView } from "@/lib/useInView";
+import Illustrative from "@/components/Illustrative";
 
 /**
  * The close — the vault, once more, at the end of the argument.
@@ -75,18 +76,27 @@ export default function ClosingCTA() {
             </a>
           </div>
 
-          {/* the terms, engraved along the floor — the same mono chrome
-              the hero's plate closes on. Tracked-out mono wraps badly:
-              on a phone the lead and the last fact stand down so this
-              stays one line rather than three. */}
+          {/* The terms, engraved along the floor — the same mono chrome
+              the hero's plate closes on. Tracked-out mono wraps badly
+              and the card gives this row only ~668px: three facts is
+              what fits, so "backed 1:1 on-chain" stood down when the
+              illustrative marker joined. It is said in full in the
+              footer and in the FAQ, both a screen away. On a phone the
+              lead and the last fact stand down too, leaving the one
+              thing this row exists to say. */}
+          {/* The marker leads the row and never stands down: on a phone
+              this line is cut to two facts, and if one of them has to
+              be what the numbers are, it is that. */}
           <ul className="close-terms io" style={d(330)}>
+            <li>
+              <Illustrative tone="stage" />
+            </li>
+            <li className="close-term-sep" aria-hidden="true" />
             <li>
               <span className="close-term-lead">Series &middot; </span>matures {SERIES.maturity}
             </li>
-            <li className="close-term-sep" aria-hidden="true" />
-            <li>Non-custodial</li>
             <li className="close-term-sep close-term-opt" aria-hidden="true" />
-            <li className="close-term-opt">Backed 1:1 on-chain</li>
+            <li className="close-term-opt">Non-custodial</li>
           </ul>
         </div>
       </section>
