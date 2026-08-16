@@ -50,11 +50,11 @@
     <meta name="twitter:creator" content="@spield_" />
 
     <!--
-      Analytics (Google Analytics + Microsoft Clarity) are deferred until the page
-      is idle so they never block first paint or steal main-thread time during the
-      critical render. The gtag stub is defined up front so any early events
-      queue, and the tag itself is injected after `window.load` (or on first
-      user interaction, whichever comes first) via requestIdleCallback.
+      Google Analytics, deferred until the page is idle so it never blocks first
+      paint or steals main-thread time during the critical render. The gtag stub
+      is defined up front so any early events queue, and the tag itself is
+      injected after `window.load` (or on first user interaction, whichever
+      comes first) via requestIdleCallback.
 
       NO MICROSOFT CLARITY HERE, deliberately — it runs on the marketing site
       only (see ../frontendnew/components/Analytics.tsx). Clarity records

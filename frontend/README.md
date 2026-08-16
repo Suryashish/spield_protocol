@@ -71,6 +71,14 @@ filesystem *before* applying rewrites, so hashed assets, icons and the manifest
 are served normally and only unmatched paths fall through to the shell for React
 Router to resolve.
 
+**Do not re-add `cleanUrls`.** It was here for the prerendered `/learn/*.html`
+pages, which no longer exist, and it is actively incompatible with the rewrite
+above: `cleanUrls` redirects `/index.html` to `/`, so a rewrite whose
+destination *is* `/index.html` collides with it and every deep route 404s while
+`/` keeps working — a failure that looks like a routing bug in the app rather
+than a config one. If you ever want `cleanUrls` back, the destination has to
+become `/` at the same time.
+
 ## Analytics
 
 Google Analytics only — the tag is deferred to idle or first interaction, and
