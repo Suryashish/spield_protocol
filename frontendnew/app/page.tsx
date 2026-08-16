@@ -4,6 +4,7 @@ import Partners from "@/components/Partners";
 import SplitSection from "@/components/SplitSection";
 import VaultSection from "@/components/VaultSection";
 import TradersSection from "@/components/TradersSection";
+import TrustSection from "@/components/TrustSection";
 import FAQ from "@/components/FAQ";
 import ClosingCTA from "@/components/ClosingCTA";
 import SiteFooter from "@/components/SiteFooter";
@@ -45,6 +46,12 @@ export default function Home() {
           <SplitSection />
           <VaultSection />
           <TradersSection />
+          {/* After the three arguments and before the questions: the page has
+              now claimed a fixed rate, a split, and a market, and this is where
+              it hands over the addresses and says check it yourself. Putting it
+              after the FAQ would make the receipts a footnote to the
+              objections rather than the answer to them. */}
+          <TrustSection />
           <FAQ />
           <ClosingCTA />
           <SiteFooter />

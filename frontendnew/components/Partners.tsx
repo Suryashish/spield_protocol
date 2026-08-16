@@ -77,10 +77,14 @@ export default function Partners() {
       ref={ref}
       aria-label="Built on the Stellar ecosystem"
       /* pt clears the sheet's 32px lip so the strip reads as the first thing
-         inside the panel rather than as something crowding its edge; pb stays
-         tight because the mechanism section below opens with its own generous
-         top padding and two large gaps would leave the strip stranded. */
-      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pt-[clamp(52px,7vh,92px)] pb-[clamp(4px,1vh,16px)]"
+         inside the panel rather than as something crowding its edge.
+
+         pb was originally near-zero on the theory that the mechanism section
+         below brings its own generous top padding. It does not bring enough:
+         that section opens on 80px, so the seam measured 90px against 120px
+         and 260px elsewhere, and the strip read as attached to the argument
+         below it rather than as its own beat. */
+      className="relative z-2 mx-auto max-w-[1220px] px-[clamp(20px,4vw,48px)] pt-[clamp(52px,7vh,92px)] pb-[clamp(24px,4vh,56px)]"
     >
       <p
         className="io text-center font-mono text-[10.5px] font-medium tracking-[0.18em] uppercase text-subtle"
