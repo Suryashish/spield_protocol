@@ -55,12 +55,14 @@ const fmtTime = (unix: number): string =>
  * actually earn" view; the market-derived *implied* APY arrives with the Phase 3 AMM.
  */
 const YieldChart = () => {
-  // Re-pull whenever the protocol refreshes (e.g. after a deposit/claim).
-  const { refreshing, marketStats } = useProtocol();
+  // Use the completed-refresh timestamp rather than `refreshing`, which changes
+  // twice per refresh and previously issued duplicate history RPC calls.
+  const { lastUpdated, marketStats } = useProtocol();
   const [history, setHistory] = useState<YieldHistory | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!lastUpdated) return;
     let cancelled = false;
     // Legitimate data-fetch effect; the terminal state is set in the async callbacks.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -79,7 +81,7 @@ const YieldChart = () => {
     return () => {
       cancelled = true;
     };
-  }, [refreshing]);
+  }, [lastUpdated]);
 
   // Convert absolute rate samples → cumulative yield % since the first observation.
   // Yield is computed from the integer baseline at full precision (see lib/yield).

@@ -137,25 +137,39 @@ export const getOwnerReceipts = async (owner: string, maxScan = 64): Promise<Rec
   if (!VAULT_DEPLOYED) return [];
   const receipts: Receipt[] = [];
   let misses = 0;
-  for (let id = 0; id < maxScan && misses < 5; id++) {
-    let raw: Record<string, unknown> | null;
-    try {
-      raw = await readContract<Record<string, unknown>>(CONTRACTS.vault, 'get_receipt', [u64(id)]);
-    } catch {
-      misses += 1;
-      continue;
+  const SCAN_CONCURRENCY = 6;
+  for (let start = 0; start < maxScan && misses < 5; start += SCAN_CONCURRENCY) {
+    const ids = Array.from(
+      { length: Math.min(SCAN_CONCURRENCY, maxScan - start) },
+      (_, offset) => start + offset,
+    );
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        readContract<Record<string, unknown>>(CONTRACTS.vault, 'get_receipt', [u64(id)]),
+      ),
+    );
+
+    for (let index = 0; index < ids.length && misses < 5; index++) {
+      const result = results[index];
+      if (result.status === 'rejected' || !result.value) {
+        // A missing receipt is an end-of-list signal. Previously only RPC errors
+        // incremented this counter, so an empty vault could scan all 64 ids.
+        misses += 1;
+        continue;
+      }
+
+      misses = 0;
+      const raw = result.value;
+      if (String(raw.owner) !== owner || !raw.open) continue;
+      receipts.push({
+        receiptId: ids[index],
+        principal: toBig(raw.principal),
+        payout: toBig(raw.payout),
+        rateBps: toNum(raw.rate_bps),
+        maturity: toNum(raw.maturity),
+        open: true,
+      });
     }
-    misses = 0;
-    if (!raw || String(raw.owner) !== owner) continue;
-    if (!raw.open) continue;
-    receipts.push({
-      receiptId: id,
-      principal: toBig(raw.principal),
-      payout: toBig(raw.payout),
-      rateBps: toNum(raw.rate_bps),
-      maturity: toNum(raw.maturity),
-      open: true,
-    });
   }
   return receipts;
 };

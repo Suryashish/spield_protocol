@@ -58,12 +58,13 @@ const fmtAdaptivePct = (frac: number | null): string => {
  * the Markets page leads with one prominent visual instead of a separate stat strip.
  */
 const MarketChart = () => {
-  const { refreshing, marketStats: m } = useProtocol();
+  const { lastUpdated, marketStats: m } = useProtocol();
   const [history, setHistory] = useState<MarketHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [series, setSeries] = useState<Series>('price');
 
   useEffect(() => {
+    if (!lastUpdated) return;
     let cancelled = false;
     // Legitimate data-fetch effect; the terminal state is set in the async callbacks.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -84,9 +85,8 @@ const MarketChart = () => {
     return () => {
       cancelled = true;
     };
-    // Re-pull when the protocol refreshes (after a swap/LP action) so a fresh point lands.
-    // `m` identity changes on each refresh, which is exactly when we want a new sample.
-  }, [refreshing, m]);
+    // Re-pull once after a completed protocol refresh so a fresh point lands.
+  }, [lastUpdated, m]);
 
   const { data, spanLabel, intraday, hasEnough } = useMemo(() => {
     const samples = history?.samples ?? [];

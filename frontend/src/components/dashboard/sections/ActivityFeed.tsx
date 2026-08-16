@@ -31,8 +31,9 @@ const KIND_META: Record<
 
 const ActivityFeed = () => {
   const { address, isConnected } = useWallet();
-  // Re-fetch whenever the protocol refreshes (e.g. after a write).
-  const { refreshing } = useProtocol();
+  // `refreshing` flips true then false for one refresh, which used to run this
+  // effect twice. A completed refresh has one new timestamp instead.
+  const { lastUpdated } = useProtocol();
   const [items, setItems] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [mineOnly, setMineOnly] = useState(true);
@@ -45,10 +46,11 @@ const ActivityFeed = () => {
   }, []);
 
   useEffect(() => {
+    if (!lastUpdated) return;
     // Legitimate data-fetch effect; loading state lives inside the async `load`.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  }, [load, refreshing]);
+  }, [lastUpdated, load]);
 
   const visible =
     mineOnly && isConnected && address ? items.filter((i) => i.user === address) : items;

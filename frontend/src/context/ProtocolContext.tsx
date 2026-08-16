@@ -98,9 +98,12 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
 
   // Track the latest request so a slow stale fetch can't clobber a newer one.
   const reqId = useRef(0);
+  // React Strict Mode re-runs mount effects in development. Remembering the
+  // account avoids starting a duplicate full on-chain scan for the same mount.
+  const initialLoadKey = useRef<string | null>(null);
 
   const load = useCallback(
-    async (isInitial: boolean) => {
+    async (isInitial: boolean, includeWallet = true) => {
       const id = ++reqId.current;
       if (isInitial) setLoading(true);
       else setRefreshing(true);
@@ -126,7 +129,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
         let nextReceipts: Receipt[] | undefined;
         let nextLp: LpPosition | null | undefined;
         let anyWalletReadFailed = false;
-        if (isConnected && address) {
+        if (isConnected && address && includeWallet) {
           const [posR, balR, tlR, rcptR, lpR] = await Promise.allSettled([
             getOwnerPositions(address),
             getWalletBalances(address),
@@ -144,7 +147,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
           else anyWalletReadFailed = true;
           if (lpR.status === 'fulfilled') nextLp = lpR.value;
           else anyWalletReadFailed = true;
-        } else {
+        } else if (!isConnected) {
           // Disconnected: reset wallet state to empty.
           nextPositions = [];
           nextBalances = EMPTY_BALANCES;
@@ -186,11 +189,16 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   // Initial load + reload whenever the connected account changes. This is a
   // legitimate data-fetch effect (loading state is set inside the async `load`).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load(true);
-  }, [load]);
+    const key = isConnected && address ? address : '__disconnected__';
+    if (initialLoadKey.current === key) return;
+    initialLoadKey.current = key;
+    void load(true, true);
+  }, [address, isConnected, load]);
 
-  const refresh = useCallback(() => load(false), [load]);
+  // Explicit/user-initiated refreshes (including post-transaction refreshes)
+  // include wallet details. The background poll below deliberately does not:
+  // owner-position and receipt scans are the expensive reads in this app.
+  const refresh = useCallback(() => load(false, true), [load]);
 
   // Poll chain state in the background so yield, solvency, pool, and receipt numbers stay
   // live without the user clicking Refresh or doing a transaction. We skip the tick while the
@@ -200,11 +208,11 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const POLL_MS = 30_000;
     const tick = () => {
-      if (document.visibilityState === 'visible') void load(false);
+      if (document.visibilityState === 'visible') void load(false, false);
     };
     const timer = setInterval(tick, POLL_MS);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void load(false);
+      if (document.visibilityState === 'visible') void load(false, false);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {

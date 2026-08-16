@@ -133,17 +133,31 @@ export const getOwnerPositions = async (
 ): Promise<PositionValue[]> => {
   const positions: PositionValue[] = [];
   let misses = 0;
-  for (let id = 0; id < maxScan && misses < missStreakLimit; id++) {
-    const pos = await readPositionSlot(id); // throws on persistent transient failure
-    if (pos === null) {
-      misses += 1;
-      continue;
-    }
-    misses = 0;
-    if (String(pos.owner) !== owner) continue;
-    const value = await getPositionValue(id);
-    if (value && (value.ptAmount > 0n || value.ytAmount > 0n || value.open)) {
-      positions.push(value);
+  // Keep a small, bounded amount of parallelism. The old one-at-a-time scan made
+  // every 50 ms RPC response visible as another request in DevTools and could make
+  // a 128-id scan take several seconds. A bounded batch is much faster without
+  // turning a public testnet endpoint into a 128-request burst.
+  const SCAN_CONCURRENCY = 6;
+  for (let start = 0; start < maxScan && misses < missStreakLimit; start += SCAN_CONCURRENCY) {
+    const ids = Array.from(
+      { length: Math.min(SCAN_CONCURRENCY, maxScan - start) },
+      (_, offset) => start + offset,
+    );
+    const slots = await Promise.all(ids.map((id) => readPositionSlot(id)));
+
+    for (let index = 0; index < ids.length && misses < missStreakLimit; index++) {
+      const id = ids[index];
+      const pos = slots[index];
+      if (pos === null) {
+        misses += 1;
+        continue;
+      }
+      misses = 0;
+      if (String(pos.owner) !== owner) continue;
+      const value = await getPositionValue(id);
+      if (value && (value.ptAmount > 0n || value.ytAmount > 0n || value.open)) {
+        positions.push(value);
+      }
     }
   }
   return positions;
