@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import localFont from "next/font/local";
 import SmoothScroll from "@/components/SmoothScroll";
 import ClickWarp from "@/components/ClickWarp";
+import Analytics from "@/components/Analytics";
 import { SITE } from "@/lib/seo/site";
 import { siteGraph } from "@/lib/seo/schema";
 import "./globals.css";
@@ -191,6 +192,10 @@ export default function RootLayout({
         <SmoothScroll />
         <ClickWarp />
         {children}
+        {/* Last in the tree, and it renders nothing — the tags it injects are
+            deferred to idle or first interaction, so nothing here competes
+            with the page for the critical render. */}
+        <Analytics />
       </body>
     </html>
   );

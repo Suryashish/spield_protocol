@@ -1,9 +1,9 @@
 {
-  "name": "Spield — Fixed-Rate Yield & Bonds on Stellar",
+  "name": "Spield App — Fixed-Rate Yield on Stellar",
   "short_name": "Spield",
-  "description": "The fixed-income layer for Stellar. Split yield-bearing deposits into tradable Principal Tokens (PT) and Yield Tokens (YT) to lock in fixed rates.",
+  "description": "Deposit USDC, mint and trade Principal (PT) and Yield (YT) tokens, provide liquidity, and bridge into Stellar.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/overview",
   "scope": "/",
   "display": "standalone",
   "background_color": "#020609",

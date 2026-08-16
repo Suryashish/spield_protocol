@@ -4,6 +4,7 @@ import { useRef } from "react";
 import Link from "next/link";
 import { SunIcon, MoonIcon } from "@/components/icons";
 import BrandMark from "@/components/BrandMark";
+import { SITE } from "@/lib/seo/site";
 
 /**
  * Rooted paths, not bare fragments. The nav is on every page now, and
@@ -116,9 +117,12 @@ export default function SiteNav() {
           <SunIcon />
           <MoonIcon />
         </button>
+        {/* The dApp is a different deployment on a different host, so this is
+            a plain <a>, not next/link: there is no client route to prefetch
+            and Link would only add a wasted prefetch attempt. */}
         <a
           className="rounded-full bg-ink px-5 py-[11px] text-[14.5px] font-medium text-canvas shadow-cta transition-all duration-200 hover:-translate-y-0.5 hover:opacity-[0.92] hover:shadow-cta-hover active:scale-[0.97]"
-          href="#"
+          href={SITE.appOrigin}
         >
           Launch App
         </a>

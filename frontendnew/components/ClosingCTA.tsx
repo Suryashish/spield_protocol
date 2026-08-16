@@ -4,6 +4,7 @@ import { SERIES } from "@/lib/series";
 import { ArrowRight } from "@/components/icons";
 import { useInView } from "@/lib/useInView";
 import Illustrative from "@/components/Illustrative";
+import { SITE } from "@/lib/seo/site";
 
 /**
  * The close — the vault, once more, at the end of the argument.
@@ -64,7 +65,7 @@ export default function ClosingCTA() {
             {/* the full label is 23 characters and forces the pair to
                 stack as two solid bars on a phone — narrow screens get
                 the short one and the two doors stay side by side */}
-            <a className="btn btn-primary" href="#">
+            <a className="btn btn-primary" href={`${SITE.appOrigin}/vault`}>
               <span className="close-cta-full">
                 Lock {SERIES.rate.toFixed(2)}% for {SERIES.days} days
               </span>

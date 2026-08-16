@@ -6,6 +6,7 @@ import { MAX_INPUT, PRESETS, TERMS } from "@/lib/vault";
 import { useInView } from "@/lib/useInView";
 import { ArrowRight } from "@/components/icons";
 import Illustrative from "@/components/Illustrative";
+import { SITE } from "@/lib/seo/site";
 
 /**
  * Section 3 — the Fixed-Rate Vault. The flagship, and the front door:
@@ -246,7 +247,7 @@ export default function VaultSection() {
           <a
             className="btn btn-primary vault-cta"
             data-off={String(over)}
-            href="#"
+            href={`${SITE.appOrigin}/vault`}
             aria-disabled={over || undefined}
             tabIndex={over ? -1 : undefined}
           >

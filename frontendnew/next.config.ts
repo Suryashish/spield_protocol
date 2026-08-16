@@ -13,6 +13,14 @@ import type { NextConfig } from "next";
  * both grade, and HSTS in particular is a ranking-adjacent signal in the
  * sense that a browser interstitial is worth rather less than a ranking.
  */
+/** Kept in step with `SITE.appOrigin` in lib/seo/site.ts, which the CTAs read.
+ *  Inlined rather than imported because next.config runs before the TS path
+ *  aliases that `@/lib/...` depends on are in play. */
+const APP_ORIGIN = (process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://app.spield.live").replace(
+  /\/+$/,
+  "",
+);
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
 
@@ -20,6 +28,30 @@ const nextConfig: NextConfig = {
     return [
       { source: "/.well-known/ai.txt", destination: "/ai.txt" },
       { source: "/.well-known/security.txt", destination: "/security.txt" },
+    ];
+  },
+
+  /**
+   * The dApp used to be mounted at `spield.live/dashboard/*` on the old Vite
+   * build; it now has its own host. Those URLs are in bookmarks, in wallet
+   * histories, and in the JSON-LD `Offer.url`s the old shell published — so
+   * they are forwarded rather than left to 404 against this site's not-found.
+   *
+   * Permanent (308), because the move is: a temporary redirect would keep
+   * Google holding the old apex URLs and never pass the signal along.
+   */
+  async redirects() {
+    return [
+      {
+        source: "/dashboard",
+        destination: APP_ORIGIN,
+        permanent: true,
+      },
+      {
+        source: "/dashboard/:path*",
+        destination: `${APP_ORIGIN}/:path*`,
+        permanent: true,
+      },
     ];
   },
 

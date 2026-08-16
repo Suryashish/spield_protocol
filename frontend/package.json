@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/prerender.mjs",
-    "build:app": "tsc -b && vite build",
-    "prerender": "node scripts/prerender.mjs",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -15,7 +13,6 @@
     "@allbridge/bridge-core-sdk": "^3.31.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@lobstrco/signer-extension-api": "^2.0.0",
-    "@lottiefiles/dotlottie-react": "^0.19.4",
     "@reown/appkit": "^1.8.20",
     "@reown/appkit-adapter-ethers": "^1.8.20",
     "@reown/appkit-adapter-solana": "^1.8.20",
@@ -31,7 +28,6 @@
     "ethers": "^6.16.0",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.17.0",
-    "ogl": "^1.0.11",
     "radix-ui": "^1.4.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

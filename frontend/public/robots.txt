@@ -1,7 +1,20 @@
+# app.spield.live is the Spield application, not the website.
+#
+# Nothing here is meant to be indexed: it is a wallet-gated SPA whose pages are
+# all live on-chain state. The indexable surface — the landing page, the /learn
+# hub, the glossary, the comparisons and the sitemap — lives at www.spield.live.
+# Indexing this host would only split search authority across two hosts for the
+# same brand terms.
+#
+# NOTE the deliberate `Allow: /`. De-indexing is done by the `noindex` directive
+# in the index.html meta AND the X-Robots-Tag response header (see vercel.json) —
+# and a crawler has to FETCH a URL to see either one. `Disallow: /` would block
+# that fetch, so Google would keep the URL as a bare, title-less listing
+# discovered via the "Launch app" link from spield.live. Blocking the crawl is
+# what keeps a page indexed here; allowing it is what removes it.
+
 User-agent: *
 Allow: /
 
-# Exclude specific dashboard state queries to prevent indexing duplicate page states
-Disallow: /dashboard?*
-
-Sitemap: https://www.spield.live/sitemap.xml
+# No sitemap: this host publishes nothing to index. The sitemap lives at
+# https://www.spield.live/sitemap.xml.

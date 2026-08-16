@@ -13,11 +13,25 @@ const ORIGIN = (process.env.NEXT_PUBLIC_SITE_ORIGIN ?? "https://www.spield.live"
   "",
 );
 
+/**
+ * The dApp is a SEPARATE deployment on its own subdomain (the Vite app in
+ * ../frontend). This site is the marketing and content surface; every
+ * "Launch app" CTA is a cross-origin hop to that host, so it lives here as
+ * a constant rather than a hard-coded href in each component.
+ *
+ * `NEXT_PUBLIC_APP_ORIGIN` lets a preview point at a preview of the app.
+ */
+const APP_ORIGIN = (process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://app.spield.live").replace(
+  /\/+$/,
+  "",
+);
+
 export const SITE = {
   name: "Spield",
   legalName: "Spield Protocol",
   origin: ORIGIN,
   domain: ORIGIN.replace(/^https?:\/\//, ""),
+  appOrigin: APP_ORIGIN,
   twitter: "@spield_",
   twitterUrl: "https://x.com/spield_",
   github: "https://github.com/Suryashish/spield_protocol",

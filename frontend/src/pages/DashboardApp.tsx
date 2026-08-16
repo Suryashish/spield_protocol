@@ -1,11 +1,9 @@
-// Installs the global `Buffer` the Allbridge/Solana bridge SDKs need. This lives
-// in the lazy dashboard chunk (not main.tsx) so the ~20KB `buffer` polyfill never
-// ships with the marketing landing / learn bundles that don't touch those SDKs.
-// It's a side-effect import at the top of this module, so it runs before any
-// provider below (which may pull in the bridge SDK) initializes.
+// Installs the global `Buffer` the Allbridge/Solana bridge SDKs need. It's a
+// side-effect import at the top of this module, so it runs before any provider
+// below (which may pull in the bridge SDK) initializes.
 import '@/lib/polyfills';
 
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 
 import DashboardPage from '@/pages/DashboardPage';
 import { WalletProvider } from '@/context/WalletContext';
@@ -14,18 +12,28 @@ import { ToastProvider } from '@/context/ToastContext';
 import { ReownProvider } from '@/context/ReownContext';
 
 /**
- * The interactive dApp, bundled as ONE lazy chunk.
+ * Redirects the legacy `/dashboard/*` URLs to their new root-level equivalents.
  *
- * This is where all the heavy dependencies live — the Stellar SDK, ethers, the
- * Reown multi-chain wallet connector, Allbridge, and the charting stack. By
- * putting the wallet/protocol/toast/reown providers AND the dashboard routes
- * here (instead of at the app root), none of that code loads until a visitor
- * actually navigates to /dashboard. The marketing landing page and the /learn
- * hub therefore ship a tiny bundle and paint almost immediately — see App.tsx,
- * which React.lazy()-loads this module.
+ * The app used to be mounted under `/dashboard` on the marketing domain, so
+ * `/dashboard/vault` is what old bookmarks, shared links, and any wallet-saved
+ * deep links still point at. Now that the dashboard IS the site root on
+ * app.spield.live, those paths are rewritten by dropping the prefix — with a
+ * bare `/dashboard` landing on the overview.
+ */
+function LegacyDashboardRedirect() {
+  const { '*': rest } = useParams();
+  return <Navigate to={`/${rest || 'overview'}`} replace />;
+}
+
+/**
+ * The interactive dApp — the entire app.spield.live surface.
  *
- * The provider order matches the previous App.tsx tree exactly:
- * Reown → Wallet → Toast → Protocol (Protocol depends on Wallet).
+ * Every section is a top-level route: `/overview`, `/vault`, `/deposit`, and so
+ * on, with `/` redirecting to the overview. The wallet/protocol/toast/reown
+ * providers wrap the whole tree.
+ *
+ * Provider order matters: Reown → Wallet → Toast → Protocol (Protocol depends
+ * on Wallet).
  */
 export default function DashboardApp() {
   return (
@@ -34,7 +42,7 @@ export default function DashboardApp() {
         <ToastProvider>
           <ProtocolProvider>
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard/overview" replace />} />
+              <Route path="/" element={<Navigate to="/overview" replace />} />
               <Route path="/overview" element={<DashboardPage />} />
               <Route path="/vault" element={<DashboardPage />} />
               <Route path="/deposit" element={<DashboardPage />} />
@@ -43,6 +51,14 @@ export default function DashboardApp() {
               <Route path="/bridge" element={<DashboardPage />} />
               <Route path="/solvency" element={<DashboardPage />} />
               <Route path="/activity" element={<DashboardPage />} />
+
+              {/* Legacy links from when the app lived at spield.live/dashboard. */}
+              <Route path="/dashboard/*" element={<LegacyDashboardRedirect />} />
+
+              {/* Anything else (including the marketing paths this build no
+                  longer serves) falls back to the overview rather than a blank
+                  screen — the SPA rewrite means unknown URLs reach React. */}
+              <Route path="*" element={<Navigate to="/overview" replace />} />
             </Routes>
           </ProtocolProvider>
         </ToastProvider>

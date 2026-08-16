@@ -31,6 +31,7 @@ import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { NavProvider } from '@/context/NavContext';
 import { NETWORK } from '@/lib/config';
+import { APP_ORIGIN } from '@/lib/site';
 
 const NetworkBanner = () => {
   const { isConnected, onCorrectNetwork } = useWallet();
@@ -475,34 +476,31 @@ const DashboardPage = () => {
   const [collapsed, setCollapsed] = useState(false);
   const { refresh, refreshing, stale } = useProtocol();
 
-  // Derive the active section from the URL path segment (e.g. /dashboard/vault -> vault)
+  // Derive the active section from the URL path segment (e.g. /vault -> vault)
   const activeNav = useMemo(() => {
     const parts = location.pathname.split('/');
     const segment = parts[parts.length - 1];
     return NAV_ITEMS.some((n) => n.id === segment) ? segment : 'overview';
   }, [location.pathname]);
 
-  // Backward compatibility: redirect any legacy /dashboard?section=vault URLs to /dashboard/vault
+  // Backward compatibility: redirect any legacy ?section=vault URLs to /vault
   useEffect(() => {
     const sectionParam = searchParams.get('section');
     if (sectionParam && NAV_ITEMS.some((n) => n.id === sectionParam)) {
-      navigate(`/dashboard/${sectionParam}`, { replace: true });
+      navigate(`/${sectionParam}`, { replace: true });
     }
   }, [searchParams, navigate]);
 
-  // Redirect bare /dashboard or /dashboard/ to /dashboard/overview
-  useEffect(() => {
-    if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
-      navigate('/dashboard/overview', { replace: true });
-    }
-  }, [location.pathname, navigate]);
-
   const nav = navById(activeNav);
 
+  // The app subdomain is deliberately kept out of search — the indexable pages
+  // are the marketing site and content hub at spield.live. Titles and share
+  // cards still matter for tabs and for links pasted into chats, so they stay.
   useSEO({
-    title: `${nav.label} | Dashboard | Spield Protocol`,
+    title: `${nav.label} | Spield App`,
     description: nav.subtitle,
-    canonical: `https://www.spield.live/dashboard/${nav.id}`,
+    canonical: `${APP_ORIGIN}/${nav.id}`,
+    noindex: true,
   });
 
   const Section = SECTIONS[nav.id] ?? OverviewSection;
@@ -511,7 +509,7 @@ const DashboardPage = () => {
   const navValue = useMemo(
     () => ({
       active: activeNav,
-      navigate: (id: string) => navigate(`/dashboard/${id}`),
+      navigate: (id: string) => navigate(`/${id}`),
     }),
     [activeNav, navigate],
   );

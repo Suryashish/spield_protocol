@@ -41,7 +41,7 @@ const COLUMNS: Column[] = [
   {
     title: "App",
     links: [
-      { label: "Launch app", href: "#" },
+      { label: "Launch app", href: SITE.appOrigin },
       { label: "Protocol facts", href: "/learn/spield-protocol-facts" },
       { label: "Solvency & backing", href: "/learn/verifiable-transparent-defi" },
       { label: "Is Stellar DeFi safe?", href: "/learn/is-stellar-defi-safe" },

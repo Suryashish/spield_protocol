@@ -1,11 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronsLeft } from 'lucide-react';
-import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';
 import { NETWORK } from '@/lib/config';
+import { SITE_ORIGIN } from '@/lib/site';
 
 import { NAV_ITEMS, type NavItem } from '../data';
 
@@ -117,9 +117,12 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
             collapsed ? 'justify-center px-2' : 'justify-between px-4'
           )}
         >
-          <Link
-            to="/"
-            title="Go to landing page"
+          {/* Brand → the marketing site, which is a different host now. A
+              react-router <Link to="/"> would land on the app's own overview
+              instead, so this is a plain cross-origin anchor. */}
+          <a
+            href={SITE_ORIGIN}
+            title="Go to spield.live"
             className="flex items-center gap-2 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
           >
             <img src={logo} alt="Logo" className="h-7 w-7 shrink-0 object-contain" />
@@ -135,7 +138,7 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
                 </motion.span>
               )}
             </AnimatePresence>
-          </Link>
+          </a>
           {!collapsed && (
             <Button
               variant="ghost"
@@ -187,11 +190,11 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
       {/* Same side rail as desktop, just smaller — always visible, icon-only so
           it takes minimal horizontal space on a phone. No drawer / hamburger. */}
       <aside className="flex w-14 shrink-0 flex-col border-r border-border bg-card lg:hidden">
-        {/* Brand → landing page */}
+        {/* Brand → the marketing site (cross-origin, as on desktop above) */}
         <div className="flex h-14 items-center justify-center border-b border-border px-2">
-          <Link to="/" title="Go to landing page" className="transition-opacity hover:opacity-80">
+          <a href={SITE_ORIGIN} title="Go to spield.live" className="transition-opacity hover:opacity-80">
             <img src={logo} alt="Logo" className="h-6 w-6 shrink-0 object-contain" />
-          </Link>
+          </a>
         </div>
 
         {/* Primary nav */}

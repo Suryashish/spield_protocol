@@ -3,6 +3,7 @@
 import { SERIES, fmtUsd, fmtInt } from "@/lib/series";
 import { ArrowDown, ArrowRight, DriftLock } from "@/components/icons";
 import Illustrative from "@/components/Illustrative";
+import { SITE } from "@/lib/seo/site";
 import { useVaultScene } from "./useVaultScene";
 
 /**
@@ -119,7 +120,11 @@ export default function Hero() {
                   data-reveal
                   style={{ "--d": "660ms" } as React.CSSProperties}
                 >
-                  <a className="btn btn-primary" href="#">
+                  {/* Straight into the Fixed Vault on the dApp — the section
+                      that actually locks a rate — rather than the app's
+                      overview, which would make the visitor navigate again to
+                      do the thing the button just promised. */}
+                  <a className="btn btn-primary" href={`${SITE.appOrigin}/vault`}>
                     Lock the rate
                     <ArrowRight />
                   </a>

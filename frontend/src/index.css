@@ -13,9 +13,13 @@
   --color-background: #020609;
   --color-surface: rgba(255, 255, 255, 0.03);
 
-  --font-display: "Playfair Display", serif;
+  /* App typography. These used to default to the landing page's
+     Inter / Playfair pair, with the app fonts scoped to .app-shell; the landing
+     page now ships from the Next.js site, so the app fonts ARE the defaults and
+     Inter / Playfair are no longer requested in index.html. */
+  --font-display: "Space Grotesk", sans-serif;
   --font-heading: "Space Grotesk", sans-serif;
-  --font-body: "Inter", sans-serif;
+  --font-body: "Plus Jakarta Sans", sans-serif;
 
   /* Main app (dashboard) typography — see .app-shell scope below. */
   --font-app-body: "Plus Jakarta Sans", sans-serif;
@@ -42,9 +46,11 @@
   }
 
   /* ---- Main app (dashboard) scope ----
-     The landing page keeps Inter / Space Grotesk / Playfair. Inside the app
-     shell, body text uses Plus Jakarta Sans and every heading uses Space
-     Grotesk.
+     Body text uses Plus Jakarta Sans and every heading uses Space Grotesk.
+     This block is now the same as the defaults above, but it stays because the
+     class is also applied to PORTALLED content — dialogs and Select popovers
+     render outside the dashboard tree, and the class is what carries the app's
+     type scope to them.
 
      We do this by REDEFINING the font tokens on .app-shell rather than setting
      font-family directly: Tailwind's utilities (.font-display, .font-sans, …)

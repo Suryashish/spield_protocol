@@ -15,11 +15,13 @@ interface SEOProps {
 const DEFAULT_IMAGE = 'https://www.spield.live/og-image.png';
 
 /**
- * Client-side SEO for the SPA's own routes (landing, dashboard). The AUTHORITATIVE
- * meta for crawlers on educational pages lives in the prerendered static HTML
- * (see scripts/prerender.mjs) — this hook keeps the interactive React routes and
- * in-app share previews correct. Manages title, description, canonical, robots,
+ * Per-route document meta for the dApp: title, description, canonical, robots,
  * Open Graph, and Twitter tags.
+ *
+ * This host is not indexed (see index.html and public/robots.txt), so the job
+ * here is not ranking — it's the browser tab and the link preview card when
+ * someone pastes an app URL into a chat or a support thread. Routes pass
+ * `noindex: true` to match the shell's own directive.
  */
 export function useSEO({
   title,

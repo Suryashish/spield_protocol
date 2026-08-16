@@ -2,9 +2,9 @@
 // from `@stellar/stellar-sdk`. These are canonical, immutable constants (see
 // .env.example / SEP-0002), and importing them from the SDK would pull the entire
 // multi-hundred-KB Stellar SDK into every module that reads a config value —
-// including the marketing landing page, which needs none of it. Keeping them as
-// strings lets `config.ts` stay dependency-free so it doesn't bloat the landing
-// bundle. If Stellar ever changes a passphrase (it won't), update here.
+// including modules that need none of it. Keeping them as strings lets
+// `config.ts` stay dependency-free. If Stellar ever changes a passphrase (it
+// won't), update here.
 const STELLAR_NETWORKS = {
   PUBLIC: 'Public Global Stellar Network ; September 2015',
   TESTNET: 'Test SDF Network ; September 2015',
