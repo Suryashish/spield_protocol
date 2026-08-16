@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { SITE } from "@/lib/seo/site";
 
 /**
  * Google Analytics + Microsoft Clarity.
@@ -89,9 +90,11 @@ export default function Analytics() {
     }
 
     let loaded = false;
+    let removeOver: (() => void) | undefined;
     const load = () => {
       if (loaded) return;
       loaded = true;
+      removeOver?.();
       for (const src of [
         `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`,
         `https://www.clarity.ms/tag/${CLARITY_ID}`,
@@ -114,6 +117,24 @@ export default function Analytics() {
     for (const e of ["pointerdown", "keydown", "touchstart", "scroll"]) {
       window.addEventListener(e, load, { once: true, passive: true });
     }
+
+    /* Hovering a link to the dApp starts the load early, and this is load-
+       bearing for cross-domain measurement rather than a nicety.
+       GA4 stitches the two hosts into one session by having gtag.js append a
+       `_gl` linker param to outbound links at CLICK time — so gtag.js has to
+       already be present when the click happens. `pointerdown` fires too late:
+       it starts an async download that the navigation outruns. A visitor whose
+       very first action is the CTA would therefore arrive on app.spield.live
+       undecorated and be counted as a new, self-referred session — and that is
+       precisely the highest-intent traffic, the people who read nothing and go
+       straight to the app. `pointerover` fires on hover (and on touch, before
+       the tap resolves), which buys the download enough time. */
+    const onOver = (e: Event) => {
+      const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (link?.href.startsWith(SITE.appOrigin)) load();
+    };
+    document.addEventListener("pointerover", onOver, { passive: true });
+    removeOver = () => document.removeEventListener("pointerover", onOver);
   }, []);
 
   /* --- one pageview per route, including the first --- */

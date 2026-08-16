@@ -3,13 +3,33 @@
 // below (which may pull in the bridge SDK) initializes.
 import '@/lib/polyfills';
 
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 
 import DashboardPage from '@/pages/DashboardPage';
 import { WalletProvider } from '@/context/WalletContext';
 import { ProtocolProvider } from '@/context/ProtocolContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { ReownProvider } from '@/context/ReownContext';
+
+/**
+ * `<Navigate>` that carries the query string across.
+ *
+ * A bare `<Navigate to="/overview">` DROPS `location.search`, and that quietly
+ * breaks GA4 cross-domain measurement. The marketing site appends a `_gl`
+ * linker param to its "Launch app" links, and gtag.js on this host has to read
+ * that param off the URL to stitch the arrival onto the same session. Our tag
+ * is deferred to idle-or-first-interaction, so it always loads AFTER this
+ * redirect has already run — if the redirect drops the param, the linker is
+ * gone before anything can consume it, and the visit is recorded as a fresh
+ * session self-referred from spield.live. Which is the exact problem
+ * cross-domain measurement is configured to solve.
+ *
+ * Campaign params (`utm_*`) ride along for the same reason.
+ */
+function RedirectPreservingQuery({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: to, search }} replace />;
+}
 
 /**
  * Redirects the legacy `/dashboard/*` URLs to their new root-level equivalents.
@@ -22,7 +42,7 @@ import { ReownProvider } from '@/context/ReownContext';
  */
 function LegacyDashboardRedirect() {
   const { '*': rest } = useParams();
-  return <Navigate to={`/${rest || 'overview'}`} replace />;
+  return <RedirectPreservingQuery to={`/${rest || 'overview'}`} />;
 }
 
 /**
@@ -42,7 +62,7 @@ export default function DashboardApp() {
         <ToastProvider>
           <ProtocolProvider>
             <Routes>
-              <Route path="/" element={<Navigate to="/overview" replace />} />
+              <Route path="/" element={<RedirectPreservingQuery to="/overview" />} />
               <Route path="/overview" element={<DashboardPage />} />
               <Route path="/vault" element={<DashboardPage />} />
               <Route path="/deposit" element={<DashboardPage />} />
@@ -58,7 +78,7 @@ export default function DashboardApp() {
               {/* Anything else (including the marketing paths this build no
                   longer serves) falls back to the overview rather than a blank
                   screen — the SPA rewrite means unknown URLs reach React. */}
-              <Route path="*" element={<Navigate to="/overview" replace />} />
+              <Route path="*" element={<RedirectPreservingQuery to="/overview" />} />
             </Routes>
           </ProtocolProvider>
         </ToastProvider>
