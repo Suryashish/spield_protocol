@@ -2,7 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "trailingSlash": false,
-  "_comment_rewrites": "Single-page app fallback: Vercel checks the filesystem BEFORE rewrites, so real files (hashed assets, icons, the manifest) still win and everything else serves the shell for React Router to resolve. This replaces the old /dashboard/:path* rule — the dashboard is the whole site now, not a subtree of a marketing page.",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {

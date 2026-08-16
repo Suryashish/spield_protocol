@@ -1,73 +1,100 @@
-# React + TypeScript + Vite
+# Spield dApp — `app.spield.live`
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The interactive application: deposit, mint and trade PT/YT, provide liquidity,
+bridge in. React + TypeScript + Vite, client-rendered, wallet-gated.
 
-Currently, two official plugins are available:
+This used to be the whole site — landing page, `/learn` hub and dApp on one
+origin. The marketing site and the content corpus now ship from the Next.js app
+in [`../frontendnew`](../frontendnew) at `www.spield.live`, and this build is the
+dApp and nothing else.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Routing
 
-## React Compiler
+The dashboard is the site root. Sections are top-level routes:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| path | |
+| --- | --- |
+| `/` | redirects to `/overview` |
+| `/overview` `/vault` `/deposit` `/markets` `/liquidity` `/bridge` `/solvency` `/activity` | the sections |
+| `/dashboard/*` | legacy redirect — drops the prefix (see `src/pages/DashboardApp.tsx`) |
+| anything else | falls back to `/overview` |
 
-## Expanding the ESLint configuration
+`/dashboard/*` is handled in two places: here for anything landing on this host
+with the old prefix, and as a 308 in `frontendnew/next.config.ts` for inbound
+links still pointing at `spield.live/dashboard/…`.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Not indexed, on purpose
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Everything indexable lives on `www.spield.live`. This host is excluded three
+ways, and all three are needed:
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- `noindex, follow` meta in `index.html`
+- `X-Robots-Tag: noindex, follow` response header in `vercel.json`
+- `public/robots.txt` — which deliberately serves **`Allow: /`**
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+That last one looks backwards and is not. A crawler must be able to *fetch* a
+URL to see a `noindex`. `Disallow: /` would block the fetch, so Google would
+keep the URL as a bare, title-less listing discovered via the "Launch app" link
+from the marketing site. Blocking the crawl is what keeps a page indexed;
+allowing it is what removes it.
+
+There is no `sitemap.xml` here by design. Do not add one, and do not submit this
+host in Search Console.
+
+## Deployment (Vercel)
+
+| setting | value |
+| --- | --- |
+| Root Directory | `website/frontend` |
+| Build Command | `tsc -b && vite build` (leave unset to inherit `package.json`) |
+| Output Directory | `dist` |
+
+The build command previously ended in `&& node scripts/prerender.mjs`, which
+prerendered the `/learn` corpus to static HTML. That corpus and that script are
+gone. **If a stale Build Command override in the Vercel dashboard still names
+`scripts/prerender.mjs`, the deploy fails** — the file no longer exists.
+
+### `vercel.json` takes no comments
+
+It is validated against a strict schema that rejects unknown properties,
+including underscore-prefixed ones — `should NOT have additional property` is a
+hard build failure, not a warning. Notes about the config go here instead.
+
+The one rule worth explaining is the SPA fallback:
+
+```json
+"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+It looks like it would swallow every asset. It does not: Vercel checks the
+filesystem *before* applying rewrites, so hashed assets, icons and the manifest
+are served normally and only unmatched paths fall through to the shell for React
+Router to resolve.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Analytics
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Google Analytics only — the tag is deferred to idle or first interaction, and
+gated to `*.spield.live` so `vite dev` and preview deployments do not write into
+the production property.
+
+Pageviews are sent per route from `src/components/Analytics.tsx`, because gtag's
+automatic pageview fires once per *document* load and would otherwise record the
+arrival and nothing after it. `send_page_view` is off in `index.html` so the
+first one is not counted twice.
+
+**Microsoft Clarity is deliberately absent.** It runs on the marketing site only.
+Clarity records sessions, and a session here is a wallet dashboard — addresses,
+balances, position sizes — rendered as text nodes, which its default masking
+(form inputs) does not cover.
+
+## Local development
+
+```bash
+pnpm install
+pnpm dev        # vite
+pnpm build      # tsc -b && vite build
+pnpm preview    # serve dist/
 ```
+
+Network and contract addresses come from `VITE_*` env vars — see `.env.example`.
+`VITE_NETWORK` selects `testnet` (default) or `mainnet`.
