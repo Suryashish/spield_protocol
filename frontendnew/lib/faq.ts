@@ -71,6 +71,11 @@ export const FAQ_ITEMS: FaqItem[] = [
     a: `A 0.30% swap fee on market trades, which pays the liquidity on the other side. Stellar's network fees are fractions of a cent. A vault deposit is quoted as a payout, so anything the protocol takes is already inside the number you see.`,
   },
   {
+    q: "Do liquidity providers suffer impermanent loss?",
+    a: `Far less than in a volatile pair, because both sides of the pool converge: PT climbs toward par as maturity approaches while USDC sits still, so the divergence the loss is named for closes on its own. Hold to maturity and what is left is mostly the swap fees. Exit early and it is real — you may be holding more PT than you started with, picked up as the rate moved.`,
+    more: { label: "How the time-decay market works", href: "/learn/time-decay-amms-explained" },
+  },
+  {
     q: "Is Spield live, and has it been audited?",
     a: `It runs on ${NETWORK}, not mainnet, and it has not been audited. Every contract is verifiable on-chain. Treat it as what it is — unaudited software worth exploring, not somewhere to put money you cannot afford to lose.`,
   },

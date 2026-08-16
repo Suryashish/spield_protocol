@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { FAQ_ITEMS } from "@/lib/faq";
 import { useInView } from "@/lib/useInView";
 import { ArrowRight } from "@/components/icons";
@@ -109,17 +110,30 @@ export default function FAQ() {
                 <div className="faq-a-clip">
                   <div className="faq-a-inner">
                     <p className="faq-body">{item.a}</p>
-                    {item.more && (
-                      <a
-                        className="faq-link"
-                        href={item.more.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {item.more.label}
-                        <ArrowRight size={13} />
-                      </a>
-                    )}
+                    {/* `more` started out external-only, so the new tab was
+                        hardcoded. It now also points into the corpus, and a
+                        guide on this same site should navigate in place —
+                        opening it in a new tab reads as a broken link, and a
+                        client-side Link keeps the internal linking the corpus
+                        depends on. Route vs. outbound is decided the same way
+                        the footer decides it: a leading slash. */}
+                    {item.more &&
+                      (item.more.href.startsWith("/") ? (
+                        <Link className="faq-link" href={item.more.href}>
+                          {item.more.label}
+                          <ArrowRight size={13} />
+                        </Link>
+                      ) : (
+                        <a
+                          className="faq-link"
+                          href={item.more.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {item.more.label}
+                          <ArrowRight size={13} />
+                        </a>
+                      ))}
                   </div>
                 </div>
               </div>

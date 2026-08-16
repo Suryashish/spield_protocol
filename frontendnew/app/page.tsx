@@ -1,5 +1,6 @@
 import SiteNav from "@/components/SiteNav";
 import Hero from "@/components/hero/Hero";
+import Partners from "@/components/Partners";
 import SplitSection from "@/components/SplitSection";
 import VaultSection from "@/components/VaultSection";
 import TradersSection from "@/components/TradersSection";
@@ -37,6 +38,10 @@ export default function Home() {
             close after them takes the vault's black back, so the page
             ends where it began. */}
         <div className="sheet">
+          {/* First inside the sheet, so the ecosystem it is built on is the
+              first thing the page says once the vault recedes — credibility
+              before the argument, which is the order the old site used too. */}
+          <Partners />
           <SplitSection />
           <VaultSection />
           <TradersSection />
