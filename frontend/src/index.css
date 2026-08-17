@@ -1,390 +1,287 @@
-/* Google Fonts are loaded via <link> tags in index.html (with preconnect). */
+/* ============================================================
+   Spield app — design system
+
+   The dApp and the marketing site are one product on two hosts, so
+   they are one design system too. Everything below is the token set
+   from `website/frontendnew/app/globals.css`, ported: warm paper in
+   light, warm near-black in dark, one accent green, the ember for
+   everything variable, the USDC blue for the deposit.
+
+   The app reads those raw tokens through TWO name-spaces:
+
+   1. The Spield names — `bg-surface`, `text-ink`, `border-line`,
+      `text-brand-text`, `bg-ember` — the same utilities the marketing
+      site's components are written in.
+   2. The shadcn semantic names — `bg-card`, `text-muted-foreground`,
+      `bg-primary` — which every existing dashboard component is
+      already written in. They are MAPPED onto the same raw tokens
+      rather than kept as a second palette, so restyling the system
+      restyles the dashboard, and no component has to be rewritten to
+      pick up the change.
+
+   Geist Mono + Instrument Serif arrive from Google Fonts (index.html);
+   Geist is the `@fontsource-variable` package below; Satoshi — the
+   display face — is self-hosted from /public/fonts.
+   ============================================================ */
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-@custom-variant dark (&:is(.dark *));
+/* The theme is an attribute on <html>, set before paint by the
+   bootstrap in index.html and toggled from the header — the same
+   contract, and the same `spield-theme` storage key, as the marketing
+   site. It replaces the `.dark` class the shell used to hard-code, so
+   the app can actually be light. */
+@custom-variant dark (&:is([data-theme="dark"] *));
 
-@theme {
-  --color-brand-primary: #00ffcc;
-  --color-brand-secondary: #2dd4bf;
-  --color-brand-glow: rgba(0, 255, 204, 0.4);
-  --color-background: #020609;
-  --color-surface: rgba(255, 255, 255, 0.03);
-
-  /* App typography. These used to default to the landing page's
-     Inter / Playfair pair, with the app fonts scoped to .app-shell; the landing
-     page now ships from the Next.js site, so the app fonts ARE the defaults and
-     Inter / Playfair are no longer requested in index.html. */
-  --font-display: "Space Grotesk", sans-serif;
-  --font-heading: "Space Grotesk", sans-serif;
-  --font-body: "Plus Jakarta Sans", sans-serif;
-
-  /* Main app (dashboard) typography — see .app-shell scope below. */
-  --font-app-body: "Plus Jakarta Sans", sans-serif;
-  --font-app-heading: "Space Grotesk", sans-serif;
+/* ---------- Satoshi, self-hosted (ITF Free Font License) ---------- */
+/* `size-adjust` and the metric overrides pin the Arial fallback to
+   Satoshi's own metrics, so the line that renders before the woff2
+   lands is the same size as the one after it and nothing reflows. */
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi";
+  src: url("/fonts/Satoshi-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Satoshi Fallback";
+  src: local("Arial");
+  size-adjust: 105%;
+  ascent-override: 95%;
+  descent-override: 24%;
+  line-gap-override: 0%;
 }
 
-@layer base {
-  html {
-    scroll-behavior: smooth;
-  }
+/* ============================================================
+   Raw tokens — light is PAPER
+   ============================================================ */
+/* Note the naming shifts against the marketing site, and only where a
+   name would have collided with a shadcn semantic: the muted/subtle
+   TEXT colours are `--ink-muted` / `--ink-subtle` (shadcn's `--muted`
+   is a surface), and the accent green is `--brand` (shadcn's
+   `--accent` is the neutral hover wash). Values are unchanged. */
+:root {
+  --canvas: #f6f3ec;
+  --surface: #fdfcf8;
+  /* the recessed step: input wells, table heads, the inside of a
+     control — paper folded down rather than lifted */
+  --sunken: #f1ede4;
+  --border: #e5e1d9;
+  --border-strong: #d7d2c7;
 
-  body {
-    background-color: #020609;
-    color: white;
-    font-family: var(--font-body);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-smoothing: grayscale;
-    overflow-x: hidden;
-  }
+  --ink: #121212;
+  --ink-muted: #6a6a6a;
+  --ink-subtle: #9e9d99;
 
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-heading);
-    letter-spacing: -0.02em;
-  }
+  --brand: #0fbe7c;
+  /* the -text variants are the ones type is set in: each is the shade
+     that holds its contrast ratio against this theme's ground */
+  --brand-text: #089160;
+  --brand-bright: #2bd894;
+  --brand-ink: #06130c;
 
-  /* ---- Main app (dashboard) scope ----
-     Body text uses Plus Jakarta Sans and every heading uses Space Grotesk.
-     This block is now the same as the defaults above, but it stays because the
-     class is also applied to PORTALLED content — dialogs and Select popovers
-     render outside the dashboard tree, and the class is what carries the app's
-     type scope to them.
+  --ember: #ff7a2f;
+  --ember-text: #d15813;
 
-     We do this by REDEFINING the font tokens on .app-shell rather than setting
-     font-family directly: Tailwind's utilities (.font-display, .font-sans, …)
-     live in @layer utilities, which beats @layer base regardless of selector
-     specificity — so a `.app-shell .font-display { font-family: … }` rule would
-     lose. But those utilities all resolve `var(--font-*)`, and custom-property
-     values cascade by scope, not layer. Overriding the variables here therefore
-     retargets every heading, every font-* utility, and plain inherited text in
-     one shot. --font-mono is left alone, so code/addresses stay monospace. */
-  .app-shell {
-    --font-body: var(--font-app-body);
-    --font-heading: var(--font-app-heading);
-    /* Headings in the app use Space Grotesk, not Playfair — point the display
-       token at the heading font so any .font-display heading follows suit. */
-    --font-display: var(--font-app-heading);
-    --font-sans: var(--font-app-body);
-    font-family: var(--font-app-body);
-  }
+  --usdc: #4a87f2;
+  --usdc-text: #3a6fc6;
 
-  * {
-    @apply border-border outline-ring/50;
-  }
+  --danger: #e5484d;
+  --danger-text: #c62a2f;
 
-  /* Slim, on-brand scrollbar */
-  ::-webkit-scrollbar { width: 8px; }
-  ::-webkit-scrollbar-track { background: #020609; }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(0, 255, 204, 0.12);
-    border-radius: 99px;
-  }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 204, 0.25); }
+  --stage: #0f0f0e;
+  --onstage: #fafaf8;
 
-  ::selection {
-    background: rgba(0, 255, 204, 0.2);
-    color: #eafffb;
-  }
+  --edge-hl: rgba(255, 255, 255, 0.7);
+  --shadow-soft-v: 0 10px 30px rgba(18, 18, 18, 0.07);
+  --ring-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  --ease-v: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --ff-display: "Satoshi", "Satoshi Fallback", "Geist Variable", -apple-system, sans-serif;
+  --ff-serif: "Instrument Serif", Georgia, serif;
+  --ff-body: "Geist Variable", -apple-system, "Segoe UI", sans-serif;
+  --ff-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius: 0.75rem;
 }
 
-@layer utilities {
-  /* ---------- Glass tiers ---------- */
-  /* NOTE on the @supports wrappers below:
-     Tailwind v4 processes this stylesheet through Lightning CSS, which — for the
-     resolved browser targets — collapses a `backdrop-filter` + its
-     `-webkit-backdrop-filter` sibling down to ONLY the -webkit- form, dropping the
-     standard property. In production that left the navbar/glass with no blur on
-     browsers that need the unprefixed property. Declaring the standard property
-     inside an `@supports (backdrop-filter: …)` block keeps it in its own
-     condition so Lightning CSS can't merge it away — both prefixes reach prod. */
-  .glass {
-    background: rgba(255, 255, 255, 0.03);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  @supports (backdrop-filter: blur(1px)) {
-    .glass { backdrop-filter: blur(12px); }
-  }
+[data-theme="dark"] {
+  --canvas: #171716;
+  --surface: #1c1c1b;
+  --sunken: #131312;
+  --border: #2a2a28;
+  --border-strong: #3a3a37;
 
-  /* Liquid glass — layered specular highlight + inner glow + soft depth.
-     The ::before adds a top-edge light catch, ::after a faint radial sheen. */
-  .liquid-glass {
-    position: relative;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(255, 255, 255, 0.04) 100%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.37),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
-      inset 0 -1px 0 0 rgba(0, 0, 0, 0.20);
-    overflow: hidden;
-  }
-  @supports (backdrop-filter: blur(1px)) {
-    .liquid-glass { backdrop-filter: blur(18px) saturate(160%); }
-  }
-  .liquid-glass::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 35%, rgba(0, 255, 204, 0.15) 100%);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-    opacity: 0.6;
-  }
-  .liquid-glass::after {
-    content: "";
-    position: absolute;
-    top: -60%;
-    left: -10%;
-    width: 60%;
-    height: 200%;
-    background: radial-gradient(closest-side, rgba(255, 255, 255, 0.10), transparent 70%);
-    transform: rotate(8deg);
-    pointer-events: none;
-  }
+  --ink: #fafaf8;
+  --ink-muted: #a4a3a0;
+  --ink-subtle: #6e6e6e;
 
-  /* Lighter chip version of liquid glass for pills / nav items */
-  .liquid-chip {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
-    -webkit-backdrop-filter: blur(14px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
-      0 4px 18px rgba(0, 0, 0, 0.25);
-  }
-  @supports (backdrop-filter: blur(1px)) {
-    .liquid-chip { backdrop-filter: blur(14px) saturate(150%); }
-  }
+  --brand-text: #2bd894;
+  --ember-text: #ff9351;
+  --usdc-text: #7ba9f5;
+  --danger-text: #ff6b6f;
 
-  /* ---------- Text + glow ---------- */
-  .glow-text { text-shadow: 0 0 20px var(--color-brand-glow); }
-  .glow-box { box-shadow: 0 0 30px rgba(0, 255, 204, 0.15); }
-
-  .text-gradient {
-    background: linear-gradient(135deg, #fff 0%, #a5a5a5 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    padding: 0.1em 0.2em;
-    margin-right: -0.2em;
-  }
-
-  .text-gradient-brand {
-    background: linear-gradient(135deg, #eafffb 0%, #00ffcc 50%, #2dd4bf 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  /* Hairline gradient divider */
-  .hairline {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
-  }
-
-  /* Ambient technical grid — faint lines that give the dark space structure.
-     Radially masked so it dissolves toward the edges instead of boxing in. */
-  .bg-grid {
-    background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-    background-size: 56px 56px;
-    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 35%, transparent 80%);
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 35%, transparent 80%);
-  }
-
-  /* Subtle dot matrix — even quieter than the grid, for layering depth. */
-  .bg-dots {
-    background-image: radial-gradient(rgba(0, 255, 204, 0.10) 1px, transparent 1px);
-    background-size: 26px 26px;
-    -webkit-mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, #000 10%, transparent 70%);
-    mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, #000 10%, transparent 70%);
-  }
-
-  /* Animated conic glow for product cards — soft, wide colour sweeps that fade
-     gradually into transparent so no hard edge is ever visible. */
-  .glow-ring {
-    background: conic-gradient(
-      from 0deg,
-      transparent 0deg,
-      rgba(0, 255, 204, 0.30) 60deg,
-      transparent 140deg,
-      transparent 200deg,
-      rgba(45, 212, 191, 0.22) 260deg,
-      transparent 340deg
-    );
-    animation: spin-slow 22s linear infinite;
-  }
-
-  .shimmer {
-    background: linear-gradient(110deg, rgba(255,255,255,0) 35%, rgba(255,255,255,0.45) 50%, rgba(255,255,255,0) 65%);
-    background-size: 220% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: shimmer 4s linear infinite;
-  }
-
-  /* Film-grain noise — fixed full-page overlay, resolution-independent SVG
-     fractal noise, no asset file. Sits above everything but ignores input.
-     Normal blend at a real opacity so it's clearly visible on near-black. */
-  .noise-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    pointer-events: none;
-    opacity: 0.06;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='1.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 160px 160px;
-  }
+  --edge-hl: rgba(255, 255, 255, 0.07);
+  --shadow-soft-v: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
-/* ---------- Feature cards (Why Spield bento) ---------- */
-/* The card lifts, its border catches more light, and a brand glow blooms.
-   All driven off :hover so it stays cheap and works without JS. */
-.feature-card {
-  transition:
-    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 0.4s ease;
-  will-change: transform;
-}
-.feature-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
-}
-/* faint neutral lift sheen from the top of the card — no brand glow */
-.feature-card__sheen {
-  background: radial-gradient(80% 45% at 50% -10%, rgba(255, 255, 255, 0.025), transparent 65%);
+/* ============================================================
+   shadcn semantics, mapped onto the tokens above
+   ============================================================ */
+/* Declared once, not per theme: every value is a reference or a
+   color-mix against `--ink`, so both themes fall out of the block
+   above and there is only ever one place to change a colour. */
+:root {
+  --background: var(--canvas);
+  --foreground: var(--ink);
+
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+
+  /* The product's action colour. Green is what "go" looks like here —
+     it is the same green the vault locks at on the landing page. */
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-ink);
+
+  --secondary: color-mix(in srgb, var(--ink) 7%, transparent);
+  --secondary-foreground: var(--ink);
+
+  /* `muted` is a SURFACE in shadcn and a text colour on the marketing
+     site; both live here under their own names. */
+  --muted: color-mix(in srgb, var(--ink) 6%, transparent);
+  --muted-foreground: var(--ink-muted);
+
+  /* the neutral hover wash — what a row or a nav item lights up with */
+  --accent: color-mix(in srgb, var(--ink) 6%, transparent);
+  --accent-foreground: var(--ink);
+
+  --destructive: var(--danger);
+  --destructive-foreground: #fff;
+
+  --input: var(--border);
+  --ring: var(--ring-color);
+
+  /* Recharts series. 1 is the accent; the rest step away from it
+     rather than through the rainbow — this is a fixed-income app, not
+     a dashboard template. */
+  --chart-1: var(--brand);
+  --chart-2: var(--usdc);
+  --chart-3: var(--ember);
+  --chart-4: color-mix(in srgb, var(--brand) 45%, var(--ink-subtle));
+  --chart-5: var(--ink-subtle);
+
+  --sidebar: var(--canvas);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-ink);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring-color);
 }
 
-/* Icon chip — a crisp, engineered mark rather than a flat filled square.
-   Beveled inner ring + faint grid feel, and it lifts/brightens with the card. */
-.feature-chip {
-  position: relative;
-  background:
-    linear-gradient(155deg, rgba(0, 255, 204, 0.16), rgba(0, 255, 204, 0.04));
-  border: 1px solid rgba(0, 255, 204, 0.22);
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
-    0 2px 8px rgba(0, 0, 0, 0.25);
-  transition:
-    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.35s ease,
-    background 0.35s ease;
-}
-.feature-chip::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.18), transparent 55%);
-  opacity: 0.5;
-  pointer-events: none;
-}
-.group:hover .feature-chip {
-  transform: translateY(-2px);
-  background: linear-gradient(155deg, rgba(0, 255, 204, 0.22), rgba(0, 255, 204, 0.05));
-  border-color: rgba(0, 255, 204, 0.32);
-}
-.group:hover .feature-chip svg {
-  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  transform: rotate(-4deg);
-}
-
-/* Stage-level hover cues, applied to the mini-graphics inside each card.
-   Movement only — no glows. */
-.group:hover .stage-orbit { animation: spin-slow 14s linear infinite; }
-.group:hover .stage-node { transform: scale(1.06); }
-.group:hover .stage-row {
-  transform: translateX(3px);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-.stage-node,
-.stage-row { transition: transform 0.35s cubic-bezier(0.16,1,0.3,1), border-color 0.35s ease; }
-
-/* ---------- Keyframes ---------- */
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes shimmer {
-  to { background-position: -220% 0; }
-}
-
-@keyframes float-y {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-.animate-float { animation: float-y 6s ease-in-out infinite; }
-
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.animate-marquee { animation: marquee 60s linear infinite; }
-
-@media (prefers-reduced-motion: reduce) {
-  .glow-ring, .shimmer, .animate-float, .animate-marquee { animation: none; }
-  html { scroll-behavior: auto; }
-  /* Feature-card hover motion: keep the subtle color/glow cues, drop movement. */
-  .feature-card,
-  .feature-chip,
-  .stage-node,
-  .stage-row { transition: box-shadow 0.3s ease, border-color 0.3s ease, background 0.3s ease; }
-  .feature-card:hover { transform: none; }
-  .group:hover .feature-chip { transform: none; }
-  .group:hover .feature-chip svg { transform: none; }
-  .group:hover .stage-orbit { animation: none; }
-  .group:hover .stage-node,
-  .group:hover .stage-row { transform: none; }
-}
-
-
-
+/* ============================================================
+   Tokens → Tailwind utilities
+   ============================================================ */
 @theme inline {
-  --font-sans: 'Geist Variable', sans-serif;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --color-foreground: var(--foreground);
+  /* --- Spield names --- */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-subtle: var(--ink-subtle);
+
+  --color-brand: var(--brand);
+  --color-brand-text: var(--brand-text);
+  --color-brand-bright: var(--brand-bright);
+  --color-brand-ink: var(--brand-ink);
+  --color-ember: var(--ember);
+  --color-ember-text: var(--ember-text);
+  --color-usdc: var(--usdc);
+  --color-usdc-text: var(--usdc-text);
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-stage: var(--stage);
+  --color-onstage: var(--onstage);
+
+  /* --- shadcn names --- */
   --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* --- type --- */
+  --font-display: var(--ff-display);
+  --font-heading: var(--ff-display);
+  --font-serif: var(--ff-serif);
+  --font-sans: var(--ff-body);
+  --font-body: var(--ff-body);
+  --font-mono: var(--ff-mono);
+
+  /* --- depth ---
+     Layered rather than a single blur: an edge highlight along the top
+     so the surface catches light, a tight contact shadow so it sits ON
+     something, and one wide ambient shadow. */
+  --shadow-soft: var(--shadow-soft-v);
+  --shadow-float: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.05),
+    0 6px 16px rgb(18 18 18 / 0.06);
+  --shadow-float-sm: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.04),
+    0 3px 10px rgb(18 18 18 / 0.05);
+  --shadow-lift: inset 0 1px 0 var(--edge-hl), 0 2px 4px rgb(18 18 18 / 0.06),
+    0 14px 34px rgb(18 18 18 / 0.1);
+
+  --ease-vault: var(--ease-v);
+
+  /* --- radii ---
+     One scale off one number, so a card, its inner well and the chip
+     inside that are visibly related rather than three loose values. */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -394,63 +291,434 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
-  --background: #020609;
-  --foreground: oklch(0.985 0 0);
-  --card: #020609;
-  --card-foreground: oklch(0.985 0 0);
-  --popover: #020609;
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+/* On paper, a shadow is contact — not a bloom. The float shadows above
+   are tuned for ink on a light ground; on the dark theme the same
+   alphas vanish, so they are re-pitched here rather than scaled. */
+[data-theme="dark"] {
+  --shadow-float: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 6px 16px rgb(0 0 0 / 0.34);
+  --shadow-float-sm: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(0 0 0 / 0.34),
+    0 3px 10px rgb(0 0 0 / 0.28);
+  --shadow-lift: inset 0 1px 0 var(--edge-hl), 0 2px 4px rgb(0 0 0 / 0.42),
+    0 14px 34px rgb(0 0 0 / 0.5);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--ff-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    /* the theme switch is a dissolve, not a cut */
+    transition: background-color 0.35s var(--ease-v), color 0.35s var(--ease-v);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--ff-display);
+    letter-spacing: -0.02em;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  /* One focus treatment for the whole app: the brand ring, offset off
+     the element so it reads on a filled control as well as an outline
+     one. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 28%, transparent);
+    color: var(--ink);
+  }
+
+  /* Slim, themed scrollbar — a bright track on a dark app (or the
+     reverse) is the loudest thing on the screen. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--ink) 14%, transparent);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--ink) 24%, transparent);
+    background-clip: content-box;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--ink) 16%, transparent) transparent;
+  }
+}
+
+/* `.app-shell` used to re-point the font tokens for the dashboard,
+   back when the landing page shipped from this build and wanted a
+   different pair. There is one type system now, so the class carries
+   only what PORTALLED content needs — dialogs and Select popovers
+   render outside the shell's tree and would otherwise inherit nothing.
+   Keep applying it to portal content. */
+.app-shell {
+  font-family: var(--ff-body);
+  color: var(--ink);
+}
+
+/* ============================================================
+   The app's own vocabulary
+   ============================================================ */
+@layer utilities {
+  /* Every number in a funds app is read against the one above it, so
+     they all get the same-width digits. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* The micro-caption. One size, one tracking, everywhere: strip
+     labels, table heads, chart legends, the breadcrumb. */
+  .eyebrow {
+    font-family: var(--ff-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-subtle);
+  }
+
+  .mono {
+    font-family: var(--ff-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A hairline that fades at both ends — for seams inside a panel,
+     where a full-strength rule would cut the card in two. */
+  .rule-soft {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--ink) 12%, transparent),
+      transparent
+    );
+  }
+
+  /* The recessed well: an input, a quote box, a summary block. Folded
+     into the card rather than raised off it, which is what separates
+     "somewhere you type" from "something you press". */
+  .well {
+    background: var(--sunken);
+    border: 1px solid var(--border);
+    box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04);
+  }
+  [data-theme="dark"] .well {
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+}
+
+/* ============================================================
+   The amount field — the app's most important control
+   ============================================================ */
+/* Money is what this app is for, so the field you type it into is the
+   largest thing in its panel: label and balance on one caption line, the
+   figure at display size under it, the asset as a chip on the right.
+
+   Written as real classes rather than utility strings for two reasons.
+   The figure is set in the display face at a size no other control uses,
+   and — the bug this replaces — an instance's `text-[19px]` LOST to the
+   Input primitive's `md:text-sm`, so the number you typed rendered at
+   14px next to a 19px quote of the same value. A hand-written class
+   can't be out-specified by a responsive utility. */
+.field-shell {
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04);
+  padding: 13px 15px 15px;
+  transition: border-color 0.2s var(--ease-v), box-shadow 0.2s var(--ease-v);
+}
+[data-theme="dark"] .field-shell {
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
+}
+/* The whole field takes focus, not the bare input inside it — that is what
+   makes it read as one control rather than a box with a text box in it. */
+.field-shell:focus-within {
+  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04),
+    0 0 0 3px color-mix(in srgb, var(--brand) 13%, transparent);
+}
+[data-theme="dark"] .field-shell:focus-within {
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3),
+    0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+.field-shell[data-invalid="true"] {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.field-shell[data-invalid="true"]:focus-within {
+  box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04),
+    0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+/* the figure itself — one size for the typed value and the quoted one, so
+   a swap panel's two halves are visibly the same kind of number */
+.field-figure {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  outline: none;
+  font-family: var(--ff-display);
+  font-size: 27px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.field-figure::placeholder {
+  color: var(--ink-subtle);
+}
+.field-figure:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+@media (max-width: 480px) {
+  .field-figure {
+    font-size: 23px;
+  }
+}
+
+/* A stepper on a currency field is a way to mis-key an amount by one, and
+   it only appears on hover, which makes the control jump. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* The native range input, brought onto the system: a hairline track with the
+   same thumb the shadcn Slider wears, so the two are the same control
+   whichever one a panel reached for. */
+/* `--pct` is published by the component. A native range draws no fill of its
+   own, so the travelled part of the track is a hard-stop gradient — which
+   is what tells you at a glance how much of the position you are taking. */
+.range-brand {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--brand) 0 var(--pct, 0%),
+    color-mix(in srgb, var(--ink) 11%, transparent) var(--pct, 0%) 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+.range-brand:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.range-brand::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--brand);
+  background: var(--surface);
+  box-shadow: var(--shadow-float-sm);
+  transition: box-shadow 0.2s var(--ease-v), transform 0.2s var(--ease-v);
+}
+.range-brand::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--brand);
+  background: var(--surface);
+  box-shadow: var(--shadow-float-sm);
+}
+.range-brand:hover::-webkit-slider-thumb,
+.range-brand:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.range-brand:active::-webkit-slider-thumb {
+  transform: scale(0.94);
+}
+
+/* the asset the figure is denominated in */
+.token-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-float-sm);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* ---- the panel: every card in the app ----
+   Surface, hairline, layered depth. Cards are the dashboard's whole
+   structure, so this is defined once and `Card` wears it. */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-float);
+  transition: box-shadow 0.35s var(--ease-v), border-color 0.35s var(--ease-v);
+}
+/* interactive panels only — a chart doesn't lift when you point at it */
+@media (hover: hover) and (pointer: fine) {
+  .panel-hover:hover {
+    box-shadow: var(--shadow-lift);
+    border-color: var(--border-strong);
+  }
+}
+
+/* ---- the brand mark ----
+   Bare glyph artwork, so each theme gets its own ink. Ported verbatim from
+   the marketing site so both hosts show the same logo the same way — including
+   the specificity trick: these are scoped under `.brand-mark` so they outrank
+   the `.brand-mark img` sizing rule above them, which a bare `.logo-dark`
+   would lose to (leaving both marks visible, stacked). */
+.brand-mark {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.brand-mark .logo-dark {
+  display: none;
+}
+[data-theme="dark"] .brand-mark .logo-light {
+  display: none;
+}
+[data-theme="dark"] .brand-mark .logo-dark {
+  display: block;
+}
+
+/* ---- the live dot ---- */
+/* Filled and pulsing = reading from chain right now. The marketing
+   site uses the identical mark, and deliberately leaves it HOLLOW for
+   illustrative figures. */
+.pulse-dot {
+  position: relative;
+  display: inline-flex;
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--brand);
+}
+.pulse-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: pulse-ring 2.4s var(--ease-v) infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* ---- the primary action ----
+   `.btn-primary`'s accent bloom is the light it casts on a dark
+   ground; on paper the same shadow is a fuzzy green halo, because a
+   glow is not something paper does. Light gets a contact shadow. */
+.cta-glow {
+  box-shadow: 0 1px 2px rgb(18 18 18 / 0.12), 0 6px 16px rgb(18 18 18 / 0.1),
+    inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+[data-theme="dark"] .cta-glow {
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--brand) 26%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.22);
+}
+
+/* ---- the sidebar's active pill ----
+   A travelling lozenge behind the label rather than a background on
+   the button, so Framer's shared layout can slide it between items. */
+.nav-pill {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-float-sm);
+}
+
+/* ---- charts ----
+   Recharts writes its own SVG, so the axis type and the grid are
+   pulled onto the system here rather than per-chart. */
+.recharts-cartesian-axis-tick text,
+.recharts-legend-item-text {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  fill: var(--ink-subtle);
+}
+.recharts-cartesian-grid line {
+  stroke: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.recharts-surface:focus,
+.recharts-wrapper:focus {
+  outline: none;
+}
+
+/* ---- motion ---- */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.animate-float { animation: float-y 6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .animate-float,
+  .pulse-dot::after { animation: none; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

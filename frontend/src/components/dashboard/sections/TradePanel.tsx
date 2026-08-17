@@ -3,9 +3,8 @@ import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, TrendingUp, Zap
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
@@ -184,19 +183,19 @@ const TradePanel = () => {
   ];
 
   return (
-    <Card className="h-full rounded-xl border-border bg-card shadow-sm">
+    <Card className="h-full rounded-xl">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <TrendingUp size={16} className="text-primary" />
+        <CardTitle className="flex items-center gap-2">
+          <TrendingUp size={16} className="text-brand-text" />
           Trade
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription>
           Buy PT for a fixed return, sell PT to exit, or long YT to bet on yield.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {/* Mode toggle */}
-        <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/40 p-1">
+        <div className="grid grid-cols-3 gap-1 well rounded-lg p-1">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -209,7 +208,7 @@ const TradePanel = () => {
               className={cn(
                 'rounded-md px-2 py-1.5 text-xs font-semibold transition-all',
                 mode === t.id
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'border border-border bg-card text-foreground shadow-float-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -219,78 +218,54 @@ const TradePanel = () => {
         </div>
 
         {/* Pay */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>{mode === 'longYt' ? 'You spend (upfront)' : 'You pay'}</Label>
-            <button
-              type="button"
-              onClick={setMax}
-              disabled={!isConnected}
-              className="normal-case transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-            >
-              Bal: {isConnected ? formatAmount(inBalance) : '0.00'} {inToken}
-            </button>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              placeholder="0.0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={!MARKET_DEPLOYED}
-              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
-            />
-            <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">
-              {inToken}
-            </span>
-          </div>
-        </div>
+        <AmountField
+          label={mode === 'longYt' ? 'You spend (upfront)' : 'You pay'}
+          token={inToken}
+          value={amount}
+          onChange={setAmount}
+          disabled={!MARKET_DEPLOYED}
+          balance={`${isConnected ? formatAmount(inBalance) : '0.00'} ${inToken}`}
+          onMax={isConnected ? setMax : undefined}
+          invalid={overBalance}
+        />
 
-        <div className="relative z-10 -my-3 flex justify-center">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
+        <div className="flex items-center gap-3 py-0.5">
+          <span className="rule-soft flex-1" aria-hidden="true" />
+          <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
             <ArrowDown size={12} />
-          </div>
+          </span>
+          <span className="rule-soft flex-1" aria-hidden="true" />
         </div>
 
         {/* Receive */}
-        <div className="space-y-1.5">
-          <div className="px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>{mode === 'longYt' ? 'You receive (YT)' : 'You receive (est.)'}</Label>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-            <div className="flex flex-1 items-baseline gap-2">
-              <span className="text-lg font-bold tabular-nums">
-                {amountValid && quote != null
-                  ? fmtTok(mode === 'longYt' ? ytReceived : outHuman)
-                  : '0.0'}
-              </span>
-              {quoting && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
-            </div>
-            <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">
-              {outToken}
-            </span>
-          </div>
-        </div>
+        <AmountField
+          label={mode === 'longYt' ? 'You receive (YT)' : 'You receive (est.)'}
+          token={outToken}
+          value={
+            amountValid && quote != null
+              ? fmtTok(mode === 'longYt' ? ytReceived : outHuman)
+              : ''
+          }
+          loading={quoting}
+        />
 
         {/* Summary */}
-        <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
+        <div className="space-y-1.5 well rounded-lg p-3">
           {mode === 'longYt' ? (
             <>
-              <div className="flex justify-between text-xs font-medium">
+              <div className="flex justify-between text-[12.5px]">
                 <span className="text-muted-foreground">USDC recovered (PT sale)</span>
                 <span className="text-foreground">
                   {amountValid && quote != null ? `${fmtTok(usdcRecovered)} USDC` : '—'}
                 </span>
               </div>
-              <div className="flex justify-between text-xs font-medium">
+              <div className="flex justify-between text-[12.5px]">
                 <span className="text-muted-foreground">Net YT cost</span>
-                <span className="font-semibold text-amber-500">
+                <span className="font-semibold text-ember-text">
                   {amountValid && quote != null ? `${fmtTok(ytNetCost)} USDC` : '—'}
                 </span>
               </div>
-              <div className="flex justify-between text-xs font-medium">
+              <div className="flex justify-between text-[12.5px]">
                 <span className="text-muted-foreground">Effective exposure</span>
                 <span className="text-foreground">
                   {ytLeverage > 1 ? `~${ytLeverage.toFixed(1)}× YT per USDC` : '—'}
@@ -299,13 +274,13 @@ const TradePanel = () => {
             </>
           ) : (
             <>
-              <div className="flex justify-between text-xs font-medium">
+              <div className="flex justify-between text-[12.5px]">
                 <span className="text-muted-foreground">Price</span>
                 <span className="text-foreground">
                   {effPrice > 0 ? `${effPrice.toFixed(4)} USDC / PT` : '—'}
                 </span>
               </div>
-              <div className="flex justify-between text-xs font-medium">
+              <div className="flex justify-between text-[12.5px]">
                 <span className="text-muted-foreground">Min received</span>
                 <span className="text-foreground">
                   {quote && amountValid
@@ -315,7 +290,7 @@ const TradePanel = () => {
               </div>
             </>
           )}
-          <div className="flex items-center justify-between text-xs font-medium">
+          <div className="flex items-center justify-between text-[12.5px]">
             <span className="text-muted-foreground">Max slippage</span>
             <div className="flex items-center gap-1">
               {SLIPPAGE_OPTIONS.map((s) => (
@@ -326,7 +301,7 @@ const TradePanel = () => {
                   className={cn(
                     'rounded px-1.5 py-0.5 text-xs font-semibold transition-colors',
                     slippage === s
-                      ? 'bg-primary/15 text-primary'
+                      ? 'bg-brand/15 text-brand-text'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -338,8 +313,8 @@ const TradePanel = () => {
         </div>
 
         {mode === 'buyPt' && (
-          <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground">
-            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
+          <div className="flex items-start gap-2 rounded-lg border border-brand/20 bg-brand/5 p-2.5 text-xs text-muted-foreground">
+            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-brand-text" />
             <span>
               PT redeems 1:1 for USDC at maturity. Buying below par locks a fixed return — the
               discount is your yield.
@@ -348,8 +323,8 @@ const TradePanel = () => {
         )}
 
         {mode === 'longYt' && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-xs text-muted-foreground">
-            <Zap size={14} className="mt-0.5 shrink-0 text-amber-500" />
+          <div className="flex items-start gap-2 rounded-lg border border-ember/20 bg-ember/5 p-2.5 text-xs text-muted-foreground">
+            <Zap size={14} className="mt-0.5 shrink-0 text-ember-text" />
             <span>
               <span className="font-semibold text-foreground">2 transactions:</span> mint PT + YT,
               then sell the PT back. You keep the YT — a leveraged bet that real Blend yield beats the
@@ -359,7 +334,7 @@ const TradePanel = () => {
         )}
 
         {!onCorrectNetwork && isConnected && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-ember/30 bg-ember/10 p-2.5 text-xs text-ember-text">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>Your wallet is on the wrong network. Switch Freighter to {NETWORK.name}.</span>
           </div>
@@ -368,7 +343,7 @@ const TradePanel = () => {
         <Button
           onClick={handleClick}
           disabled={disabled}
-          className="h-10 w-full text-sm font-bold uppercase tracking-wide shadow-none"
+          className="h-11 w-full text-[14px] font-medium"
         >
           {busy || connecting ? (
             <Loader2 size={15} className="animate-spin" />

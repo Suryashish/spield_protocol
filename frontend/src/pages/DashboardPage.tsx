@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useSEO } from '@/hooks/useSEO';
-import { AlertTriangle, RefreshCw, ShieldCheck, Coins, TrendingUp, Lock, Droplets, ChevronDown } from 'lucide-react';
+import {
+  AlertTriangle,
+  RefreshCw,
+  ShieldCheck,
+  Coins,
+  TrendingUp,
+  Lock,
+  Droplets,
+  ChevronDown,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -33,17 +43,44 @@ import { NavProvider } from '@/context/NavContext';
 import { NETWORK } from '@/lib/config';
 import { APP_ORIGIN } from '@/lib/site';
 
+/**
+ * One banner shape for everything the page has to say before its content:
+ * a tinted hairline strip with the tone's own icon well. `tone` picks the
+ * hue — ember for "you need to do something", danger for "we couldn't".
+ */
+const Banner = ({
+  tone,
+  children,
+  action,
+}: {
+  tone: 'ember' | 'danger';
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) => (
+  <div
+    className={cn(
+      'flex flex-col gap-2.5 rounded-xl border px-4 py-3 text-[13.5px] leading-relaxed sm:flex-row sm:items-center sm:justify-between',
+      tone === 'ember'
+        ? 'border-ember/25 bg-ember/8 text-ember-text'
+        : 'border-danger/25 bg-danger/8 text-danger-text',
+    )}
+  >
+    <span className="flex items-start gap-2.5 sm:items-center">
+      <AlertTriangle size={15} className="mt-0.5 shrink-0 sm:mt-0" />
+      <span>{children}</span>
+    </span>
+    {action}
+  </div>
+);
+
 const NetworkBanner = () => {
   const { isConnected, onCorrectNetwork } = useWallet();
   if (!isConnected || onCorrectNetwork) return null;
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
-      <AlertTriangle size={16} className="shrink-0" />
-      <span>
-        Your wallet is on the wrong network. Switch Freighter to{' '}
-        <span className="font-semibold">{NETWORK.name}</span> to interact with the Spield contracts.
-      </span>
-    </div>
+    <Banner tone="ember">
+      Your wallet is on the wrong network. Switch Freighter to{' '}
+      <span className="font-semibold">{NETWORK.name}</span> to interact with the Spield contracts.
+    </Banner>
   );
 };
 
@@ -51,10 +88,9 @@ const PausedBanner = () => {
   const { paused } = useProtocol();
   if (!paused) return null;
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">
-      <AlertTriangle size={16} className="shrink-0" />
-      <span>The protocol is currently paused. Deposits and redemptions are disabled.</span>
-    </div>
+    <Banner tone="danger">
+      The protocol is currently paused. Deposits and redemptions are disabled.
+    </Banner>
   );
 };
 
@@ -65,22 +101,23 @@ const ErrorBanner = () => {
   const { error, refresh, refreshing } = useProtocol();
   if (!error) return null;
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500 sm:flex-row sm:items-center sm:justify-between">
-      <span className="flex items-center gap-2">
-        <AlertTriangle size={16} className="shrink-0" />
-        Couldn&apos;t reach the network — showing the last data we have. {error}
-      </span>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => refresh()}
-        disabled={refreshing}
-        className="h-8 shrink-0 gap-2 self-start border-red-500/40 text-xs font-semibold text-red-500 hover:bg-red-500/10 sm:self-auto"
-      >
-        <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
-        Retry
-      </Button>
-    </div>
+    <Banner
+      tone="danger"
+      action={
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refresh()}
+          disabled={refreshing}
+          className="h-8 shrink-0 gap-2 self-start border-danger/30 text-xs font-semibold text-danger-text hover:bg-danger/10 sm:self-auto"
+        >
+          <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+          Retry
+        </Button>
+      }
+    >
+      Couldn&apos;t reach the network — showing the last data we have. {error}
+    </Banner>
   );
 };
 
@@ -110,18 +147,12 @@ const LastUpdated = () => {
   if (!lastUpdated) return null;
   return (
     <span
-      className={cn(
-        'flex items-center gap-1.5 text-xs font-medium',
-        stale ? 'text-amber-500' : 'text-muted-foreground',
-      )}
+      className={cn('eyebrow flex items-center gap-2', stale ? 'text-ember-text' : 'text-muted-foreground')}
       title={stale ? 'The latest refresh failed — showing the last good data.' : undefined}
     >
-      <span
-        className={cn(
-          'h-1.5 w-1.5 rounded-full',
-          stale ? 'bg-amber-500' : 'bg-emerald-500',
-        )}
-      />
+      {/* Filled and pulsing means these figures are being read from chain
+          right now — the same mark, and the same promise, as the site. */}
+      {stale ? <span className="size-1.5 shrink-0 rounded-full bg-ember" /> : <span className="pulse-dot" />}
       {stale ? 'Stale · ' : 'Updated '}
       {fmtAgo(lastUpdated, now)}
     </span>
@@ -226,246 +257,174 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
 
 /* -------------------------------------------------------- explainer cards */
 
-const HowItWorks = () => {
-  const [open, setOpen] = useState(false);
-  const steps = [
-    { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC; it is lent into the Blend pool where it earns real, on-chain interest.' },
-    { icon: Lock, title: '2 · Get PT + YT', body: 'You receive equal PT (your principal, redeemable 1:1 at maturity) and YT (the yield claim).' },
-    { icon: TrendingUp, title: '3 · Earn & claim', body: "As Blend's bRate rises, claim accrued yield against your YT — anytime, without burning it." },
-    { icon: ShieldCheck, title: '4 · Redeem', body: 'Redeem PT 1:1 at maturity, or combine PT + YT to exit early. The vault stays fully backed.' },
-  ];
-  return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left"
-      >
-        <div>
-          <h3 className="text-base font-semibold">How a deposit works</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token.
-          </p>
-        </div>
-        <ChevronDown
-          size={18}
-          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open && (
-        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
-          {steps.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.title} className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                  <Icon size={15} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{s.title}</p>
-                  <p className="text-xs text-muted-foreground">{s.body}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
+type ExplainerStep = { icon: LucideIcon; title: string; body: string };
 
-const HowVaultWorks = () => {
+/**
+ * The disclosure that closes a section.
+ *
+ * Five of these used to be five near-identical 45-line components; they are
+ * one now, because the only things that ever differed were the title, the
+ * blurb and the rows. Closed it is a single hairline row; open, the steps lay
+ * out as a two-up grid, each with its beat in the accent and its own icon
+ * well.
+ *
+ * The open/close is a `grid-template-rows: 0fr -> 1fr` transition with the
+ * padding on an inner element — padding on a 0fr grid item still renders and
+ * the row never closes — so the prose stays in the document when collapsed
+ * (good for find-in-page) and is marked `inert` so it stays out of the tab
+ * order.
+ */
+const Explainer = ({
+  title,
+  blurb,
+  icon: TitleIcon,
+  steps,
+  children,
+}: {
+  title: string;
+  blurb: string;
+  icon?: LucideIcon;
+  steps?: ExplainerStep[];
+  children?: React.ReactNode;
+}) => {
   const [open, setOpen] = useState(false);
-  const steps = [
-    { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC to the Fixed-Rate Vault — no need to understand PT or YT.' },
-    { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a guaranteed payout (principal + a fixed coupon) at maturity.' },
-    { icon: ShieldCheck, title: '3 · Backed by PT', body: 'The vault holds PT 1:1 against every payout, so your fixed return is solvent by construction.' },
-    { icon: TrendingUp, title: '4 · Redeem at maturity', body: 'Redeem the receipt for your exact locked payout. The coupon is funded by the vault’s real Blend yield.' },
-  ];
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
+    <div className="panel overflow-hidden rounded-xl">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left"
+        aria-expanded={open}
+        className="group flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-200 hover:bg-accent/50"
       >
-        <div>
-          <h3 className="text-base font-semibold">How the Fixed-Rate Vault works</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT
-            machinery is hidden underneath.
-          </p>
-        </div>
-        <ChevronDown
-          size={18}
-          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open && (
-        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
-          {steps.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.title} className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                  <Icon size={15} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{s.title}</p>
-                  <p className="text-xs text-muted-foreground">{s.body}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const HowMarketWorks = () => {
-  const [open, setOpen] = useState(false);
-  const steps = [
-    { icon: TrendingUp, title: 'Time-decay curve', body: 'PT trades below par and drifts to 1.0 as maturity nears — the discount is the yield. The curve makes that march automatic.' },
-    { icon: Coins, title: 'Earn Fixed', body: 'Buy PT now with USDC and hold to maturity to lock the implied APY. The cheaper you buy, the higher your fixed return.' },
-    { icon: Lock, title: 'Sell anytime', body: 'Need to exit early? Sell PT back to USDC at the live market price — no waiting for maturity.' },
-    { icon: TrendingUp, title: 'Long Yield', body: 'Bet that real Blend yield beats the implied rate: mint PT + YT, sell the PT back, and keep the YT for a small net cost.' },
-  ];
-  return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left"
-      >
-        <div>
-          <h3 className="text-base font-semibold">How the Market works</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            A real yield AMM: PT prices are market-discovered and an implied APY falls out of the curve.
-          </p>
-        </div>
-        <ChevronDown
-          size={18}
-          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open && (
-        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
-          {steps.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.title} className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                  <Icon size={15} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{s.title}</p>
-                  <p className="text-xs text-muted-foreground">{s.body}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const HowLiquidityWorks = () => {
-  const [open, setOpen] = useState(false);
-  const steps = [
-    { icon: Droplets, title: '1 · Supply PT + USDC', body: 'Add liquidity in the pool’s current ratio. The panel auto-matches the USDC side for you.' },
-    { icon: Coins, title: '2 · Earn the swap fee', body: 'Every trade pays a 0.30% fee that accrues to the pool — your LP shares grow in value as volume flows.' },
-    { icon: ShieldCheck, title: '3 · Low impermanent loss', body: 'Because the time-decay curve tracks PT’s march to par, an LP who holds to maturity sees ~no IL on the predictable price move.' },
-    { icon: Lock, title: '4 · Withdraw anytime', body: 'Burn your LP shares to take back a proportional slice of PT + USDC — including any fees earned — whenever you like.' },
-  ];
-  return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left"
-      >
-        <div>
-          <h3 className="text-base font-semibold">How liquidity works</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Provide the two sides of the pool, earn fees on every PT trade, and exit on your terms.
-          </p>
-        </div>
-        <ChevronDown
-          size={18}
-          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open && (
-        <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
-          {steps.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.title} className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/60 text-foreground">
-                  <Icon size={15} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{s.title}</p>
-                  <p className="text-xs text-muted-foreground">{s.body}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const WhySolvency = () => {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left"
-      >
-        <div>
-          <h3 className="flex items-center gap-2 text-base font-semibold">
-            <ShieldCheck size={17} className="text-emerald-500" />
-            Solvent by construction
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 font-display text-[15px] font-medium tracking-[-0.015em]">
+            {TitleIcon && <TitleIcon size={16} className="shrink-0 text-brand-text" />}
+            {title}
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Why backing can never fall below principal — and how anyone can verify it.
-          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{blurb}</p>
         </div>
-        <ChevronDown
-          size={18}
-          className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
-        />
+        <span
+          className={cn(
+            'mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-border text-subtle transition-all duration-300 ease-vault',
+            open ? 'rotate-180 bg-accent text-foreground' : 'group-hover:text-foreground',
+          )}
+        >
+          <ChevronDown size={15} />
+        </span>
       </button>
-      {open && (
-        <div className="space-y-3 px-5 pb-5 text-sm text-muted-foreground">
-          <p>
-            Every deposit is supplied to <span className="font-medium text-foreground">Blend</span>,
-            Stellar&apos;s lending protocol. The escrowed asset grows on-chain via Blend&apos;s rising{' '}
-            <span className="font-medium text-foreground">bRate</span> — so yield is real, not an
-            IOU.
-          </p>
-          <p>
-            The wrapper asserts the invariant{' '}
-            <span className="font-mono text-xs text-foreground">backing ≥ principal</span> after every
-            mutation. The figures above are read live from the contract&apos;s{' '}
-            <span className="font-mono text-xs text-foreground">solvency()</span> view — anyone can
-            verify them.
-          </p>
-          <p>
-            This is the core difference from the earlier design: there is no off-chain yield index and
-            no trusted relayer. The first claimant can never drain the vault.
-          </p>
+
+      <div
+        className={cn(
+          'grid transition-[grid-template-rows] duration-400 ease-vault',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        )}
+      >
+        <div className="overflow-hidden" inert={!open || undefined}>
+          <div className="rule-soft mx-5" />
+          {steps ? (
+            <div className="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2">
+              {steps.map((s) => {
+                const Icon = s.icon;
+                return (
+                  <div key={s.title} className="flex items-start gap-3">
+                    <div className="well mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground">
+                      <Icon size={14} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[13.5px] font-medium">{s.title}</p>
+                      <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{s.body}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-3 px-5 py-5 text-[13px] leading-relaxed text-muted-foreground">
+              {children}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
+
+const HowItWorks = () => (
+  <Explainer
+    title="How a deposit works"
+    blurb="Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token."
+    steps={[
+      { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC; it is lent into the Blend pool where it earns real, on-chain interest.' },
+      { icon: Lock, title: '2 · Get PT + YT', body: 'You receive equal PT (your principal, redeemable 1:1 at maturity) and YT (the yield claim).' },
+      { icon: TrendingUp, title: '3 · Earn & claim', body: "As Blend's bRate rises, claim accrued yield against your YT — anytime, without burning it." },
+      { icon: ShieldCheck, title: '4 · Redeem', body: 'Redeem PT 1:1 at maturity, or combine PT + YT to exit early. The vault stays fully backed.' },
+    ]}
+  />
+);
+
+const HowVaultWorks = () => (
+  <Explainer
+    title="How the Fixed-Rate Vault works"
+    blurb="The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT machinery is hidden underneath."
+    steps={[
+      { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC to the Fixed-Rate Vault — no need to understand PT or YT.' },
+      { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a guaranteed payout (principal + a fixed coupon) at maturity.' },
+      { icon: ShieldCheck, title: '3 · Backed by PT', body: 'The vault holds PT 1:1 against every payout, so your fixed return is solvent by construction.' },
+      { icon: TrendingUp, title: '4 · Redeem at maturity', body: 'Redeem the receipt for your exact locked payout. The coupon is funded by the vault\u2019s real Blend yield.' },
+    ]}
+  />
+);
+
+const HowMarketWorks = () => (
+  <Explainer
+    title="How the Market works"
+    blurb="A real yield AMM: PT prices are market-discovered and an implied APY falls out of the curve."
+    steps={[
+      { icon: TrendingUp, title: 'Time-decay curve', body: 'PT trades below par and drifts to 1.0 as maturity nears — the discount is the yield. The curve makes that march automatic.' },
+      { icon: Coins, title: 'Earn Fixed', body: 'Buy PT now with USDC and hold to maturity to lock the implied APY. The cheaper you buy, the higher your fixed return.' },
+      { icon: Lock, title: 'Sell anytime', body: 'Need to exit early? Sell PT back to USDC at the live market price — no waiting for maturity.' },
+      { icon: TrendingUp, title: 'Long Yield', body: 'Bet that real Blend yield beats the implied rate: mint PT + YT, sell the PT back, and keep the YT for a small net cost.' },
+    ]}
+  />
+);
+
+const HowLiquidityWorks = () => (
+  <Explainer
+    title="How liquidity works"
+    blurb="Provide the two sides of the pool, earn fees on every PT trade, and exit on your terms."
+    steps={[
+      { icon: Droplets, title: '1 · Supply PT + USDC', body: 'Add liquidity in the pool\u2019s current ratio. The panel auto-matches the USDC side for you.' },
+      { icon: Coins, title: '2 · Earn the swap fee', body: 'Every trade pays a 0.30% fee that accrues to the pool — your LP shares grow in value as volume flows.' },
+      { icon: ShieldCheck, title: '3 · Low impermanent loss', body: 'Because the time-decay curve tracks PT\u2019s march to par, an LP who holds to maturity sees ~no IL on the predictable price move.' },
+      { icon: Lock, title: '4 · Withdraw anytime', body: 'Burn your LP shares to take back a proportional slice of PT + USDC — including any fees earned — whenever you like.' },
+    ]}
+  />
+);
+
+const WhySolvency = () => (
+  <Explainer
+    title="Solvent by construction"
+    blurb="Why backing can never fall below principal — and how anyone can verify it."
+    icon={ShieldCheck}
+  >
+    <p>
+      Every deposit is supplied to <span className="font-medium text-foreground">Blend</span>,
+      Stellar&apos;s lending protocol. The escrowed asset grows on-chain via Blend&apos;s rising{' '}
+      <span className="font-medium text-foreground">bRate</span> — so yield is real, not an IOU.
+    </p>
+    <p>
+      The wrapper asserts the invariant{' '}
+      <span className="mono text-xs text-foreground">backing ≥ principal</span> after every
+      mutation. The figures above are read live from the contract&apos;s{' '}
+      <span className="mono text-xs text-foreground">solvency()</span> view — anyone can verify
+      them.
+    </p>
+    <p>
+      This is the core difference from the earlier design: there is no off-chain yield index and no
+      trusted relayer. The first claimant can never drain the vault.
+    </p>
+  </Explainer>
+);
 
 /* ----------------------------------------------------------------- page */
 
@@ -516,7 +475,9 @@ const DashboardPage = () => {
 
   return (
     <NavProvider value={navValue}>
-      <div className="app-shell dark flex h-screen overflow-hidden bg-background text-foreground">
+      {/* The theme now lives on <html> (set before paint in index.html), so
+          the shell no longer hard-codes `dark` — this app can be paper. */}
+      <div className="app-shell flex h-screen overflow-hidden bg-canvas text-foreground">
         <Sidebar
           collapsed={collapsed}
           onToggle={setCollapsed}
@@ -527,24 +488,31 @@ const DashboardPage = () => {
         <main className="flex min-w-0 grow flex-col">
           <Header section={nav.label} />
 
-          <div className="grow overflow-y-auto p-4 lg:p-6">
-            <div className="mx-auto max-w-7xl space-y-5 lg:space-y-6">
-              {/* Page title */}
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div className="space-y-1">
-                  <h1 className="font-display text-xl font-medium tracking-tight sm:text-2xl">{nav.title}</h1>
-                  <p className="text-sm text-muted-foreground">{nav.subtitle}</p>
+          <div className="grow overflow-y-auto px-4 pt-6 pb-16 lg:px-8 lg:pt-8">
+            <div className="mx-auto max-w-7xl space-y-6">
+              {/* Page title. Satoshi at display size with the subtitle set on
+                  a real measure under it — the section states what it is once,
+                  properly, instead of twice in the same weight. */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+                <div className="min-w-0">
+                  <h1 className="font-display text-[26px] leading-[1.1] font-bold tracking-[-0.03em] sm:text-[32px]">
+                    {nav.title}
+                  </h1>
+                  <p className="mt-2 max-w-[62ch] text-[13.5px] leading-relaxed text-muted-foreground">
+                    {nav.subtitle}
+                  </p>
                 </div>
-                <div className="flex items-center gap-3 self-start sm:self-auto">
+                <div className="flex shrink-0 items-center gap-3 self-start sm:pt-1.5">
                   <LastUpdated />
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => refresh()}
                     disabled={refreshing}
-                    className="h-9 gap-2 text-sm font-semibold"
+                    title="Re-read the contracts"
+                    className="h-9 gap-2 rounded-full px-4 text-[13px] font-medium"
                   >
-                    <RefreshCw size={15} className={cn(refreshing && 'animate-spin')} />
+                    <RefreshCw size={14} className={cn(refreshing && 'animate-spin')} />
                     Refresh
                   </Button>
                 </div>

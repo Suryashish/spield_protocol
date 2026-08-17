@@ -10,6 +10,8 @@ import {
 } from 'recharts';
 import { PieChart as PieIcon } from 'lucide-react';
 
+import EmptyState from './EmptyState';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
@@ -33,28 +35,23 @@ const PortfolioChart = () => {
   const hasData = isConnected && data.length > 0;
 
   return (
-    <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
+    <Card className="overflow-hidden rounded-xl">
       <CardHeader className="p-4 pb-0 sm:p-5">
-        <CardTitle className="text-base font-semibold">Portfolio Composition</CardTitle>
-        <CardDescription className="text-sm">
+        <CardTitle>Portfolio Composition</CardTitle>
+        <CardDescription>
           Principal and claimable yield per position
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-3 sm:p-5">
         {loading ? (
-          <div className="h-64 animate-pulse rounded-lg bg-muted/40" />
+          <div className="h-64 animate-pulse rounded-xl bg-muted" />
         ) : !hasData ? (
-          <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
-              <PieIcon size={20} />
-            </div>
-            <p className="text-sm font-semibold">
-              {isConnected ? 'No positions yet' : 'Connect your wallet'}
-            </p>
-            <p className="max-w-xs text-xs text-muted-foreground">
-              Your principal and yield breakdown appears here once you deposit.
-            </p>
-          </div>
+          <EmptyState
+            className="h-64"
+            icon={PieIcon}
+            title={isConnected ? 'No positions yet' : 'Connect your wallet'}
+            body="Your principal and yield breakdown appears here once you deposit."
+          />
         ) : (
           <ResponsiveContainer width="100%" height={264}>
             <BarChart data={data} margin={{ top: 8, right: 0, left: -16, bottom: 0 }}>
@@ -69,7 +66,7 @@ const PortfolioChart = () => {
               <YAxis
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                tick={{ fill: 'var(--ink-subtle)', fontSize: 10.5 }}
                 width={48}
                 tickFormatter={(v) => `$${v}`}
               />
@@ -96,7 +93,7 @@ const PortfolioChart = () => {
               </Bar>
               <Bar dataKey="yield" stackId="a" radius={[4, 4, 0, 0]}>
                 {data.map((_, i) => (
-                  <Cell key={i} fill="#10b981" />
+                  <Cell key={i} fill="var(--brand)" />
                 ))}
               </Bar>
             </BarChart>
@@ -109,7 +106,7 @@ const PortfolioChart = () => {
               <span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Principal (PT)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Claimable yield (YT)
+              <span className="h-2.5 w-2.5 rounded-sm bg-brand" /> Claimable yield (YT)
             </span>
           </div>
         )}

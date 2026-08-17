@@ -39,9 +39,9 @@ const SolvencyCard = () => {
 
   if (loading) {
     return (
-      <Card className="rounded-xl border-border bg-card shadow-sm">
+      <Card className="rounded-xl">
         <CardContent className="p-4 sm:p-6">
-          <div className="h-44 animate-pulse rounded-lg bg-muted/40" />
+          <div className="h-44 animate-pulse rounded-xl bg-muted" />
         </CardContent>
       </Card>
     );
@@ -50,8 +50,8 @@ const SolvencyCard = () => {
   return (
     <Card
       className={cn(
-        'overflow-hidden rounded-xl border-border bg-card shadow-sm',
-        healthy ? 'ring-1 ring-emerald-500/20' : 'ring-1 ring-red-500/30',
+        'overflow-hidden rounded-xl',
+        healthy ? 'ring-1 ring-brand/20' : 'ring-1 ring-danger/30',
       )}
     >
       <CardContent className="space-y-5 p-4 sm:space-y-6 sm:p-6">
@@ -63,13 +63,13 @@ const SolvencyCard = () => {
             <div
               className={cn(
                 'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-14 sm:w-14 sm:rounded-2xl',
-                healthy ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500',
+                healthy ? 'bg-brand/10 text-brand-text' : 'bg-danger/10 text-danger-text',
               )}
             >
               {healthy ? <ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7" /> : <ShieldAlert className="h-6 w-6 sm:h-7 sm:w-7" />}
             </div>
             <div className="min-w-0">
-              <h3 className="text-lg font-bold tracking-tight sm:text-xl">
+              <h3 className="font-display text-[19px] font-medium tracking-[-0.02em] sm:text-[21px]">
                 {healthy ? 'Solvent' : 'Under-backed'}
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
@@ -79,13 +79,13 @@ const SolvencyCard = () => {
           </div>
 
           <div className="shrink-0 text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-xs">
+            <p className="eyebrow">
               Collateralization
             </p>
             <p
               className={cn(
-                'text-2xl font-bold tabular-nums sm:text-3xl',
-                healthy ? 'text-emerald-500' : 'text-red-500',
+                'num font-display text-[26px] font-medium tracking-[-0.025em] sm:text-[32px]',
+                healthy ? 'text-brand-text' : 'text-danger-text',
               )}
             >
               {ratio.toFixed(2)}%
@@ -97,10 +97,10 @@ const SolvencyCard = () => {
             The bar's two colors are explained by the matching dots on the metrics below. */}
         <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className={cn('h-full', healthy ? 'bg-emerald-500' : 'bg-red-500')}
+            className={cn('h-full', healthy ? 'bg-brand' : 'bg-danger')}
             style={{ width: `${principalShare}%` }}
           />
-          <div className="h-full bg-emerald-500/30" style={{ width: `${surplusShare}%` }} />
+          <div className="h-full bg-brand/30" style={{ width: `${surplusShare}%` }} />
         </div>
 
         {/* Figures — also serve as the bar legend via the colored dots. */}
@@ -109,13 +109,13 @@ const SolvencyCard = () => {
           <Metric
             label="Principal"
             value={formatUsd(solvency?.principal ?? 0n)}
-            dot={healthy ? 'bg-emerald-500' : 'bg-red-500'}
+            dot={healthy ? 'bg-brand' : 'bg-danger'}
           />
           <Metric
             label="Surplus"
             value={`+${formatSurplus(solvency?.unclaimed ?? 0n)}`}
             accent="positive"
-            dot="bg-emerald-500/30"
+            dot="bg-brand/30"
           />
         </div>
 
@@ -132,7 +132,7 @@ const SolvencyCard = () => {
             href={explorerContract(CONTRACTS.wrapper)}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-brand-text hover:underline"
           >
             View wrapper contract <ExternalLink size={11} />
           </a>
@@ -154,15 +154,15 @@ const Metric = ({
   /** Optional Tailwind bg-class for a small legend swatch beside the label. */
   dot?: string;
 }) => (
-  <div className="min-w-0 rounded-lg border border-border/50 bg-muted/30 p-2.5 sm:p-3">
-    <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:gap-1.5 sm:text-xs sm:tracking-wider">
+  <div className="min-w-0 well rounded-lg p-2.5 sm:p-3">
+    <p className="flex items-center gap-1 eyebrow sm:gap-1.5">
       {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
       <span className="truncate">{label}</span>
     </p>
     <p
       className={cn(
-        'mt-0.5 truncate text-sm font-bold leading-tight tabular-nums sm:mt-1 sm:text-base lg:text-lg',
-        accent === 'positive' && 'text-emerald-500',
+        'num mt-1 truncate font-display text-[15px] leading-tight font-medium tracking-[-0.015em] sm:text-[17px]',
+        accent === 'positive' && 'text-brand-text',
       )}
       title={value}
     >

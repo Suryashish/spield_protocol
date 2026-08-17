@@ -10,6 +10,9 @@ import {
 } from 'recharts';
 import { TrendingUp, Activity, Info, LineChart } from 'lucide-react';
 
+import EmptyState from './EmptyState';
+import { cn } from '@/lib/utils';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useProtocol } from '@/context/ProtocolContext';
 import { getYieldHistory, sampleYield, type YieldHistory } from '@/lib/yield';
@@ -121,37 +124,49 @@ const YieldChart = () => {
   const showImplied = MARKET_DEPLOYED && !!marketStats;
 
   return (
-    <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
+    <Card className="overflow-hidden rounded-xl">
       <CardHeader className="flex flex-col gap-3 p-4 pb-0 sm:flex-row sm:items-start sm:justify-between sm:p-5">
         <div>
-          <CardTitle className="text-base font-semibold">Yield — Realized vs Implied</CardTitle>
-          <CardDescription className="text-sm">
+          <CardTitle>Yield — Realized vs Implied</CardTitle>
+          <CardDescription>
             What Blend has actually paid, next to what the market prices in
           </CardDescription>
         </div>
         <div className="flex items-stretch gap-3">
           {/* Realized — backward-looking, from observed b_rate growth */}
           <div className="text-right">
-            <div className="flex items-center justify-end gap-1.5 text-xs font-semibold uppercase text-muted-foreground">
-              <TrendingUp size={13} className="text-emerald-500" />
+            <div className="flex items-center justify-end gap-1.5 eyebrow">
+              <TrendingUp size={13} className="text-brand-text" />
               {realizedLabel}
             </div>
-            <div className="text-xl font-bold tabular-nums text-emerald-500 sm:text-2xl">{realizedValue}</div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">realized</div>
+            <div
+              className={cn(
+                'num font-display text-[22px] font-medium tracking-[-0.02em] sm:text-[26px]',
+                realizedValue === '—' ? 'text-subtle' : 'text-brand-text',
+              )}
+            >
+              {realizedValue}
+            </div>
+            <div className="eyebrow">realized</div>
           </div>
           {showImplied && (
             <>
               <div className="w-px self-stretch bg-border" />
               {/* Implied — forward-looking, from the AMM curve */}
               <div className="text-right">
-                <div className="flex items-center justify-end gap-1.5 text-xs font-semibold uppercase text-muted-foreground">
-                  <LineChart size={13} className="text-primary" />
+                <div className="flex items-center justify-end gap-1.5 eyebrow">
+                  <LineChart size={13} className="text-ember-text" />
                   Implied APY
                 </div>
-                <div className="text-xl font-bold tabular-nums text-primary sm:text-2xl">
+                <div
+                  className={cn(
+                    'num font-display text-[22px] font-medium tracking-[-0.02em] sm:text-[26px]',
+                    impliedPct > 0 ? 'text-ember-text' : 'text-subtle',
+                  )}
+                >
                   {impliedPct > 0 ? `${impliedPct.toFixed(2)}%` : '—'}
                 </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="eyebrow">
                   market · forward
                 </div>
               </div>
@@ -162,27 +177,28 @@ const YieldChart = () => {
 
       <CardContent className="p-4 pt-3 sm:p-5">
         {loading ? (
-          <div className="h-64 animate-pulse rounded-lg bg-muted/40" />
+          <div className="h-64 animate-pulse rounded-xl bg-muted" />
         ) : !hasEnough ? (
-          <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
-              <Activity size={20} />
-            </div>
-            <p className="text-sm font-semibold">Building yield history…</p>
-            <p className="max-w-sm text-xs text-muted-foreground">
-              We have {history?.samples.length ?? 0} rate observation
-              {(history?.samples.length ?? 0) === 1 ? '' : 's'} so far. The curve fills in as Blend&apos;s
-              rate ticks up — keep the dashboard open, or check back later, to watch it grow.
-            </p>
-          </div>
+          <EmptyState
+            className="h-64"
+            icon={Activity}
+            title="Building yield history…"
+            body={
+              <>
+                We have {history?.samples.length ?? 0} rate observation
+                {(history?.samples.length ?? 0) === 1 ? '' : 's'} so far. The curve fills in as
+                Blend&apos;s rate ticks up — keep the dashboard open to watch it grow.
+              </>
+            }
+          />
         ) : (
           <>
             <ResponsiveContainer width="100%" height={264}>
               <AreaChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="yieldFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" />
@@ -193,7 +209,7 @@ const YieldChart = () => {
                   scale="time"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--ink-subtle)', fontSize: 10.5 }}
                   tickFormatter={(v) =>
                     new Date(v * 1000).toLocaleTimeString(undefined, {
                       // Short windows are all one day → label by time, not a repeated date.
@@ -208,7 +224,7 @@ const YieldChart = () => {
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--ink-subtle)', fontSize: 10.5 }}
                   width={68}
                   domain={[0, 'auto']}
                   tickFormatter={(v) => fmtAdaptivePct(Number(v) / 100)}
@@ -217,8 +233,10 @@ const YieldChart = () => {
                   contentStyle={{
                     background: 'var(--card)',
                     border: '1px solid var(--border)',
-                    borderRadius: 8,
+                    borderRadius: 10,
+                    boxShadow: 'var(--shadow-float)',
                     fontSize: 12,
+                    color: 'var(--ink)',
                   }}
                   labelFormatter={(v) => fmtTime(Number(v))}
                   formatter={(value) => [
@@ -229,7 +247,7 @@ const YieldChart = () => {
                 <Area
                   type="monotone"
                   dataKey="yieldPct"
-                  stroke="#10b981"
+                  stroke="var(--brand)"
                   strokeWidth={2}
                   fill="url(#yieldFill)"
                 />
@@ -240,11 +258,11 @@ const YieldChart = () => {
               <Info size={13} className="mt-0.5 shrink-0" />
               <span>
                 The line is cumulative yield since the first observation ({spanLabel} of history).{' '}
-                <span className="font-medium text-emerald-500">Realized</span> is the annualized growth
+                <span className="font-medium text-brand-text">Realized</span> is the annualized growth
                 of Blend&apos;s exchange rate over this window — what actually happened.{' '}
                 {showImplied ? (
                   <>
-                    <span className="font-medium text-primary">Implied</span> is forward-looking: the
+                    <span className="font-medium text-ember-text">Implied</span> is forward-looking: the
                     return the AMM prices in right now, derived from the PT price + time to maturity.
                     A gap between them is the market&apos;s view on where yield is heading.
                   </>

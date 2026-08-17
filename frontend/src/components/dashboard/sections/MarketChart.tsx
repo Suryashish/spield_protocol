@@ -11,6 +11,7 @@ import {
 import { TrendingUp, Activity, Info, Percent, Droplets, Clock, AlertTriangle } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import EmptyState from './EmptyState';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { getMarketHistory, type MarketHistory } from '@/lib/marketHistory';
@@ -113,7 +114,7 @@ const MarketChart = () => {
 
   if (!MARKET_DEPLOYED) {
     return (
-      <Card className="flex items-start gap-2 rounded-xl border-border/60 bg-muted/40 p-4 text-xs text-muted-foreground">
+      <Card className="flex items-start gap-2 well rounded-xl p-4 text-xs text-muted-foreground">
         <AlertTriangle size={14} className="mt-0.5 shrink-0" />
         <span>
           The Market AMM isn&apos;t deployed yet. Run{' '}
@@ -128,38 +129,40 @@ const MarketChart = () => {
   const ptPrice = m ? fromScalar12(m.ptPrice) : 0;
   const tvl = poolValueUsd(m);
   const hasLiquidity = !!m && (m.ptReserve > 0n || m.usdcReserve > 0n);
-  const accent = series === 'apy' ? '#10b981' : 'var(--primary)';
+  // The market's forward rate is the ember — the same hue the landing
+  // page's rate drifts in before it locks. Realized/PT price is the green.
+  const accent = series === 'apy' ? 'var(--ember)' : 'var(--brand)';
 
   return (
-    <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
+    <Card className="overflow-hidden rounded-xl">
       <CardHeader className="p-4 pb-2 sm:p-5">
-        <CardTitle className="text-base font-semibold">Market — PT Price &amp; Rate</CardTitle>
-        <CardDescription className="text-sm">
+        <CardTitle>Market — PT Price &amp; Rate</CardTitle>
+        <CardDescription>
           Live price discovery on the time-decay curve
         </CardDescription>
         {/* Folded-in stats strip (replaces the old MarketHeader) — a 2×2 / 4-across grid under the
             title so it stays readable in the narrower column beside the trade panel. */}
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border/50 bg-muted/20 p-3 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 well rounded-lg p-3 sm:grid-cols-4">
           <Stat
-            icon={<TrendingUp size={13} className="text-emerald-500" />}
+            icon={<TrendingUp size={13} className="text-ember-text" />}
             label="Implied APY"
             value={loading ? '—' : hasLiquidity && apyPct > 0 ? `${apyPct.toFixed(2)}%` : '—'}
-            valueClass="text-emerald-500"
+            valueClass="text-ember-text"
           />
           <Stat
-            icon={<Percent size={13} className="text-primary" />}
+            icon={<Percent size={13} className="text-brand-text" />}
             label="PT Price"
             value={loading || !hasLiquidity ? '—' : ptPrice.toFixed(4)}
-            valueClass="text-primary"
+            valueClass="text-brand-text"
           />
           <Stat
-            icon={<Droplets size={13} className="text-sky-400" />}
+            icon={<Droplets size={13} className="text-usdc-text" />}
             label="Liquidity"
             value={loading ? '—' : formatUsd(BigInt(Math.round(tvl * 1e7)))}
             hint={m ? `${formatAmount(m.ptReserve, 1)} PT · ${formatAmount(m.usdcReserve, 1)} USDC` : undefined}
           />
           <Stat
-            icon={<Clock size={13} className="text-amber-500" />}
+            icon={<Clock size={13} className="text-ember-text" />}
             label="Matures"
             value={m ? fmtMaturity(m.maturity) : '—'}
             hint={m ? `${daysLeft(m.maturity)}d · ${(m.feeBps / 100).toFixed(2)}% fee` : undefined}
@@ -169,7 +172,7 @@ const MarketChart = () => {
 
       <CardContent className="p-4 pt-1 sm:p-5">
         {/* Series toggle */}
-        <div className="mb-3 grid w-fit grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1 text-xs font-semibold">
+        <div className="mb-3 grid w-fit grid-cols-2 gap-1 well rounded-lg p-1 text-xs font-semibold">
           {(['price', 'apy'] as Series[]).map((s) => (
             <button
               key={s}
@@ -178,7 +181,7 @@ const MarketChart = () => {
               className={cn(
                 'rounded-md px-3 py-1 transition-all',
                 series === s
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'border border-border bg-card text-foreground shadow-float-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -188,19 +191,18 @@ const MarketChart = () => {
         </div>
 
         {loading ? (
-          <div className="h-64 animate-pulse rounded-lg bg-muted/40" />
+          <div className="h-64 animate-pulse rounded-xl bg-muted" />
         ) : !hasEnough ? (
-          <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
-              <Activity size={20} />
-            </div>
-            <p className="text-sm font-semibold">Building price history…</p>
-            <p className="max-w-sm text-xs text-muted-foreground">
-              {series === 'apy'
+          <EmptyState
+            className="h-64"
+            icon={Activity}
+            title="Building price history…"
+            body={
+              series === 'apy'
                 ? 'The implied-APY line fills in as the pool is read over time — keep the dashboard open, or check back later.'
-                : 'The price line fills in from trades and live reads — make a swap, or check back later, to watch it move.'}
-            </p>
-          </div>
+                : 'The price line fills in from trades and live reads — make a swap, or check back later, to watch it move.'
+            }
+          />
         ) : (
           <>
             <ResponsiveContainer width="100%" height={264}>
@@ -219,7 +221,7 @@ const MarketChart = () => {
                   scale="time"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--ink-subtle)', fontSize: 10.5 }}
                   tickFormatter={(v) =>
                     new Date(v * 1000).toLocaleTimeString(undefined, {
                       ...(intraday
@@ -233,7 +235,7 @@ const MarketChart = () => {
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--ink-subtle)', fontSize: 10.5 }}
                   width={64}
                   domain={series === 'apy' ? [0, 'auto'] : ['auto', 'auto']}
                   tickFormatter={(v) =>
@@ -244,8 +246,10 @@ const MarketChart = () => {
                   contentStyle={{
                     background: 'var(--card)',
                     border: '1px solid var(--border)',
-                    borderRadius: 8,
+                    borderRadius: 10,
+                    boxShadow: 'var(--shadow-float)',
                     fontSize: 12,
+                    color: 'var(--ink)',
                   }}
                   labelFormatter={(v) => fmtTime(Number(v))}
                   formatter={(value) => {
@@ -303,11 +307,17 @@ const Stat = ({
   valueClass?: string;
 }) => (
   <div className="min-w-0">
-    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="flex items-center gap-1.5 eyebrow">
       {icon}
       {label}
     </div>
-    <div className={cn('mt-0.5 text-base font-bold tabular-nums', valueClass ?? 'text-foreground')}>
+    <div
+    className={cn(
+      'num mt-1 font-display text-[16px] font-medium tracking-[-0.015em]',
+      // a dash is 'nothing to read yet', so it never takes the series colour
+      value === '—' ? 'text-subtle' : (valueClass ?? 'text-foreground'),
+    )}
+  >
       {value}
     </div>
     {hint && <div className="truncate text-[10px] text-muted-foreground">{hint}</div>}

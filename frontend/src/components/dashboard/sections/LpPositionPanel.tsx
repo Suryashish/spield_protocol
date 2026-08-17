@@ -1,4 +1,6 @@
-import { Droplets, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Droplets, ShieldCheck, Wallet } from 'lucide-react';
+
+import EmptyState from './EmptyState';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWallet } from '@/context/WalletContext';
@@ -35,6 +37,7 @@ const LpPositionPanel = () => {
     if (!MARKET_DEPLOYED) {
       return (
         <Empty
+          icon={AlertTriangle}
           title="Market not deployed"
           body="The PT/USDC pool isn't live yet. Once deployed, your liquidity position shows here."
         />
@@ -43,19 +46,19 @@ const LpPositionPanel = () => {
     if (!isConnected) {
       return (
         <Empty
-          icon={<Wallet size={22} />}
+          icon={Wallet}
           title="Connect your wallet"
           body="Connect Freighter to see the liquidity you've supplied to the pool."
         />
       );
     }
     if (loading) {
-      return <div className="h-40 flex-1 animate-pulse rounded-xl bg-muted/40" />;
+      return <div className="h-40 flex-1 animate-pulse rounded-xl bg-muted" />;
     }
     if (!hasPosition) {
       return (
         <Empty
-          icon={<Droplets size={22} />}
+          icon={Droplets}
           title="No liquidity yet"
           body="Add PT + USDC in the panel to start earning the swap fee on every trade."
         />
@@ -65,11 +68,11 @@ const LpPositionPanel = () => {
     return (
       <div className="space-y-4">
         {/* Headline value */}
-        <div className="rounded-xl border border-border/50 bg-muted/30 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="well rounded-xl p-4">
+          <p className="eyebrow">
             Position value
           </p>
-          <p className="mt-1 text-2xl font-bold tabular-nums">{formatUsd(usdFromHuman(totalUsd))}</p>
+          <p className="num mt-1 font-display text-[24px] font-medium tracking-[-0.02em]">{formatUsd(usdFromHuman(totalUsd))}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {formatAmount(lp!.shares, 2)} LP shares
           </p>
@@ -77,13 +80,13 @@ const LpPositionPanel = () => {
 
         {/* Composition bar */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs font-medium">
-            <span className="text-primary">PT · {formatAmount(lp!.ptClaim, 2)}</span>
-            <span className="text-sky-400">USDC · {formatUsd(lp!.usdcClaim)}</span>
+          <div className="flex items-center justify-between text-[12.5px]">
+            <span className="text-brand-text">PT · {formatAmount(lp!.ptClaim, 2)}</span>
+            <span className="text-usdc-text">USDC · {formatUsd(lp!.usdcClaim)}</span>
           </div>
           <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
             <div className="bg-primary" style={{ width: `${ptPctOfPool}%` }} />
-            <div className="bg-sky-400" style={{ width: `${100 - ptPctOfPool}%` }} />
+            <div className="bg-usdc" style={{ width: `${100 - ptPctOfPool}%` }} />
           </div>
           <p className="text-xs text-muted-foreground">
             Your share of the pool, split {ptPctOfPool}% PT / {100 - ptPctOfPool}% USDC at the live
@@ -92,8 +95,8 @@ const LpPositionPanel = () => {
         </div>
 
         {/* IL reassurance — the pool's main selling point */}
-        <div className="flex items-start gap-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 text-xs text-muted-foreground">
-          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-sky-400" />
+        <div className="flex items-start gap-2 rounded-lg border border-usdc/20 bg-usdc/5 p-3 text-xs text-muted-foreground">
+          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-usdc-text" />
           <span>
             Hold to maturity and PT marches to par along the time-decay curve, so you get principal
             + accrued fees back with <span className="font-semibold text-foreground">~no impermanent loss</span>.
@@ -104,13 +107,13 @@ const LpPositionPanel = () => {
   };
 
   return (
-    <Card className="flex h-full flex-col rounded-xl border-border bg-card shadow-sm">
+    <Card className="flex h-full flex-col rounded-xl">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Droplets size={16} className="text-sky-400" />
+        <CardTitle className="flex items-center gap-2">
+          <Droplets size={16} className="text-usdc-text" />
           Your Liquidity
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription>
           What your LP shares hold and redeem for right now.
         </CardDescription>
       </CardHeader>
@@ -119,23 +122,10 @@ const LpPositionPanel = () => {
   );
 };
 
-const Empty = ({
-  icon,
-  title,
-  body,
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  body: string;
-}) => (
-  <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-12 text-center">
-    {icon && (
-      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
-        {icon}
-      </div>
-    )}
-    <p className="text-sm font-semibold">{title}</p>
-    <p className="max-w-xs text-xs text-muted-foreground">{body}</p>
+/** The shared empty state, in the dashed frame this panel uses for its slot. */
+const Empty = (props: React.ComponentProps<typeof EmptyState>) => (
+  <div className="flex flex-1 flex-col justify-center rounded-xl border border-dashed border-border">
+    <EmptyState {...props} />
   </div>
 );
 

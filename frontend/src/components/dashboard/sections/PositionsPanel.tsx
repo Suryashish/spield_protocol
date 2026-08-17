@@ -13,6 +13,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import EmptyState from './EmptyState';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
@@ -50,14 +51,14 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
   };
 
   return (
-    <div className="rounded-xl border border-border bg-muted/20 p-4">
+    <div className="well rounded-xl p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/60 text-foreground">
+          <div className="well grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground">
             <Layers size={16} />
           </div>
           <div>
-            <p className="text-sm font-semibold">Position #{pos.positionId}</p>
+            <p className="text-[13.5px] font-medium">Position #{pos.positionId}</p>
             <p className="text-xs text-muted-foreground">
               {formatUsd(pos.principal)} principal
             </p>
@@ -65,8 +66,8 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
         </div>
         <span
           className={cn(
-            'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-            pos.open ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground',
+            'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
+            pos.open ? 'border-brand/25 bg-brand/10 text-brand-text' : 'border-border bg-muted text-muted-foreground',
           )}
         >
           {pos.open ? 'Active' : 'Closed'}
@@ -75,20 +76,20 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
 
       {/* Token holdings + claimable */}
       <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-        <div className="rounded-lg border border-border/50 bg-card/50 py-2">
-          <p className="text-xs font-semibold text-primary">PT</p>
-          <p className="mt-0.5 text-sm font-bold tabular-nums">{formatAmount(pos.ptAmount)}</p>
+        <div className="rounded-lg border border-border bg-card py-2.5">
+          <p className="text-xs font-semibold text-brand-text">PT</p>
+          <p className="num mt-1 text-[14px] font-medium">{formatAmount(pos.ptAmount)}</p>
         </div>
-        <div className="rounded-lg border border-border/50 bg-card/50 py-2">
-          <p className="text-xs font-semibold text-amber-500">YT</p>
-          <p className="mt-0.5 text-sm font-bold tabular-nums">{formatAmount(pos.ytAmount)}</p>
+        <div className="rounded-lg border border-border bg-card py-2.5">
+          <p className="text-xs font-semibold text-ember-text">YT</p>
+          <p className="num mt-1 text-[14px] font-medium">{formatAmount(pos.ytAmount)}</p>
         </div>
-        <div className="rounded-lg border border-border/50 bg-card/50 py-2">
-          <p className="text-xs font-semibold text-emerald-500">Yield</p>
+        <div className="rounded-lg border border-border bg-card py-2.5">
+          <p className="text-xs font-semibold text-brand-text">Yield</p>
           <p
             className={cn(
-              'mt-0.5 text-sm font-bold tabular-nums',
-              hasClaim ? 'text-emerald-500' : 'text-foreground',
+              'num mt-1 text-[14px] font-medium',
+              hasClaim ? 'text-brand-text' : 'text-foreground',
             )}
           >
             {formatAmount(pos.claimableYield, 6)}
@@ -103,7 +104,7 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
           variant={hasClaim ? 'default' : 'outline'}
           disabled={busy || !hasClaim}
           onClick={onClaim}
-          className="h-8 flex-1 gap-1.5 text-xs font-semibold"
+          className="h-8 flex-1 gap-1.5 text-[12.5px] font-medium"
         >
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
           Claim
@@ -114,7 +115,7 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
           variant="outline"
           disabled={busy || !hasBoth}
           onClick={onCombine}
-          className="h-8 flex-1 gap-1.5 text-xs font-semibold"
+          className="h-8 flex-1 gap-1.5 text-[12.5px] font-medium"
           title="Burn equal PT + YT to redeem principal early (auto-claims yield first)"
         >
           <Combine size={13} />
@@ -126,7 +127,7 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
           variant="outline"
           disabled={busy || !hasPt || !matured}
           onClick={onRedeem}
-          className="h-8 flex-1 gap-1.5 text-xs font-semibold"
+          className="h-8 flex-1 gap-1.5 text-[12.5px] font-medium"
           title={matured ? 'Redeem PT 1:1 for USDC' : 'Available at maturity'}
         >
           <Unlock size={13} />
@@ -151,13 +152,13 @@ const PositionsPanel = () => {
   };
 
   return (
-    <Card className="flex h-full flex-col overflow-hidden rounded-xl border-border bg-card shadow-sm">
+    <Card className="flex h-full flex-col overflow-hidden rounded-xl">
       <div className="flex items-start justify-between border-b border-border p-4">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold">Your Positions</h3>
+            <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">Your Positions</h3>
             {positions.length > 0 && (
-              <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+              <span className="num rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 {positions.length}
               </span>
             )}
@@ -182,13 +183,13 @@ const PositionsPanel = () => {
           vault contract (not your wallet), so they never appear here — they live under their own
           tab as receipts. Stated up-front so a vault depositor isn't confused by an empty list. */}
       {VAULT_DEPLOYED && (
-        <div className="border-b border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+        <div className="border-b border-border bg-accent/40 px-4 py-2.5 text-xs text-muted-foreground">
           These are your raw <span className="font-semibold text-foreground">PT/YT positions</span>{' '}
           from depositing above. Fixed Vault deposits appear under{' '}
           <button
             type="button"
             onClick={() => navigate('vault')}
-            className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+            className="inline-flex items-center gap-0.5 font-semibold text-brand-text hover:underline"
           >
             Fixed Vault <ArrowRight size={11} />
           </button>{' '}
@@ -201,20 +202,20 @@ const PositionsPanel = () => {
           scrolls in place instead of stretching the whole section taller. */}
       <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto p-4 lg:max-h-128">
         {!isConnected ? (
-          <EmptyState
-            icon={<Coins size={22} />}
+          <EmptySlot
+            icon={Coins}
             title="Connect your wallet"
             body="Connect Freighter to view and manage your PT/YT positions."
           />
         ) : loading ? (
           <div className="space-y-3">
             {[0, 1].map((i) => (
-              <div key={i} className="h-40 animate-pulse rounded-xl bg-muted/40" />
+              <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />
             ))}
           </div>
         ) : positions.length === 0 ? (
-          <EmptyState
-            icon={<Layers size={22} />}
+          <EmptySlot
+            icon={Layers}
             title="No open positions"
             body="Deposit USDC to mint your first PT + YT position."
             action={
@@ -222,9 +223,9 @@ const PositionsPanel = () => {
                 <button
                   type="button"
                   onClick={() => navigate('vault')}
-                  className="mt-1 inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
+                  className="mt-1 inline-flex items-center gap-1 well rounded-lg px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-brand/40 hover:bg-brand/5"
                 >
-                  <Lock size={12} className="text-primary" />
+                  <Lock size={12} className="text-brand-text" />
                   Deposited in the Fixed Vault? See it under Fixed Vault
                   <ArrowRight size={12} />
                 </button>
@@ -239,24 +240,10 @@ const PositionsPanel = () => {
   );
 };
 
-const EmptyState = ({
-  icon,
-  title,
-  body,
-  action,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-  action?: React.ReactNode;
-}) => (
-  <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-12 text-center">
-    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
-      {icon}
-    </div>
-    <p className="text-sm font-semibold">{title}</p>
-    <p className="max-w-xs text-xs text-muted-foreground">{body}</p>
-    {action}
+/** The shared empty state, in the dashed frame this list uses for its slot. */
+const EmptySlot = (props: React.ComponentProps<typeof EmptyState>) => (
+  <div className="flex flex-1 flex-col justify-center rounded-xl border border-dashed border-border">
+    <EmptyState {...props} />
   </div>
 );
 

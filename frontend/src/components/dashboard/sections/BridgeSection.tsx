@@ -21,6 +21,7 @@ import { StrKey } from '@stellar/stellar-sdk';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import AmountField from './AmountField';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -76,7 +77,7 @@ const fmtEstimate = (ms: number): string => {
 const TokenDisc = ({ symbol, size = 20 }: { symbol: string; size?: number }) => (
   <span
     aria-hidden
-    className="inline-flex shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary"
+    className="inline-flex shrink-0 items-center justify-center rounded-full bg-brand/10 font-bold text-brand-text"
     style={{ width: size, height: size, fontSize: Math.max(8, size * 0.36) }}
   >
     {symbol.slice(0, 2)}
@@ -372,13 +373,13 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
       : 'Bridge Assets';
 
   return (
-    <Card className="h-full rounded-xl border-border bg-card shadow-sm">
+    <Card className="h-full rounded-xl">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <ArrowRightLeft size={16} className="text-primary" />
+        <CardTitle className="flex items-center gap-2">
+          <ArrowRightLeft size={16} className="text-brand-text" />
           Bridge to Stellar
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription>
           Bring USDC from any chain into Stellar via Allbridge Core.
         </CardDescription>
       </CardHeader>
@@ -389,7 +390,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
           </div>
         ) : chainsError ? (
           <div className="flex h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-            <AlertTriangle size={20} className="text-amber-500" />
+            <AlertTriangle size={20} className="text-ember-text" />
             <span className="px-2">{chainsError}</span>
             <Button
               variant="outline"
@@ -404,8 +405,8 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
           <>
             {/* Testnet banner — quotes are live, execution is mainnet-only. */}
             {!BRIDGE_ENABLED && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-xs text-muted-foreground">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-500" />
+              <div className="flex items-start gap-2 rounded-lg border border-ember/20 bg-ember/5 p-2.5 text-xs text-muted-foreground">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-ember-text" />
                 <span>
                   Allbridge Core has no testnet. You can connect a wallet and preview live prices here,
                   but bridging is disabled on <strong>{NETWORK_KEY}</strong>. It unlocks on the mainnet
@@ -427,26 +428,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
 
             {/* Source Selection */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold uppercase text-muted-foreground">From</Label>
-                {sourceAddress && (
-                  <span className="text-xs text-muted-foreground">
-                    Balance:{' '}
-                    {loadingBalance ? (
-                      <Loader2 size={11} className="inline animate-spin" />
-                    ) : (
-                      <button
-                        type="button"
-                        className="font-medium text-foreground hover:text-primary"
-                        onClick={() => balance && setAmount(balance)}
-                        title="Use max"
-                      >
-                        {balance ? `${Number(balance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selectedSourceToken?.symbol ?? ''}` : '—'}
-                      </button>
-                    )}
-                  </span>
-                )}
-              </div>
+              <Label className="eyebrow">From</Label>
               <div className="flex gap-2">
                 <Select
                   value={sourceChain}
@@ -472,7 +454,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
                           <NetworkIcon chainSymbol={c.chainSymbol} size={22} />
                           <span className="flex flex-col leading-tight">
                             <span className="text-sm font-medium">{c.name}</span>
-                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            <span className="eyebrow">
                               {c.chainSymbol}
                             </span>
                           </span>
@@ -507,55 +489,63 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-                <Input
-                  type="number"
-                  placeholder="0.0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
-                />
-              </div>
-              {overBalance && (
-                <p className="text-xs text-destructive">Amount exceeds your wallet balance.</p>
-              )}
+              <AmountField
+                label="Amount to bridge"
+                token={selectedSourceToken?.symbol}
+                value={amount}
+                onChange={setAmount}
+                loading={loadingBalance}
+                balance={
+                  sourceAddress && balance
+                    ? `${Number(balance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selectedSourceToken?.symbol ?? ''}`.trim()
+                    : undefined
+                }
+                onMax={sourceAddress && balance ? () => setAmount(balance) : undefined}
+                invalid={overBalance}
+                hint={overBalance ? 'Amount exceeds your wallet balance.' : undefined}
+                hintTone={overBalance ? 'ember' : 'muted'}
+              />
             </div>
 
-            <div className="-my-2 flex justify-center">
-              <div className="rounded-full border border-border bg-accent p-1">
-                <ArrowDown size={14} className="text-muted-foreground" />
-              </div>
+            {/* The seam between "from" and "to" — a hairline with the arrow
+                seated in it, so it can never land on the next field's label
+                the way a chip pulled into the gap does. */}
+            <div className="flex items-center gap-3 py-0.5">
+              <span className="rule-soft flex-1" aria-hidden="true" />
+              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
+                <ArrowDown size={12} />
+              </span>
+              <span className="rule-soft flex-1" aria-hidden="true" />
             </div>
 
             {/* Destination — fixed to Stellar USDC. */}
             <div className="space-y-3">
-              <Label className="text-xs font-semibold uppercase text-muted-foreground">To</Label>
-              <div className="flex h-11 items-center justify-between rounded-lg border border-input bg-muted/30 px-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="relative inline-flex">
-                    <TokenDisc symbol={destToken?.symbol ?? 'USDC'} size={26} />
-                    <span className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-card">
-                      <NetworkIcon chainSymbol="SRB" size={13} />
+              <Label className="eyebrow">To</Label>
+              <AmountField
+                label="You receive"
+                token={
+                  <>
+                    <span className="relative inline-flex">
+                      <TokenDisc symbol={destToken?.symbol ?? 'USDC'} size={20} />
+                      <span className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-card">
+                        <NetworkIcon chainSymbol="SRB" size={11} />
+                      </span>
                     </span>
-                  </span>
-                  <div className="leading-tight">
-                    <div className="text-sm font-semibold">{destToken?.symbol ?? 'USDC'} on Stellar</div>
-                    <div className="text-[10px] text-muted-foreground">Destination is fixed to Stellar</div>
-                  </div>
-                </div>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-lg font-bold tabular-nums">{quote ?? '0.0'}</span>
-                  {quoting && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
-                </div>
-              </div>
+                    {destToken?.symbol ?? 'USDC'}
+                  </>
+                }
+                value={quote ?? ''}
+                loading={quoting}
+                hint="Destination is fixed to Stellar"
+              />
             </div>
 
             {/* Recipient (Stellar) — defaults to connected wallet, editable via modal. */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase text-muted-foreground">
+              <Label className="eyebrow">
                 Recipient (Stellar)
               </Label>
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-input bg-muted/30 px-3.5 py-3">
+              <div className="flex items-center justify-between gap-2 well rounded-xl px-4 py-3">
                 {recipient ? (
                   <div className="min-w-0 leading-tight">
                     <div className="truncate font-mono text-sm">{shortenAddress(recipient, 6, 6)}</div>
@@ -585,13 +575,13 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
 
             {/* Summary */}
             {(quote || fee || transferTimeMs !== null) && (
-              <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
-                <div className="flex justify-between text-xs font-medium">
+              <div className="space-y-1.5 well rounded-lg p-3">
+                <div className="flex justify-between text-[12.5px]">
                   <span className="text-muted-foreground">Estimated Network Fee</span>
                   <span className="text-foreground">{fee ? `${fee.amount} ${fee.symbol}` : '—'}</span>
                 </div>
                 {transferTimeMs !== null && (
-                  <div className="flex justify-between text-xs font-medium">
+                  <div className="flex justify-between text-[12.5px]">
                     <span className="flex items-center gap-1 text-muted-foreground">
                       <Clock size={11} />
                       Estimated time of arrival
@@ -604,8 +594,8 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
 
             {/* Reown not configured */}
             {reownBlocked && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-xs text-muted-foreground">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-500" />
+              <div className="flex items-start gap-2 rounded-lg border border-ember/20 bg-ember/5 p-2.5 text-xs text-muted-foreground">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-ember-text" />
                 <span>
                   Connecting an EVM/Solana wallet needs a wallet-connect project id
                   (VITE_REOWN_PROJECT_ID).
@@ -616,7 +606,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
             <Button
               onClick={handleBridge}
               disabled={!BRIDGE_ENABLED || !sourceAddress || !canSubmit || busy || reownBlocked}
-              className="h-10 w-full text-sm font-bold uppercase tracking-wide shadow-none"
+              className="h-11 w-full text-[14px] font-medium"
             >
               {busy && <Loader2 size={15} className="mr-2 animate-spin" />}
               {ctaLabel}
@@ -663,11 +653,11 @@ const SourceWalletPanel = ({
 
   if (address) {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="relative flex h-2 w-2 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
           </span>
           <div className="min-w-0 leading-tight">
             <div className="truncate font-mono text-sm font-medium">
@@ -758,21 +748,21 @@ const RecipientEditor = ({
                   onUseWallet();
                   onOpenChange(false);
                 }}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-left text-sm hover:border-primary/40 hover:bg-muted"
+                className="flex w-full items-center gap-2 well rounded-lg px-3 py-2.5 text-left text-sm hover:border-brand/40 hover:bg-muted"
               >
-                <Wallet size={15} className="text-primary" />
+                <Wallet size={15} className="text-brand-text" />
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">Use my connected wallet</span>
                   <span className="block truncate font-mono text-[11px] text-muted-foreground">
                     {walletAddress}
                   </span>
                 </span>
-                <Check size={15} className="text-emerald-500" />
+                <Check size={15} className="text-brand-text" />
               </button>
             )}
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase text-muted-foreground">
+              <Label className="eyebrow">
                 Custom Stellar address
               </Label>
               <Input
@@ -825,12 +815,12 @@ const fmtTime = (ms: number): string =>
 const TransferRow = ({ transfer }: { transfer: BridgeTransfer }) => {
   const done = transfer.completedAt !== null;
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+    <div className="flex items-start gap-3 well rounded-lg p-3">
       <div className="mt-0.5 shrink-0">
         {done ? (
-          <CheckCircle2 size={16} className="text-emerald-500" />
+          <CheckCircle2 size={16} className="text-brand-text" />
         ) : (
-          <Loader2 size={16} className="animate-spin text-primary" />
+          <Loader2 size={16} className="animate-spin text-brand-text" />
         )}
       </div>
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -844,7 +834,7 @@ const TransferRow = ({ transfer }: { transfer: BridgeTransfer }) => {
         </div>
 
         {done ? (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-emerald-500">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-brand-text">
             <span className="inline-flex items-center gap-1">
               <Clock size={11} />
               Completed {fmtTime(transfer.completedAt!)}
@@ -895,10 +885,10 @@ const TransferHistory = ({
 }) => {
   if (transfers.length === 0) return null;
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+    <div className="panel rounded-xl p-5">
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-base font-semibold">
-          <History size={17} className="text-primary" />
+        <h3 className="flex items-center gap-2 font-display text-[15px] font-medium tracking-[-0.015em]">
+          <History size={17} className="text-brand-text" />
           Recent transfers
         </h3>
         <Button
@@ -931,9 +921,9 @@ const BridgeSection = () => {
           <BridgePanel onTracked={track} />
         </div>
         <div className="space-y-6 lg:col-span-6">
-          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <h3 className="flex items-center gap-2 text-base font-semibold">
-              <ShieldCheck size={17} className="text-emerald-500" />
+          <div className="panel rounded-xl p-5">
+            <h3 className="flex items-center gap-2 font-display text-[15px] font-medium tracking-[-0.015em]">
+              <ShieldCheck size={17} className="text-brand-text" />
               Powered by Allbridge Core
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">

@@ -1,13 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronsLeft } from 'lucide-react';
+import { ChevronsLeft, ArrowUpRight } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import logo from '@/assets/logo.png';
 import { NETWORK } from '@/lib/config';
 import { SITE_ORIGIN } from '@/lib/site';
 
-import { NAV_ITEMS, type NavItem } from '../data';
+import BrandMark from './BrandMark';
+import { NAV_ITEMS, NAV_GROUPS, type NavItem } from '../data';
 
 type SidebarItemProps = {
   item: NavItem;
@@ -16,28 +16,45 @@ type SidebarItemProps = {
   onClick: () => void;
 };
 
+/**
+ * A nav row. The selected one wears a raised pill — surface, hairline and the
+ * float shadow — rather than a flat grey fill, so it reads as the one item
+ * standing off the rail. The pill itself is a shared-layout element, so
+ * selecting another section slides it there instead of blinking.
+ */
 const SidebarItem = ({ item, active, collapsed, onClick }: SidebarItemProps) => {
   const Icon = item.icon;
   return (
     <button
       onClick={onClick}
       title={collapsed ? item.label : undefined}
+      aria-current={active ? 'page' : undefined}
       className={cn(
-        'group relative flex h-10 items-center rounded-lg text-sm font-medium transition-colors',
+        'group relative flex h-10 items-center rounded-lg text-[13.5px] font-medium transition-colors duration-200',
         collapsed ? 'w-10 justify-center' : 'w-full gap-3 px-3',
-        active
-          ? 'bg-accent text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
       )}
     >
-      <Icon size={18} className="shrink-0" />
-      {!collapsed && <span className="truncate">{item.label}</span>}
       {active && (
-        <motion.div
+        <motion.span
           layoutId="sidebar-active"
-          className="absolute -left-2 h-5 w-1 rounded-r-full bg-primary"
+          transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+          className="nav-pill absolute inset-0 rounded-lg"
         />
       )}
+      {/* the wash for the rows you are only pointing at — under the pill, so
+          the two never stack on the selected row */}
+      {!active && (
+        <span className="absolute inset-0 rounded-lg bg-accent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+      )}
+      <Icon
+        size={17}
+        className={cn(
+          'relative shrink-0 transition-colors duration-200',
+          active ? 'text-brand-text' : 'text-subtle group-hover:text-muted-foreground',
+        )}
+      />
+      {!collapsed && <span className="relative truncate">{item.label}</span>}
     </button>
   );
 };
@@ -57,17 +74,16 @@ const MobileNavItem = ({
     <button
       onClick={onClick}
       title={item.label}
+      aria-label={item.label}
+      aria-current={active ? 'page' : undefined}
       className={cn(
-        'group relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
+        'group relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-200',
         active
-          ? 'bg-accent text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+          ? 'nav-pill text-brand-text'
+          : 'text-subtle hover:bg-accent hover:text-foreground',
       )}
     >
       <Icon size={16} className="shrink-0" />
-      {active && (
-        <span className="absolute -left-1.5 h-4 w-0.5 rounded-r-full bg-primary" />
-      )}
     </button>
   );
 };
@@ -77,17 +93,14 @@ const NetworkBadge = ({ collapsed }: { collapsed: boolean }) => (
   <div
     title={`Connected to Stellar ${NETWORK.name}`}
     className={cn(
-      'flex items-center rounded-lg bg-accent/40 text-xs font-medium text-muted-foreground',
-      collapsed ? 'h-9 w-9 justify-center' : 'gap-2 px-3 py-2'
+      'flex items-center rounded-lg',
+      collapsed ? 'h-9 w-9 justify-center' : 'gap-2.5 px-2.5 py-2',
     )}
   >
-    <span className="relative flex h-2 w-2 shrink-0">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
-      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-    </span>
+    <span className="pulse-dot" />
     {!collapsed && (
-      <span className="truncate">
-        Stellar <span className="font-semibold text-foreground">{NETWORK.name}</span>
+      <span className="eyebrow truncate text-muted-foreground">
+        Stellar <span className="text-foreground">{NETWORK.name}</span>
       </span>
     )}
   </div>
@@ -104,17 +117,20 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
   return (
     <>
       {/* ----------------------------------------------------- desktop (lg+) */}
-      {/* Inline collapsible rail. Unchanged from the original layout. */}
+      {/* Inline collapsible rail. It sits ON the canvas rather than on a card
+          of its own — the page is one sheet with a hairline down it, which is
+          the marketing site's grammar and one less box than before. */}
       <motion.aside
-        animate={{ width: collapsed ? 72 : 240 }}
+        animate={{ width: collapsed ? 72 : 236 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="hidden shrink-0 flex-col border-r border-border bg-card lg:flex"
+        className="hidden shrink-0 flex-col border-r border-border bg-canvas lg:flex"
       >
-        {/* Brand + collapse toggle */}
+        {/* Brand + collapse toggle. The row is the header's height so the
+            wordmark and the breadcrumb sit on one line across the seam. */}
         <div
           className={cn(
-            'flex h-16 items-center border-b border-border',
-            collapsed ? 'justify-center px-2' : 'justify-between px-4'
+            'flex h-16 shrink-0 items-center',
+            collapsed ? 'justify-center px-2' : 'justify-between pl-4 pr-3',
           )}
         >
           {/* Brand → the marketing site, which is a different host now. A
@@ -123,16 +139,16 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
           <a
             href={SITE_ORIGIN}
             title="Go to spield.live"
-            className="flex items-center gap-2 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
+            className="flex items-center gap-2.5 overflow-hidden rounded-lg transition-opacity duration-200 hover:opacity-70"
           >
-            <img src={logo} alt="Logo" className="h-7 w-7 shrink-0 object-contain" />
+            <BrandMark size={26} />
             <AnimatePresence>
               {!collapsed && (
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="font-heading text-base font-semibold tracking-tight"
+                  className="font-display text-[19px] font-bold tracking-[-0.02em]"
                 >
                   Spield
                 </motion.span>
@@ -144,73 +160,117 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
               variant="ghost"
               size="icon-sm"
               onClick={() => onToggle(true)}
-              className="text-muted-foreground hover:text-foreground"
+              title="Collapse sidebar"
+              className="text-subtle hover:text-foreground"
             >
-              <ChevronsLeft size={16} />
+              <ChevronsLeft size={15} />
             </Button>
           )}
         </div>
 
-        {/* Primary nav */}
-        <nav className={cn('flex flex-1 flex-col gap-1 py-4', collapsed ? 'items-center px-2' : 'px-3')}>
+        {/* Primary nav, in runs. Each run says what it is for; collapsed, the
+            labels stand down and a hairline keeps the grouping. */}
+        <nav
+          className={cn(
+            'flex flex-1 flex-col gap-0.5 overflow-y-auto pb-4',
+            collapsed ? 'items-center px-2 pt-1' : 'px-3 pt-1',
+          )}
+        >
           {collapsed && (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => onToggle(false)}
-              className="mb-2 text-muted-foreground hover:text-foreground"
+              className="mb-2 text-subtle hover:text-foreground"
               title="Expand sidebar"
             >
-              <ChevronsLeft size={16} className="rotate-180" />
+              <ChevronsLeft size={15} className="rotate-180" />
             </Button>
           )}
-          {NAV_ITEMS.map((item) => (
-            <SidebarItem
-              key={item.id}
-              item={item}
-              active={activeNav === item.id}
-              collapsed={collapsed}
-              onClick={() => onNavChange(item.id)}
-            />
-          ))}
+
+          {NAV_GROUPS.map(({ id: groupId, label }) => {
+            const items = NAV_ITEMS.filter((n) => n.group === groupId);
+            if (!items.length) return null;
+            return (
+              <div key={groupId} className={cn('flex flex-col gap-0.5', collapsed && 'w-full items-center')}>
+                {label &&
+                  (collapsed ? (
+                    <span className="my-2 h-px w-6 bg-border" aria-hidden="true" />
+                  ) : (
+                    <span className="eyebrow mt-5 mb-1.5 px-3">{label}</span>
+                  ))}
+                {items.map((item) => (
+                  <SidebarItem
+                    key={item.id}
+                    item={item}
+                    active={activeNav === item.id}
+                    collapsed={collapsed}
+                    onClick={() => onNavChange(item.id)}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </nav>
 
-        {/* Footer: live network badge */}
+        {/* Footer: the live network badge, and the way back to the site */}
         <div
           className={cn(
-            'flex flex-col gap-1 border-t border-border py-4',
-            collapsed ? 'items-center px-2' : 'px-3'
+            'flex shrink-0 flex-col gap-1 border-t border-border py-3',
+            collapsed ? 'items-center px-2' : 'px-3',
           )}
         >
           <NetworkBadge collapsed={collapsed} />
+          {!collapsed && (
+            <a
+              href={SITE_ORIGIN}
+              className="group flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-subtle transition-colors duration-200 hover:text-foreground"
+            >
+              spield.live
+              <ArrowUpRight
+                size={12}
+                className="transition-transform duration-200 group-hover:translate-x-px group-hover:-translate-y-px"
+              />
+            </a>
+          )}
         </div>
       </motion.aside>
 
       {/* -------------------------------------------------- mobile (< lg) */}
       {/* Same side rail as desktop, just smaller — always visible, icon-only so
           it takes minimal horizontal space on a phone. No drawer / hamburger. */}
-      <aside className="flex w-14 shrink-0 flex-col border-r border-border bg-card lg:hidden">
+      <aside className="flex w-14 shrink-0 flex-col border-r border-border bg-canvas lg:hidden">
         {/* Brand → the marketing site (cross-origin, as on desktop above) */}
-        <div className="flex h-14 items-center justify-center border-b border-border px-2">
-          <a href={SITE_ORIGIN} title="Go to spield.live" className="transition-opacity hover:opacity-80">
-            <img src={logo} alt="Logo" className="h-6 w-6 shrink-0 object-contain" />
+        <div className="flex h-14 shrink-0 items-center justify-center px-2">
+          <a href={SITE_ORIGIN} title="Go to spield.live" className="transition-opacity duration-200 hover:opacity-70">
+            <BrandMark size={24} />
           </a>
         </div>
 
-        {/* Primary nav */}
-        <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
-          {NAV_ITEMS.map((item) => (
-            <MobileNavItem
-              key={item.id}
-              item={item}
-              active={activeNav === item.id}
-              onClick={() => onNavChange(item.id)}
-            />
-          ))}
+        {/* Primary nav — the runs become hairlines, which is all the grouping
+            a 56px rail can carry */}
+        <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-1">
+          {NAV_GROUPS.map(({ id: groupId, label }) => {
+            const items = NAV_ITEMS.filter((n) => n.group === groupId);
+            if (!items.length) return null;
+            return (
+              <div key={groupId} className="flex w-full flex-col items-center gap-0.5">
+                {label && <span className="my-2 h-px w-5 bg-border" aria-hidden="true" />}
+                {items.map((item) => (
+                  <MobileNavItem
+                    key={item.id}
+                    item={item}
+                    active={activeNav === item.id}
+                    onClick={() => onNavChange(item.id)}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Footer: live network badge */}
-        <div className="flex flex-col items-center gap-1 border-t border-border px-2 py-3">
+        <div className="flex shrink-0 flex-col items-center gap-1 border-t border-border px-2 py-3">
           <NetworkBadge collapsed />
         </div>
       </aside>

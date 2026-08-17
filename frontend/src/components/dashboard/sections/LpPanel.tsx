@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { Loader2, Wallet, AlertTriangle, Droplets, Plus, Minus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
@@ -107,26 +106,26 @@ const LpPanel = () => {
   const setMaxPt = () => setPtAmount(ptBalHuman > 0 ? String(ptBalHuman) : '');
 
   return (
-    <Card className="h-full rounded-xl border-border bg-card shadow-sm">
+    <Card className="h-full rounded-xl">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Droplets size={16} className="text-sky-400" />
+        <CardTitle className="flex items-center gap-2">
+          <Droplets size={16} className="text-usdc-text" />
           Provide Liquidity
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription>
           Supply PT + USDC to earn the swap fee. Hold to maturity for minimal impermanent loss.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {/* Mode toggle */}
-        <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
+        <div className="grid grid-cols-2 gap-1 well rounded-lg p-1">
           <button
             type="button"
             onClick={() => setMode('add')}
             className={cn(
               'flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all',
               mode === 'add'
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'border border-border bg-card text-foreground shadow-float-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -138,7 +137,7 @@ const LpPanel = () => {
             className={cn(
               'flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all',
               mode === 'remove'
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'border border-border bg-card text-foreground shadow-float-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -149,67 +148,51 @@ const LpPanel = () => {
         {mode === 'add' ? (
           <>
             {/* PT input */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-                <Label>PT amount</Label>
-                <button
-                  type="button"
-                  onClick={setMaxPt}
-                  disabled={!isConnected}
-                  className="normal-case transition-colors hover:text-foreground"
-                >
-                  Bal: {isConnected ? formatAmount(balances.pt) : '0.00'} PT
-                </button>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  placeholder="0.0"
-                  value={ptAmount}
-                  onChange={(e) => setPtAmount(e.target.value)}
-                  disabled={!MARKET_DEPLOYED}
-                  className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
-                />
-                <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">PT</span>
-              </div>
-            </div>
+            <AmountField
+              label="PT amount"
+              token="PT"
+              value={ptAmount}
+              onChange={setPtAmount}
+              disabled={!MARKET_DEPLOYED}
+              balance={`${isConnected ? formatAmount(balances.pt) : '0.00'} PT`}
+              onMax={isConnected ? setMaxPt : undefined}
+              invalid={overPt}
+            />
 
             {/* USDC mirrored at the pool ratio */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-                <Label>USDC required</Label>
-                <span className="normal-case">Bal: {isConnected ? formatAmount(balances.usdc) : '0.00'} USDC</span>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/30 px-3.5 py-3">
-                <span className="flex-1 text-lg font-bold tabular-nums text-muted-foreground">
-                  {ptValid ? usdcNeeded.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0.0'}
-                </span>
-                <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">USDC</span>
-              </div>
-              <p className="px-0.5 text-xs text-muted-foreground">
-                Auto-matched to the pool ratio ({ratio.toFixed(4)} USDC / PT).
-              </p>
-            </div>
+            <AmountField
+              label="USDC required"
+              token="USDC"
+              value={ptValid ? usdcNeeded.toLocaleString(undefined, { maximumFractionDigits: 6 }) : ''}
+              balance={`${isConnected ? formatAmount(balances.usdc) : '0.00'} USDC`}
+              hint={`Auto-matched to the pool ratio (${ratio.toFixed(4)} USDC / PT).`}
+              invalid={overUsdc}
+            />
           </>
         ) : (
           <>
-            {/* Remove: percentage slider */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-                <Label>Amount to remove</Label>
-                <span className="text-foreground">{removePct}%</span>
+            {/* Remove: percentage. Same shell as the amount fields above, so
+                the two modes of this panel are the same control in two guises
+                — the share you are withdrawing IS the figure. */}
+            <div className="field-shell space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="eyebrow">Amount to remove</span>
+                <span className="mono text-[11px] text-muted-foreground">
+                  {hasShares ? 'of your position' : 'no position'}
+                </span>
               </div>
+              <div className="field-figure num">{removePct}%</div>
               <input
                 type="range"
+                aria-label="Amount to remove"
                 min={0}
                 max={100}
                 step={1}
                 value={removePct}
                 onChange={(e) => setRemovePct(Number(e.target.value))}
                 disabled={!hasShares}
-                className="w-full accent-primary"
+                className="range-brand w-full"
+                style={{ '--pct': `${removePct}%` } as CSSProperties}
               />
               <div className="flex justify-between gap-1">
                 {[25, 50, 75, 100].map((p) => (
@@ -219,10 +202,10 @@ const LpPanel = () => {
                     onClick={() => setRemovePct(p)}
                     disabled={!hasShares}
                     className={cn(
-                      'flex-1 rounded-md border border-border py-1 text-xs font-semibold transition-colors',
+                      'flex-1 rounded-lg border py-1.5 text-[12px] font-medium transition-colors duration-200',
                       removePct === p
-                        ? 'border-primary/40 bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-foreground',
+                        ? 'border-brand/40 bg-brand/10 text-brand-text'
+                        : 'border-border bg-card text-muted-foreground shadow-float-sm hover:border-line-strong hover:text-foreground',
                     )}
                   >
                     {p}%
@@ -231,8 +214,8 @@ const LpPanel = () => {
               </div>
             </div>
             {hasShares && (
-              <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
-                <div className="flex justify-between text-xs font-medium">
+              <div className="space-y-1.5 well rounded-lg p-3">
+                <div className="flex justify-between text-[12.5px]">
                   <span className="text-muted-foreground">You receive (est.)</span>
                   <span className="text-foreground">
                     {formatAmount(BigInt(Math.round((Number(lpPosition!.ptClaim) * removePct) / 100)))} PT +{' '}
@@ -245,7 +228,7 @@ const LpPanel = () => {
         )}
 
         {!onCorrectNetwork && isConnected && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-ember/30 bg-ember/10 p-2.5 text-xs text-ember-text">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>Your wallet is on the wrong network. Switch Freighter to {NETWORK.name}.</span>
           </div>
@@ -254,7 +237,7 @@ const LpPanel = () => {
         <Button
           onClick={handleClick}
           disabled={disabled}
-          className="h-10 w-full text-sm font-bold uppercase tracking-wide shadow-none"
+          className="h-11 w-full text-[14px] font-medium"
         >
           {busy || connecting ? (
             <Loader2 size={15} className="animate-spin" />

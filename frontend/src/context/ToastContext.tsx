@@ -76,9 +76,9 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
 };
 
 const ICONS: Record<ToastKind, ReactNode> = {
-  success: <CheckCircle2 size={18} className="text-emerald-500" />,
-  error: <XCircle size={18} className="text-red-500" />,
-  pending: <Loader2 size={18} className="animate-spin text-primary" />,
+  success: <CheckCircle2 size={18} className="text-brand-text" />,
+  error: <XCircle size={18} className="text-danger-text" />,
+  pending: <Loader2 size={18} className="animate-spin text-brand-text" />,
 };
 
 /**
@@ -90,12 +90,12 @@ const ICONS: Record<ToastKind, ReactNode> = {
 const SuccessCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) => (
   <div
     className={cn(
-      'dark pointer-events-auto relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-card p-5 text-card-foreground shadow-xl',
+      'panel pointer-events-auto relative overflow-hidden rounded-2xl border-brand/40 p-5 text-card-foreground shadow-lift',
       'animate-in slide-in-from-right-4 fade-in zoom-in-95 duration-300',
     )}
   >
     {/* Soft success glow */}
-    <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-emerald-500/15 to-transparent" />
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-brand/15 to-transparent" />
 
     <button
       type="button"
@@ -107,11 +107,11 @@ const SuccessCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) 
     </button>
 
     <div className="relative flex flex-col items-center text-center">
-      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 ring-4 ring-emerald-500/10">
-        <CheckCircle2 size={30} className="animate-in zoom-in-50 duration-500 text-emerald-500" />
+      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-brand/15 ring-4 ring-brand/10">
+        <CheckCircle2 size={30} className="animate-in zoom-in-50 duration-500 text-brand-text" />
       </div>
-      <p className="text-base font-semibold">Transaction successful</p>
-      <p className="mt-0.5 text-sm font-medium text-emerald-500">{toast.title}</p>
+      <p className="font-display text-[16px] font-medium tracking-[-0.02em]">Transaction successful</p>
+      <p className="mt-1 text-[13px] font-medium text-brand-text">{toast.title}</p>
       {toast.message && (
         <p className="mt-1 break-words text-xs text-muted-foreground">{toast.message}</p>
       )}
@@ -120,7 +120,7 @@ const SuccessCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) 
           href={explorerTx(toast.hash)}
           target="_blank"
           rel="noreferrer"
-          className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-500 transition-colors hover:bg-emerald-500/20"
+          className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-brand/30 bg-brand/10 px-4 py-2 text-[13.5px] font-medium text-brand-text transition-colors duration-200 hover:bg-brand/20"
         >
           View transaction <ExternalLink size={13} />
         </a>
@@ -135,13 +135,13 @@ const ToastCard = ({ toast, onClose }: { toast: Toast; onClose: () => void }) =>
   return (
     <div
       className={cn(
-        'dark pointer-events-auto flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-card-foreground shadow-lg',
+        'panel pointer-events-auto flex items-start gap-3 rounded-xl p-3.5 text-card-foreground shadow-lift',
         'animate-in slide-in-from-right-4 fade-in duration-200',
       )}
     >
       <div className="mt-0.5 shrink-0">{ICONS[toast.kind]}</div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold">{toast.title}</p>
+        <p className="text-[13.5px] font-medium">{toast.title}</p>
         {toast.message && (
           <p className="mt-0.5 break-words text-xs text-muted-foreground">{toast.message}</p>
         )}

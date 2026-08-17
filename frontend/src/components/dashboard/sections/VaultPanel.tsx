@@ -3,8 +3,7 @@ import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, Coins, Ar
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useNav } from '@/context/NavContext';
@@ -132,85 +131,63 @@ const VaultPanel = () => {
   const coupon = liveQuote?.coupon ?? 0n;
 
   return (
-    <Card className="h-full rounded-xl border-border bg-card shadow-sm">
+    <Card className="h-full rounded-xl">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Lock size={16} className="text-primary" />
+        <CardTitle className="flex items-center gap-2">
+          <Lock size={16} className="text-brand-text" />
           Fixed-Rate Vault
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription>
           Deposit USDC and lock a guaranteed fixed return until maturity — backed 1:1 by PT.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {/* Deposit: USDC */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>Deposit</Label>
-            <button
-              type="button"
-              onClick={setMax}
-              disabled={!isConnected}
-              className="normal-case transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-            >
-              Bal: {isConnected ? formatAmount(balances.usdc) : '0.00'} USDC
-            </button>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              placeholder="0.0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={!VAULT_DEPLOYED}
-              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
-            />
-            <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">
-              USDC
-            </span>
-          </div>
-        </div>
+        <AmountField
+          label="Deposit"
+          token="USDC"
+          value={amount}
+          onChange={setAmount}
+          disabled={!VAULT_DEPLOYED}
+          balance={`${isConnected ? formatAmount(balances.usdc) : '0.00'} USDC`}
+          onMax={isConnected ? setMax : undefined}
+          invalid={overBalance || overCapacity}
+        />
 
-        <div className="relative z-10 -my-3 flex justify-center">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
+        <div className="flex items-center gap-3 py-0.5">
+          <span className="rule-soft flex-1" aria-hidden="true" />
+          <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
             <ArrowDown size={12} />
-          </div>
+          </span>
+          <span className="rule-soft flex-1" aria-hidden="true" />
         </div>
 
-        {/* Receive at maturity */}
-        <div className="space-y-1.5">
-          <div className="px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>Guaranteed at maturity</Label>
-          </div>
-          <div className="rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-            <div className="flex items-baseline gap-2">
-              <span className="text-lg font-bold tabular-nums">
-                {amountValid && liveQuote ? formatAmount(payout) : '0.0'}
-              </span>
-              <span className="text-xs font-semibold text-muted-foreground">USDC</span>
-              {quoting && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
-            </div>
-            <div className="mt-0.5 text-xs font-semibold text-emerald-500">
-              {amountValid && liveQuote
-                ? `+ ${formatAmount(coupon)} fixed coupon`
-                : 'principal + fixed coupon'}
-            </div>
-          </div>
-        </div>
+        {/* Receive at maturity — the same field, read-only, so the deposit and
+            the payout read as two halves of one instrument. */}
+        <AmountField
+          label="Guaranteed at maturity"
+          token="USDC"
+          value={amountValid && liveQuote ? formatAmount(payout) : ''}
+          loading={quoting}
+          hint={
+            amountValid && liveQuote
+              ? `+ ${formatAmount(coupon)} fixed coupon`
+              : 'principal + fixed coupon'
+          }
+          hintTone="brand"
+        />
 
         {/* Summary — just the two facts the hero payout box doesn't already state.
             The coupon/total payout are shown above; vault-wide stats (APR, maturity,
             capacity) live in the summary strip at the top of the page. */}
-        <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
-          <div className="flex justify-between text-xs font-medium">
+        <div className="space-y-1.5 well rounded-lg p-3">
+          <div className="flex justify-between text-[12.5px]">
             <span className="text-muted-foreground">Locked APR</span>
             <span className="text-foreground">
               {amountValid && liveQuote ? `${bpsToPct(rateBps)}%` : '—'}
             </span>
           </div>
-          <div className="flex justify-between text-xs font-medium">
+          <div className="flex justify-between text-[12.5px]">
             <span className="text-muted-foreground">Matures</span>
             <span className="text-foreground">
               {vaultStats ? fmtMaturity(vaultStats.maturity) : '—'}
@@ -219,7 +196,7 @@ const VaultPanel = () => {
         </div>
 
         {!VAULT_DEPLOYED && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 p-2.5 text-xs text-muted-foreground">
+          <div className="flex items-start gap-2 well rounded-lg p-2.5 text-xs text-muted-foreground">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>
               The Fixed-Rate Vault isn&apos;t deployed yet. Run{' '}
@@ -230,7 +207,7 @@ const VaultPanel = () => {
         )}
 
         {overCapacity && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-ember/30 bg-ember/10 p-2.5 text-xs text-ember-text">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>
               This deposit&apos;s coupon exceeds the vault&apos;s current spare PT capacity. Try a
@@ -240,15 +217,15 @@ const VaultPanel = () => {
         )}
 
         {!onCorrectNetwork && isConnected && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-ember/30 bg-ember/10 p-2.5 text-xs text-ember-text">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>Your wallet is on the wrong network. Switch Freighter to {NETWORK.name}.</span>
           </div>
         )}
 
         {needsTrustlines && (
-          <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2.5 text-xs text-foreground">
-            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
+          <div className="flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/10 p-2.5 text-xs text-foreground">
+            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-brand-text" />
             <span>
               One-time setup: the vault hands you PT &amp; YT under the hood, so your wallet needs
               their trustlines first. This is a single, free transaction — approve it, then lock
@@ -260,7 +237,7 @@ const VaultPanel = () => {
         <Button
           onClick={handleClick}
           disabled={disabled}
-          className="h-10 w-full text-sm font-bold uppercase tracking-wide shadow-none"
+          className="h-11 w-full text-[14px] font-medium"
         >
           {busy || connecting ? (
             <Loader2 size={15} className="animate-spin" />
@@ -278,14 +255,16 @@ const VaultPanel = () => {
         <button
           type="button"
           onClick={() => navigate('deposit')}
-          className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-primary/5"
+          className="flex w-full items-center justify-between gap-3 well rounded-lg px-3 py-2.5 text-left text-[12.5px] leading-relaxed transition-colors duration-200 hover:border-brand/40"
         >
-          <span className="flex items-center gap-2 text-muted-foreground">
-            <Coins size={13} className="shrink-0 text-amber-500" />
-            Want the raw <span className="font-semibold text-foreground">PT + YT tokens</span> and
-            variable yield instead?
+          <span className="flex min-w-0 items-start gap-2 text-muted-foreground">
+            <Coins size={13} className="mt-px shrink-0 text-ember-text" />
+            <span>
+              Want the raw <span className="font-medium text-foreground">PT + YT tokens</span> and
+              variable yield instead?
+            </span>
           </span>
-          <span className="flex shrink-0 items-center gap-1 font-semibold text-primary">
+          <span className="flex shrink-0 items-center gap-1 font-medium text-brand-text">
             Deposit <ArrowRight size={13} />
           </span>
         </button>

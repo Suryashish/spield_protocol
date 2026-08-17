@@ -3,8 +3,7 @@ import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, ArrowRigh
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useNav } from '@/context/NavContext';
@@ -73,99 +72,80 @@ const DepositPanel = () => {
   const setMax = () => setAmount(usdcBalance > 0 ? String(usdcBalance) : '');
 
   return (
-    <Card className="h-full rounded-xl border-border bg-card shadow-sm">
+    <Card className="h-full rounded-xl">
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-base font-semibold">Deposit</CardTitle>
-        <CardDescription className="text-xs">
+        <CardTitle>Deposit</CardTitle>
+        <CardDescription>
           Supply USDC to mint a fixed-rate bond (PT) + a yield token (YT)
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {/* Pay: USDC */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>Deposit</Label>
-            <button
-              type="button"
-              onClick={setMax}
-              disabled={!isConnected}
-              className="normal-case transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-            >
-              Bal: {isConnected ? formatAmount(balances.usdc) : '0.00'} USDC
-            </button>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              placeholder="0.0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="h-auto border-none bg-transparent p-0 text-lg font-bold shadow-none focus-visible:ring-0 dark:bg-transparent"
-            />
-            <span className="flex h-7 items-center rounded-md bg-accent px-2.5 text-xs font-bold">
-              USDC
-            </span>
-          </div>
-        </div>
+        <AmountField
+          label="Deposit"
+          token="USDC"
+          value={amount}
+          onChange={setAmount}
+          balance={`${isConnected ? formatAmount(balances.usdc) : '0.00'} USDC`}
+          onMax={isConnected ? setMax : undefined}
+          invalid={overBalance}
+        />
 
-        <div className="relative z-10 -my-3 flex justify-center">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
+        <div className="flex items-center gap-3 py-0.5">
+          <span className="rule-soft flex-1" aria-hidden="true" />
+          <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
             <ArrowDown size={12} />
-          </div>
+          </span>
+          <span className="rule-soft flex-1" aria-hidden="true" />
         </div>
 
-        {/* Receive: PT + YT */}
-        <div className="space-y-1.5">
-          <div className="px-0.5 text-xs font-semibold uppercase text-muted-foreground">
-            <Label>Receive</Label>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-              <div className="text-lg font-bold tabular-nums">
-                {amountValid ? parsed.toLocaleString() : '0.0'}
-              </div>
-              <div className="mt-0.5 text-xs font-semibold text-primary">PT · Principal</div>
-            </div>
-            <div className="rounded-lg border border-input bg-muted/50 px-3.5 py-3">
-              <div className="text-lg font-bold tabular-nums">
-                {amountValid ? parsed.toLocaleString() : '0.0'}
-              </div>
-              <div className="mt-0.5 text-xs font-semibold text-amber-500">YT · Yield</div>
-            </div>
-          </div>
+        {/* Receive: PT + YT, minted 1:1:1 with the deposit */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <AmountField
+            label="Receive · principal"
+            token="PT"
+            value={amountValid ? parsed.toLocaleString() : ''}
+            hint="Redeems 1:1 at maturity"
+            hintTone="brand"
+          />
+          <AmountField
+            label="Receive · yield"
+            token="YT"
+            value={amountValid ? parsed.toLocaleString() : ''}
+            hint="Variable · claim anytime"
+            hintTone="ember"
+          />
         </div>
 
         {/* Summary */}
-        <div className="space-y-1.5 rounded-lg border border-border/50 bg-muted/30 p-3">
-          <div className="flex justify-between text-xs font-medium">
+        <div className="space-y-1.5 well rounded-lg p-3">
+          <div className="flex justify-between text-[12.5px]">
             <span className="text-muted-foreground">Yield source</span>
             <span className="text-foreground">Blend (USDC pool)</span>
           </div>
-          <div className="flex justify-between text-xs font-medium">
+          <div className="flex justify-between text-[12.5px]">
             <span className="text-muted-foreground">You receive</span>
             <span className="text-foreground">
               {amountValid ? `${parsed.toLocaleString()} PT + ${parsed.toLocaleString()} YT` : '— PT + — YT'}
             </span>
           </div>
-          <div className="flex justify-between text-xs font-medium">
+          <div className="flex justify-between text-[12.5px]">
             <span className="text-muted-foreground">Redeem PT 1:1</span>
             <span className="text-foreground">at maturity</span>
           </div>
         </div>
 
         {!onCorrectNetwork && isConnected && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-ember/30 bg-ember/10 p-2.5 text-xs text-ember-text">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>Your wallet is on the wrong network. Switch Freighter to {NETWORK.name}.</span>
           </div>
         )}
 
         {needsTrustlines && (
-          <div className="space-y-2 rounded-xl border border-primary/25 bg-primary/[0.07] p-4 text-xs">
+          <div className="space-y-2 rounded-xl border border-brand/25 bg-primary/[0.07] p-4 text-xs">
             <div className="flex items-center gap-2 font-semibold text-foreground">
-              <ShieldCheck size={15} className="shrink-0 text-primary" />
+              <ShieldCheck size={15} className="shrink-0 text-brand-text" />
               One-time wallet setup — takes 5 seconds
             </div>
             <p className="text-muted-foreground leading-relaxed">
@@ -184,7 +164,7 @@ const DepositPanel = () => {
         <Button
           onClick={handleClick}
           disabled={disabled}
-          className="h-10 w-full text-sm font-bold uppercase tracking-wide shadow-none"
+          className="h-11 w-full text-[14px] font-medium"
         >
           {busy || connecting ? (
             <Loader2 size={15} className="animate-spin" />
@@ -202,14 +182,16 @@ const DepositPanel = () => {
           <button
             type="button"
             onClick={() => navigate('vault')}
-            className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-primary/5"
+            className="flex w-full items-center justify-between gap-3 well rounded-lg px-3 py-2.5 text-left text-[12.5px] leading-relaxed transition-colors duration-200 hover:border-brand/40"
           >
-            <span className="flex items-center gap-2 text-muted-foreground">
-              <Lock size={13} className="shrink-0 text-primary" />
-              Want a <span className="font-semibold text-foreground">fixed, guaranteed</span> return
-              instead of variable yield?
+            <span className="flex min-w-0 items-start gap-2 text-muted-foreground">
+              <Lock size={13} className="mt-px shrink-0 text-brand-text" />
+              <span>
+                Want a <span className="font-medium text-foreground">fixed, guaranteed</span> return
+                instead of variable yield?
+              </span>
             </span>
-            <span className="flex shrink-0 items-center gap-1 font-semibold text-primary">
+            <span className="flex shrink-0 items-center gap-1 font-medium text-brand-text">
               Fixed Vault <ArrowRight size={13} />
             </span>
           </button>
@@ -220,14 +202,16 @@ const DepositPanel = () => {
           <button
             type="button"
             onClick={() => navigate('markets')}
-            className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-primary/5"
+            className="flex w-full items-center justify-between gap-3 well rounded-lg px-3 py-2.5 text-left text-[12.5px] leading-relaxed transition-colors duration-200 hover:border-brand/40"
           >
-            <span className="flex items-center gap-2 text-muted-foreground">
-              <TrendingUp size={13} className="shrink-0 text-emerald-500" />
-              Already hold PT? <span className="font-semibold text-foreground">Trade it</span> or earn
-              fees by providing liquidity.
+            <span className="flex min-w-0 items-start gap-2 text-muted-foreground">
+              <TrendingUp size={13} className="mt-px shrink-0 text-brand-text" />
+              <span>
+                Already hold PT? <span className="font-medium text-foreground">Trade it</span> or earn
+                fees by providing liquidity.
+              </span>
             </span>
-            <span className="flex shrink-0 items-center gap-1 font-semibold text-primary">
+            <span className="flex shrink-0 items-center gap-1 font-medium text-brand-text">
               Markets <ArrowRight size={13} />
             </span>
           </button>

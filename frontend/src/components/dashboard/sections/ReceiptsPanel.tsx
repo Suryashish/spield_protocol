@@ -86,23 +86,23 @@ const ReceiptRow = ({
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3 transition-opacity sm:flex-row sm:items-center sm:justify-between',
+        'flex flex-col gap-3 well rounded-lg p-3 transition-opacity sm:flex-row sm:items-center sm:justify-between',
         phase === 'redeemed' && 'opacity-50',
       )}
     >
       <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand-text">
           <Lock size={16} />
         </div>
         <div className="space-y-0.5">
-          <div className="text-sm font-semibold tabular-nums">
+          <div className="num text-[13.5px] font-medium">
             {formatUsd(receipt.payout)}{' '}
             <span className="text-xs font-medium text-muted-foreground">at maturity</span>
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             <span>#{receipt.receiptId}</span>
             <span>{formatUsd(receipt.principal)} principal</span>
-            <span className="text-emerald-500">+{formatUsd(coupon)} coupon</span>
+            <span className="text-brand-text">+{formatUsd(coupon)} coupon</span>
             <span>{bpsToPct(receipt.rateBps)}% fixed</span>
           </div>
         </div>
@@ -174,11 +174,11 @@ const ReceiptsPanel = () => {
   );
 
   return (
-    <Card className="flex h-full flex-col rounded-xl border-border bg-card shadow-sm">
+    <Card className="flex h-full flex-col rounded-xl">
       <CardHeader className="flex flex-row items-start justify-between p-4 pb-2">
         <div>
-          <CardTitle className="text-base font-semibold">Your fixed-rate receipts</CardTitle>
-          <CardDescription className="text-xs">
+          <CardTitle>Your fixed-rate receipts</CardTitle>
+          <CardDescription>
             Each receipt redeems for a guaranteed payout once the vault matures.
           </CardDescription>
           {isConnected && receipts.length > 0 && (

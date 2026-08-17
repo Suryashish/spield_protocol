@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2 } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
 import { shortenAddress } from '@/lib/stellar';
 
+import ThemeToggle from './ThemeToggle';
+
+/**
+ * The wallet control. Both states are the same pill — hairline, surface, the
+ * small float shadow — so connecting changes what the chrome SAYS rather than
+ * rebuilding it, and the header never re-flows around it.
+ */
 const WalletMenu = () => {
   const { address, isConnected, connecting, error, disconnect, openWalletPicker } = useWallet();
   const [open, setOpen] = useState(false);
@@ -23,6 +30,17 @@ const WalletMenu = () => {
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
+  // Escape closes it too — a menu you can only dismiss with the mouse is a
+  // menu a keyboard user is stuck inside.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
   const handleCopy = async () => {
     if (!address) return;
     try {
@@ -39,25 +57,22 @@ const WalletMenu = () => {
     await disconnect();
   };
 
+  const pill =
+    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-[13.5px] font-medium shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-line-strong disabled:pointer-events-none disabled:opacity-60';
+
   if (!isConnected) {
     return (
       <div className="flex flex-col items-end gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={openWalletPicker}
-          disabled={connecting}
-          className="h-9 gap-2 border-input bg-card px-3 text-sm font-semibold shadow-none transition-all hover:bg-accent disabled:opacity-70"
-        >
+        <button type="button" onClick={openWalletPicker} disabled={connecting} className={pill}>
           {connecting ? (
-            <Loader2 size={14} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin text-brand-text" />
           ) : (
-            <Wallet size={14} className="text-muted-foreground" />
+            <Wallet size={14} className="text-subtle" />
           )}
-          {connecting ? 'Connecting…' : 'Connect Wallet'}
-        </Button>
+          {connecting ? 'Connecting…' : 'Connect wallet'}
+        </button>
         {error && (
-          <span className="max-w-[16rem] text-right text-xs text-destructive">{error}</span>
+          <span className="max-w-[16rem] text-right text-xs text-danger-text">{error}</span>
         )}
       </div>
     );
@@ -65,39 +80,47 @@ const WalletMenu = () => {
 
   return (
     <div ref={menuRef} className="relative">
-      <Button
-        variant="outline"
-        size="sm"
+      <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
-        className="h-9 gap-2 border-input bg-card px-3 text-sm font-semibold shadow-none transition-all hover:bg-accent"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={pill}
       >
-        <div className="h-2 w-2 rounded-full bg-emerald-500" />
-        {shortenAddress(address ?? '')}
+        <span className="pulse-dot" />
+        <span className="mono text-[13px]">{shortenAddress(address ?? '')}</span>
         <ChevronDown
-          size={14}
-          className={`text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+          size={13}
+          className={cn('text-subtle transition-transform duration-200', open && 'rotate-180')}
         />
-      </Button>
+      </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-lg border border-border bg-card p-1 shadow-lg">
-          <div className="px-3 py-2">
-            <p className="text-xs text-muted-foreground">Connected wallet</p>
-            <p className="mt-0.5 break-all font-mono text-xs">{shortenAddress(address ?? '', 6, 6)}</p>
+        <div
+          role="menu"
+          className="panel absolute right-0 top-11 z-30 w-60 origin-top-right overflow-hidden rounded-xl p-1.5 shadow-lift duration-150 animate-in fade-in-0 zoom-in-95"
+        >
+          <div className="px-2.5 py-2">
+            <p className="eyebrow">Connected wallet</p>
+            <p className="mono mt-1.5 text-xs break-all text-foreground">
+              {shortenAddress(address ?? '', 8, 8)}
+            </p>
           </div>
           <div className="my-1 h-px bg-border" />
           <button
             type="button"
+            role="menuitem"
             onClick={handleCopy}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] transition-colors duration-150 hover:bg-accent"
           >
-            {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+            {copied ? <Check size={14} className="text-brand-text" /> : <Copy size={14} className="text-subtle" />}
             {copied ? 'Copied' : 'Copy address'}
           </button>
           <button
             type="button"
+            role="menuitem"
             onClick={handleDisconnect}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-danger-text transition-colors duration-150 hover:bg-danger/10"
           >
             <LogOut size={14} />
             Disconnect
@@ -115,14 +138,22 @@ type HeaderProps = {
 
 const Header = ({ section = 'Overview' }: HeaderProps) => {
   return (
-    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 lg:h-16 lg:px-6">
-      <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-        <span className="hidden text-muted-foreground sm:inline">Dashboard</span>
-        <span className="hidden text-muted-foreground sm:inline">/</span>
-        <span className="truncate font-semibold">{section}</span>
-      </div>
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-canvas/85 px-4 backdrop-blur-xl lg:h-16 lg:px-6">
+      {/* The trail is set in the app's micro-caption — mono, tracked, quiet —
+          with only the leaf in ink. It says where you are without competing
+          with the page heading two lines below it. */}
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2">
+        <span className="eyebrow hidden sm:inline">Dashboard</span>
+        <span className="hidden text-subtle sm:inline" aria-hidden="true">
+          /
+        </span>
+        <span className="truncate font-display text-sm font-medium tracking-[-0.01em]">
+          {section}
+        </span>
+      </nav>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
+        <ThemeToggle />
         <WalletMenu />
       </div>
     </header>

@@ -11,6 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 
 import { Card } from '@/components/ui/card';
+import EmptyState from './EmptyState';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
@@ -56,17 +57,17 @@ const ActivityFeed = () => {
     mineOnly && isConnected && address ? items.filter((i) => i.user === address) : items;
 
   return (
-    <Card className="overflow-hidden rounded-xl border-border bg-card shadow-sm">
+    <Card className="overflow-hidden rounded-xl">
       <div className="flex items-center justify-between border-b border-border p-4">
-        <h3 className="text-base font-semibold">Activity</h3>
+        <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">Activity</h3>
         <div className="flex items-center gap-1">
           {isConnected && (
-            <div className="mr-1 flex items-center rounded-lg border border-border bg-muted/50 p-0.5 text-xs font-semibold">
+            <div className="mr-1 flex items-center well rounded-lg p-0.5 text-[12px] font-medium">
               <button
                 onClick={() => setMineOnly(true)}
                 className={cn(
                   'rounded-md px-2.5 py-1 transition-all',
-                  mineOnly ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground',
+                  mineOnly ? 'border border-border bg-card text-foreground shadow-float-sm' : 'text-muted-foreground',
                 )}
               >
                 Mine
@@ -75,7 +76,7 @@ const ActivityFeed = () => {
                 onClick={() => setMineOnly(false)}
                 className={cn(
                   'rounded-md px-2.5 py-1 transition-all',
-                  !mineOnly ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground',
+                  !mineOnly ? 'border border-border bg-card text-foreground shadow-float-sm' : 'text-muted-foreground',
                 )}
               >
                 All
@@ -88,21 +89,19 @@ const ActivityFeed = () => {
       {loading ? (
         <div className="space-y-2 p-4">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-12 animate-pulse rounded-lg bg-muted/40" />
+            <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />
           ))}
         </div>
       ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/50 text-muted-foreground">
-            <History size={20} />
-          </div>
-          <p className="text-sm font-semibold">No activity yet</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
-            {mineOnly && isConnected
+        <EmptyState
+          icon={History}
+          title="No activity yet"
+          body={
+            mineOnly && isConnected
               ? 'Your deposits, claims and redemptions will appear here.'
-              : 'Protocol activity will appear here as users transact.'}
-          </p>
-        </div>
+              : 'Protocol activity will appear here as users transact.'
+          }
+        />
       ) : (
         <div className="divide-y divide-border">
           {visible.map((item) => {
@@ -111,10 +110,10 @@ const ActivityFeed = () => {
             return (
               <div
                 key={item.id}
-                className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
+                className="flex items-center justify-between gap-3 px-4 py-3 transition-colors duration-200 hover:bg-accent/60"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/50 text-muted-foreground">
+                  <div className="well grid size-8 shrink-0 place-items-center rounded-lg text-subtle">
                     <Icon size={15} />
                   </div>
                   <div className="min-w-0">
@@ -128,8 +127,8 @@ const ActivityFeed = () => {
                   {item.amount > 0n && (
                     <span
                       className={cn(
-                        'text-sm font-semibold tabular-nums',
-                        meta.positive ? 'text-emerald-500' : 'text-foreground',
+                        'num text-[13.5px] font-medium',
+                        meta.positive ? 'text-brand-text' : 'text-foreground',
                       )}
                     >
                       {meta.positive ? '+' : ''}

@@ -24,7 +24,12 @@
       marketing site rather than dead-ending.
     -->
     <meta name="robots" content="noindex, follow" />
-    <meta name="theme-color" content="#020609" />
+    <!-- The app follows the page, not the system: the header's toggle can put a
+         dark dashboard under a light system preference, and a mismatched
+         browser chrome is the tell. Same two canvas values as the marketing
+         site. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f3ec" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#171716" />
     <meta property="og:locale" content="en_US" />
 
     <!-- Open Graph / Twitter. Kept despite the noindex: these drive the link
@@ -110,25 +115,49 @@
       })();
     </script>
 
-    <!-- Fonts. The app shell uses Plus Jakarta Sans for body text and Space
-         Grotesk for headings (see src/index.css). Inter and Playfair Display
-         used to be requested here for the landing page; that page now ships
-         from the Next.js site, so they're gone and this request is half the
-         size. Loaded non-render-blocking: the stylesheet is fetched with
-         media="print" and flipped to "all" on load, so it never blocks first
-         paint. `preconnect` warms the two font origins so the swap is fast. -->
+    <!--
+      Theme. Runs before the first paint so a dark session never flashes paper
+      on its way in — and it is the SAME contract as the marketing site:
+      `data-theme` on <html>, remembered under the `spield-theme` key, falling
+      back to the system preference. (The two hosts are separate origins, so
+      the storage itself doesn't travel; the behaviour does.)
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('spield-theme');
+          var theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
+
+    <!-- Fonts. Satoshi (display) is self-hosted from /fonts and declared in
+         src/index.css; Geist (body) ships in the bundle via
+         @fontsource-variable/geist. Only the two faces we can't get locally are
+         requested here: Geist Mono, which every figure and micro-label is set
+         in, and Instrument Serif for the one italic word. Same four faces as
+         www.spield.live.
+
+         Loaded non-render-blocking — fetched with media="print" and flipped to
+         "all" on load — so the request never blocks first paint. The Medium
+         weight of Satoshi is preloaded instead, because it sets the page
+         heading and is therefore in the LCP path. -->
+    <link rel="preload" href="/fonts/Satoshi-Medium.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@1&display=swap"
       media="print"
       onload="this.media='all'"
     />
     <noscript>
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@1&display=swap"
       />
     </noscript>
     <!--
@@ -146,13 +175,19 @@
          requested. React's createRoot() replaces #root's children on mount, so
          this disappears the moment the dashboard is ready. Without it the app
          subdomain opens on a white flash for the length of that download. */
+      /* The splash paints the canvas of whichever theme the bootstrap above
+         just resolved, so the app fades up out of its own background instead
+         of arriving over a slab of the wrong colour. */
       #spield-boot {
         position: fixed;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #020609;
+        background: #f6f3ec;
+      }
+      [data-theme="dark"] #spield-boot {
+        background: #171716;
       }
       #spield-boot img {
         width: 44px;
@@ -171,9 +206,9 @@
         <img src="/logo-32.png" alt="Spield" width="44" height="44" />
       </div>
       <noscript>
-        <p style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem;text-align:center;background:#020609;color:#b9c2ca;font-family:system-ui,sans-serif">
+        <p style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem;text-align:center;background:#f6f3ec;color:#6a6a6a;font-family:system-ui,sans-serif">
           The Spield app needs JavaScript to connect a wallet and read on-chain state.
-          Read about the protocol at <a href="https://www.spield.live" style="color:#22d3a8">spield.live</a>.
+          Read about the protocol at <a href="https://www.spield.live" style="color:#089160">spield.live</a>.
         </p>
       </noscript>
     </div>

@@ -32,18 +32,18 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.error) return this.props.children;
 
     return (
-      <div className="dark flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-lg">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
+      <div className="app-shell flex min-h-screen items-center justify-center bg-canvas p-6 text-foreground">
+        <div className="panel w-full max-w-md rounded-2xl p-6 text-center shadow-lift">
+          <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-ember/10 text-ember-text">
             <AlertTriangle size={22} />
           </div>
-          <h2 className="text-lg font-semibold">Something went wrong</h2>
-          <p className="mt-1.5 text-sm text-muted-foreground">
+          <h2 className="font-display text-[19px] font-medium tracking-[-0.02em]">Something went wrong</h2>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
             The interface hit an unexpected error. Your transaction may still have
             gone through — refresh to see the latest on-chain state.
           </p>
           {this.state.error.message && (
-            <p className="mt-3 break-words rounded-lg bg-muted/40 p-2.5 text-left font-mono text-xs text-muted-foreground">
+            <p className="well mt-4 break-words rounded-lg p-3 text-left font-mono text-[11.5px] leading-relaxed text-muted-foreground">
               {this.state.error.message}
             </p>
           )}
@@ -51,7 +51,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={this.reset}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/30 px-4 py-2 text-sm font-semibold transition-colors hover:bg-muted/60"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-[13.5px] font-medium shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-line-strong"
             >
               <RotateCcw size={14} />
               Try again
@@ -59,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:opacity-90"
+              className="cta-glow inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13.5px] font-medium text-primary-foreground transition-all duration-200 ease-vault hover:-translate-y-px hover:brightness-[1.06]"
             >
               Reload page
             </button>
