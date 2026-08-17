@@ -36,13 +36,13 @@ const PortfolioChart = () => {
 
   return (
     <Card className="overflow-hidden rounded-xl">
-      <CardHeader className="p-4 pb-0 sm:p-5">
+      <CardHeader>
         <CardTitle>Portfolio Composition</CardTitle>
         <CardDescription>
           Principal and claimable yield per position
         </CardDescription>
       </CardHeader>
-      <CardContent className="p-4 pt-3 sm:p-5">
+      <CardContent>
         {loading ? (
           <div className="h-64 animate-pulse rounded-xl bg-muted" />
         ) : !hasData ? (

@@ -107,7 +107,7 @@ const LpPanel = () => {
 
   return (
     <Card className="h-full rounded-xl">
-      <CardHeader className="p-4 pb-2">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Droplets size={16} className="text-usdc-text" />
           Provide Liquidity
@@ -116,7 +116,7 @@ const LpPanel = () => {
           Supply PT + USDC to earn the swap fee. Hold to maturity for minimal impermanent loss.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-4">
         {/* Mode toggle */}
         <div className="grid grid-cols-2 gap-1 well rounded-lg p-1">
           <button

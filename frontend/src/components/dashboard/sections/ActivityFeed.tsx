@@ -57,8 +57,8 @@ const ActivityFeed = () => {
     mineOnly && isConnected && address ? items.filter((i) => i.user === address) : items;
 
   return (
-    <Card className="overflow-hidden rounded-xl">
-      <div className="flex items-center justify-between border-b border-border p-4">
+    <Card className="gap-0 overflow-hidden rounded-xl py-0">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">Activity</h3>
         <div className="flex items-center gap-1">
           {isConnected && (
@@ -87,7 +87,7 @@ const ActivityFeed = () => {
       </div>
 
       {loading ? (
-        <div className="space-y-2 p-4">
+        <div className="space-y-2 p-5">
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />
           ))}
@@ -110,7 +110,7 @@ const ActivityFeed = () => {
             return (
               <div
                 key={item.id}
-                className="flex items-center justify-between gap-3 px-4 py-3 transition-colors duration-200 hover:bg-accent/60"
+                className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors duration-200 hover:bg-accent/60"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="well grid size-8 shrink-0 place-items-center rounded-lg text-subtle">

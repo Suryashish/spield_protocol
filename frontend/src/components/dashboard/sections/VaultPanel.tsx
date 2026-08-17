@@ -132,7 +132,7 @@ const VaultPanel = () => {
 
   return (
     <Card className="h-full rounded-xl">
-      <CardHeader className="p-4 pb-2">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Lock size={16} className="text-brand-text" />
           Fixed-Rate Vault
@@ -141,7 +141,7 @@ const VaultPanel = () => {
           Deposit USDC and lock a guaranteed fixed return until maturity — backed 1:1 by PT.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-4">
         {/* Deposit: USDC */}
         <AmountField
           label="Deposit"

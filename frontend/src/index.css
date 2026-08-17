@@ -110,6 +110,14 @@
 
   --edge-hl: rgba(255, 255, 255, 0.7);
   --shadow-soft-v: 0 10px 30px rgba(18, 18, 18, 0.07);
+  /* Layered depth: an edge highlight so the surface catches light, a tight
+     contact shadow so it sits ON something, then one wide ambient shadow. */
+  --shadow-float-v: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.05),
+    0 6px 16px rgb(18 18 18 / 0.06);
+  --shadow-float-sm-v: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.04),
+    0 3px 10px rgb(18 18 18 / 0.05);
+  --shadow-lift-v: inset 0 1px 0 var(--edge-hl), 0 2px 4px rgb(18 18 18 / 0.06),
+    0 14px 34px rgb(18 18 18 / 0.1);
   --ring-color: color-mix(in srgb, var(--brand) 55%, transparent);
   --ease-v: cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -270,12 +278,9 @@
      so the surface catches light, a tight contact shadow so it sits ON
      something, and one wide ambient shadow. */
   --shadow-soft: var(--shadow-soft-v);
-  --shadow-float: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.05),
-    0 6px 16px rgb(18 18 18 / 0.06);
-  --shadow-float-sm: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(18 18 18 / 0.04),
-    0 3px 10px rgb(18 18 18 / 0.05);
-  --shadow-lift: inset 0 1px 0 var(--edge-hl), 0 2px 4px rgb(18 18 18 / 0.06),
-    0 14px 34px rgb(18 18 18 / 0.1);
+  --shadow-float: var(--shadow-float-v);
+  --shadow-float-sm: var(--shadow-float-sm-v);
+  --shadow-lift: var(--shadow-lift-v);
 
   --ease-vault: var(--ease-v);
 
@@ -291,15 +296,15 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* On paper, a shadow is contact — not a bloom. The float shadows above
-   are tuned for ink on a light ground; on the dark theme the same
-   alphas vanish, so they are re-pitched here rather than scaled. */
+/* On paper, a shadow is contact — not a bloom. The float shadows are
+   tuned for ink on a light ground; on the dark theme the same alphas
+   vanish, so they are re-pitched here rather than scaled. */
 [data-theme="dark"] {
-  --shadow-float: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(0 0 0 / 0.4),
+  --shadow-float-v: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(0 0 0 / 0.4),
     0 6px 16px rgb(0 0 0 / 0.34);
-  --shadow-float-sm: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(0 0 0 / 0.34),
+  --shadow-float-sm-v: inset 0 1px 0 var(--edge-hl), 0 1px 2px rgb(0 0 0 / 0.34),
     0 3px 10px rgb(0 0 0 / 0.28);
-  --shadow-lift: inset 0 1px 0 var(--edge-hl), 0 2px 4px rgb(0 0 0 / 0.42),
+  --shadow-lift-v: inset 0 1px 0 var(--edge-hl), 0 2px 4px rgb(0 0 0 / 0.42),
     0 14px 34px rgb(0 0 0 / 0.5);
 }
 
@@ -434,79 +439,6 @@
   }
 }
 
-/* ============================================================
-   The amount field — the app's most important control
-   ============================================================ */
-/* Money is what this app is for, so the field you type it into is the
-   largest thing in its panel: label and balance on one caption line, the
-   figure at display size under it, the asset as a chip on the right.
-
-   Written as real classes rather than utility strings for two reasons.
-   The figure is set in the display face at a size no other control uses,
-   and — the bug this replaces — an instance's `text-[19px]` LOST to the
-   Input primitive's `md:text-sm`, so the number you typed rendered at
-   14px next to a 19px quote of the same value. A hand-written class
-   can't be out-specified by a responsive utility. */
-.field-shell {
-  background: var(--sunken);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04);
-  padding: 13px 15px 15px;
-  transition: border-color 0.2s var(--ease-v), box-shadow 0.2s var(--ease-v);
-}
-[data-theme="dark"] .field-shell {
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
-}
-/* The whole field takes focus, not the bare input inside it — that is what
-   makes it read as one control rather than a box with a text box in it. */
-.field-shell:focus-within {
-  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
-  box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04),
-    0 0 0 3px color-mix(in srgb, var(--brand) 13%, transparent);
-}
-[data-theme="dark"] .field-shell:focus-within {
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3),
-    0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent);
-}
-.field-shell[data-invalid="true"] {
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-}
-.field-shell[data-invalid="true"]:focus-within {
-  box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04),
-    0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
-}
-
-/* the figure itself — one size for the typed value and the quoted one, so
-   a swap panel's two halves are visibly the same kind of number */
-.field-figure {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  outline: none;
-  font-family: var(--ff-display);
-  font-size: 27px;
-  font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-}
-.field-figure::placeholder {
-  color: var(--ink-subtle);
-}
-.field-figure:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-@media (max-width: 480px) {
-  .field-figure {
-    font-size: 23px;
-  }
-}
-
 /* A stepper on a currency field is a way to mis-key an amount by one, and
    it only appears on hover, which makes the control jump. */
 input[type="number"]::-webkit-outer-spin-button,
@@ -519,170 +451,278 @@ input[type="number"] {
   appearance: textfield;
 }
 
-/* The native range input, brought onto the system: a hairline track with the
-   same thumb the shadcn Slider wears, so the two are the same control
-   whichever one a panel reached for. */
-/* `--pct` is published by the component. A native range draws no fill of its
-   own, so the travelled part of the track is a hard-stop gradient — which
-   is what tells you at a glance how much of the position you are taking. */
-.range-brand {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 6px;
-  border-radius: 9999px;
-  background: linear-gradient(
-    to right,
-    var(--brand) 0 var(--pct, 0%),
-    color-mix(in srgb, var(--ink) 11%, transparent) var(--pct, 0%) 100%
-  );
-  outline: none;
-  cursor: pointer;
-}
-.range-brand:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.range-brand::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid var(--brand);
-  background: var(--surface);
-  box-shadow: var(--shadow-float-sm);
-  transition: box-shadow 0.2s var(--ease-v), transform 0.2s var(--ease-v);
-}
-.range-brand::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid var(--brand);
-  background: var(--surface);
-  box-shadow: var(--shadow-float-sm);
-}
-.range-brand:hover::-webkit-slider-thumb,
-.range-brand:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
-}
-.range-brand:active::-webkit-slider-thumb {
-  transform: scale(0.94);
-}
-
-/* the asset the figure is denominated in */
-.token-chip {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 13px;
-  border-radius: 9999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: var(--shadow-float-sm);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-}
-
-/* ---- the panel: every card in the app ----
-   Surface, hairline, layered depth. Cards are the dashboard's whole
-   structure, so this is defined once and `Card` wears it. */
-.panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-float);
-  transition: box-shadow 0.35s var(--ease-v), border-color 0.35s var(--ease-v);
-}
-/* interactive panels only — a chart doesn't lift when you point at it */
-@media (hover: hover) and (pointer: fine) {
-  .panel-hover:hover {
-    box-shadow: var(--shadow-lift);
-    border-color: var(--border-strong);
+@layer components {
+  /* The native range input, brought onto the system: a hairline track with the
+     same thumb the shadcn Slider wears, so the two are the same control
+     whichever one a panel reached for. */
+  /* `--pct` is published by the component. A native range draws no fill of its
+     own, so the travelled part of the track is a hard-stop gradient — which
+     is what tells you at a glance how much of the position you are taking. */
+  .range-brand {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      var(--brand) 0 var(--pct, 0%),
+      color-mix(in srgb, var(--ink) 11%, transparent) var(--pct, 0%) 100%
+    );
+    outline: none;
+    cursor: pointer;
   }
-}
-
-/* ---- the brand mark ----
-   Bare glyph artwork, so each theme gets its own ink. Ported verbatim from
-   the marketing site so both hosts show the same logo the same way — including
-   the specificity trick: these are scoped under `.brand-mark` so they outrank
-   the `.brand-mark img` sizing rule above them, which a bare `.logo-dark`
-   would lose to (leaving both marks visible, stacked). */
-.brand-mark {
-  position: relative;
-  display: inline-block;
-  flex: none;
-}
-.brand-mark img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.brand-mark .logo-dark {
-  display: none;
-}
-[data-theme="dark"] .brand-mark .logo-light {
-  display: none;
-}
-[data-theme="dark"] .brand-mark .logo-dark {
-  display: block;
-}
-
-/* ---- the live dot ---- */
-/* Filled and pulsing = reading from chain right now. The marketing
-   site uses the identical mark, and deliberately leaves it HOLLOW for
-   illustrative figures. */
-.pulse-dot {
-  position: relative;
-  display: inline-flex;
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--brand);
-}
-.pulse-dot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  animation: pulse-ring 2.4s var(--ease-v) infinite;
-}
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent);
+  .range-brand:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
+  .range-brand::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--brand);
+    background: var(--surface);
+    box-shadow: var(--shadow-float-sm-v);
+    transition: box-shadow 0.2s var(--ease-v), transform 0.2s var(--ease-v);
   }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
+  .range-brand::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--brand);
+    background: var(--surface);
+    box-shadow: var(--shadow-float-sm-v);
   }
-}
+  .range-brand:hover::-webkit-slider-thumb,
+  .range-brand:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
+  }
+  .range-brand:active::-webkit-slider-thumb {
+    transform: scale(0.94);
+  }
 
-/* ---- the primary action ----
-   `.btn-primary`'s accent bloom is the light it casts on a dark
-   ground; on paper the same shadow is a fuzzy green halo, because a
-   glow is not something paper does. Light gets a contact shadow. */
-.cta-glow {
-  box-shadow: 0 1px 2px rgb(18 18 18 / 0.12), 0 6px 16px rgb(18 18 18 / 0.1),
-    inset 0 1px 0 rgb(255 255 255 / 0.28);
-}
-[data-theme="dark"] .cta-glow {
-  box-shadow: 0 8px 26px color-mix(in srgb, var(--brand) 26%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 0.22);
-}
+  /* ============================================================
+     The amount field — the app's most important control
+     ============================================================ */
+  /* Money is what this app is for, so the field you type it into is the
+     largest thing in its panel: label and balance on one caption line, the
+     figure at display size under it, the asset as a chip on the right.
 
-/* ---- the sidebar's active pill ----
-   A travelling lozenge behind the label rather than a background on
-   the button, so Framer's shared layout can slide it between items. */
-.nav-pill {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-float-sm);
+     Written as real classes rather than utility strings for two reasons.
+     The figure is set in the display face at a size no other control uses,
+     and — the bug this replaces — an instance's `text-[19px]` LOST to the
+     Input primitive's `md:text-sm`, so the number you typed rendered at
+     14px next to a 19px quote of the same value. A hand-written class
+     can't be out-specified by a responsive utility. */
+  .field-shell {
+    background: var(--sunken);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04);
+    padding: 13px 15px 15px;
+    transition: border-color 0.2s var(--ease-v), box-shadow 0.2s var(--ease-v);
+  }
+  [data-theme="dark"] .field-shell {
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+  /* The whole field takes focus, not the bare input inside it — that is what
+     makes it read as one control rather than a box with a text box in it. */
+  .field-shell:focus-within {
+    border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+    box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04),
+      0 0 0 3px color-mix(in srgb, var(--brand) 13%, transparent);
+  }
+  [data-theme="dark"] .field-shell:focus-within {
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3),
+      0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent);
+  }
+  .field-shell[data-invalid="true"] {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  }
+  .field-shell[data-invalid="true"]:focus-within {
+    box-shadow: inset 0 1px 2px rgb(18 18 18 / 0.04),
+      0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+
+  /* the figure itself — one size for the typed value and the quoted one, so
+     a swap panel's two halves are visibly the same kind of number */
+  .field-figure {
+    min-width: 0;
+    flex: 1;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    outline: none;
+    font-family: var(--ff-display);
+    font-size: 27px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .field-figure::placeholder {
+    color: var(--ink-subtle);
+  }
+  .field-figure:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  @media (max-width: 480px) {
+    .field-figure {
+      font-size: 23px;
+    }
+  }
+
+  /* the asset the figure is denominated in */
+  .token-chip {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 13px;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--shadow-float-sm-v);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
+  /* ---- the panel: every card in the app ----
+     Surface, hairline, layered depth. Cards are the dashboard's whole
+     structure, so this is defined once and `Card` wears it. */
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-float-v);
+    transition: box-shadow 0.35s var(--ease-v), border-color 0.35s var(--ease-v);
+  }
+  /* interactive panels only — a chart doesn't lift when you point at it */
+  @media (hover: hover) and (pointer: fine) {
+    .panel-hover:hover {
+      box-shadow: var(--shadow-lift-v);
+      border-color: var(--border-strong);
+    }
+  }
+
+/* ============================================================
+   Components — BELOW the utility layer, deliberately
+   ============================================================ */
+/* Everything from here to the chart rules is wrapped in
+   `@layer components`, and that wrapper is load-bearing.
+
+   Unlayered CSS beats every cascade layer, so while these lived outside
+   one they outranked all of Tailwind's utilities — and silently ate any
+   utility a caller passed for a property they happened to set. Three
+   real bugs came from it: `disabled:shadow-none` could not switch off
+   `.cta-glow`, so a greyed-out CTA kept a green bloom; every dialog and
+   popover asking for `shadow-lift` got `.panel`'s flatter card shadow
+   instead; and the solvency card's status ring never rendered at all.
+
+   In `components` they sit under `utilities`, which is the normal
+   contract: the class is the default, a utility on the element wins.
+   ============================================================ */
+  /* ---- the brand mark ----
+     Bare glyph artwork, so each theme gets its own ink. Ported verbatim from
+     the marketing site so both hosts show the same logo the same way — including
+     the specificity trick: these are scoped under `.brand-mark` so they outrank
+     the `.brand-mark img` sizing rule above them, which a bare `.logo-dark`
+     would lose to (leaving both marks visible, stacked). */
+  .brand-mark {
+    position: relative;
+    display: inline-block;
+    flex: none;
+  }
+  .brand-mark img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .brand-mark .logo-dark {
+    display: none;
+  }
+  [data-theme="dark"] .brand-mark .logo-light {
+    display: none;
+  }
+  [data-theme="dark"] .brand-mark .logo-dark {
+    display: block;
+  }
+
+  /* ---- the live dot ---- */
+  /* Filled and pulsing = reading from chain right now. The marketing
+     site uses the identical mark, and deliberately leaves it HOLLOW for
+     illustrative figures. */
+  .pulse-dot {
+    position: relative;
+    display: inline-flex;
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--brand);
+  }
+  .pulse-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    animation: pulse-ring 2.4s var(--ease-v) infinite;
+  }
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  /* ---- the primary action ----
+     The bloom is the light a green button casts on a dark ground; on
+     paper the same shadow is a fuzzy halo, because a glow is not
+     something paper does. Light gets a contact shadow instead.
+
+     Dark used to run a 26px bloom at 26% with nothing under it, which
+     read as a haze the button floated in rather than light coming off
+     it. It is half that now, over a real contact shadow, so the button
+     is seated on the surface and lit rather than hovering in a cloud. */
+  .cta-glow {
+    box-shadow: 0 1px 2px rgb(18 18 18 / 0.12), 0 6px 16px rgb(18 18 18 / 0.1),
+      inset 0 1px 0 rgb(255 255 255 / 0.28);
+  }
+  [data-theme="dark"] .cta-glow {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.45),
+      0 4px 14px color-mix(in srgb, var(--brand) 15%, transparent),
+      inset 0 1px 0 rgb(255 255 255 / 0.2);
+  }
+  /* A glow belongs to a button you can press. A greyed-out control that
+     still throws accent light is the bug in the screenshot — it reads as
+     available and then refuses the click. Stated here as well as via
+     `disabled:shadow-none` at the call site, so it holds even if the
+     element is disabled by attribute rather than by utility. */
+  .cta-glow:disabled,
+  .cta-glow[aria-disabled="true"],
+  .cta-glow[data-disabled] {
+    box-shadow: none;
+  }
+
+  /* ---- the sidebar's active pill ----
+     A travelling lozenge behind the label rather than a background on
+     the button, so Framer's shared layout can slide it between items. */
+  .nav-pill {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-float-sm-v);
+  }
 }
 
 /* ---- charts ----

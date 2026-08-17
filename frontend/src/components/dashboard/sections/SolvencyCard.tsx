@@ -40,7 +40,7 @@ const SolvencyCard = () => {
   if (loading) {
     return (
       <Card className="rounded-xl">
-        <CardContent className="p-4 sm:p-6">
+        <CardContent>
           <div className="h-44 animate-pulse rounded-xl bg-muted" />
         </CardContent>
       </Card>
@@ -51,40 +51,40 @@ const SolvencyCard = () => {
     <Card
       className={cn(
         'overflow-hidden rounded-xl',
-        healthy ? 'ring-1 ring-brand/20' : 'ring-1 ring-danger/30',
+        // A border, not a ring: `ring-*` compiles into box-shadow, which
+        // would replace the card's float shadow rather than sit alongside it.
+        healthy ? 'border-brand/30' : 'border-danger/40',
       )}
     >
-      <CardContent className="space-y-5 p-4 sm:space-y-6 sm:p-6">
+      <CardContent className="@container space-y-5">
         {/* Hero: status + headline ratio. On mobile they sit on one compact row
             (badge + label on the left, ratio on the right); from sm up it's the
             original stacked-then-spread layout. */}
-        <div className="flex flex-row items-center justify-between gap-4 sm:items-center">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+        <div className="flex flex-col gap-4 @md:flex-row @md:items-center @md:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <div
               className={cn(
-                'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-14 sm:w-14 sm:rounded-2xl',
+                'grid size-11 shrink-0 place-items-center rounded-xl @md:size-14 @md:rounded-2xl',
                 healthy ? 'bg-brand/10 text-brand-text' : 'bg-danger/10 text-danger-text',
               )}
             >
-              {healthy ? <ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7" /> : <ShieldAlert className="h-6 w-6 sm:h-7 sm:w-7" />}
+              {healthy ? <ShieldCheck className="size-6 @md:size-7" /> : <ShieldAlert className="size-6 @md:size-7" />}
             </div>
             <div className="min-w-0">
-              <h3 className="font-display text-[19px] font-medium tracking-[-0.02em] sm:text-[21px]">
+              <h3 className="font-display text-[19px] font-medium tracking-[-0.02em] @md:text-[21px]">
                 {healthy ? 'Solvent' : 'Under-backed'}
               </h3>
-              <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground @md:text-[13px]">
                 Live Blend-backed value vs. outstanding principal, read on-chain.
               </p>
             </div>
           </div>
 
-          <div className="shrink-0 text-right">
-            <p className="eyebrow">
-              Collateralization
-            </p>
+          <div className="shrink-0 @md:text-right">
+            <p className="eyebrow">Collateralization</p>
             <p
               className={cn(
-                'num font-display text-[26px] font-medium tracking-[-0.025em] sm:text-[32px]',
+                'num mt-1 font-display text-[26px] leading-none font-medium tracking-[-0.025em] @md:text-[32px]',
                 healthy ? 'text-brand-text' : 'text-danger-text',
               )}
             >
@@ -104,7 +104,7 @@ const SolvencyCard = () => {
         </div>
 
         {/* Figures — also serve as the bar legend via the colored dots. */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="grid grid-cols-3 gap-2 @md:gap-3">
           <Metric label="Backing" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
           <Metric
             label="Principal"

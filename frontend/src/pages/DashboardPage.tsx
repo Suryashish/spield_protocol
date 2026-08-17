@@ -165,7 +165,7 @@ const OverviewSection = () => (
   <div className="space-y-6">
     <StatsGrid />
     <YieldChart />
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
       <div className="lg:col-span-8">
         <PortfolioChart />
       </div>
@@ -179,7 +179,7 @@ const OverviewSection = () => (
 const DepositSection = () => (
   <div className="space-y-6">
     <DepositStatsStrip />
-    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
       <div className="lg:col-span-5">
         <DepositPanel />
       </div>
@@ -194,7 +194,7 @@ const DepositSection = () => (
 const VaultSection = () => (
   <div className="space-y-6">
     <VaultStatsStrip />
-    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
       <div className="lg:col-span-5">
         <VaultPanel />
       </div>
@@ -208,7 +208,7 @@ const VaultSection = () => (
 
 const MarketsSection = () => (
   <div className="space-y-6">
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
       <div className="lg:col-span-8">
         <MarketChart />
       </div>
@@ -223,7 +223,7 @@ const MarketsSection = () => (
 const LiquiditySection = () => (
   <div className="space-y-6">
     <LpStatsStrip />
-    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
       <div className="lg:col-span-5">
         <LpPanel />
       </div>
@@ -322,7 +322,7 @@ const Explainer = ({
         <div className="overflow-hidden" inert={!open || undefined}>
           <div className="rule-soft mx-5" />
           {steps ? (
-            <div className="grid gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-2">
+            <div className="grid gap-5 px-5 py-5 sm:grid-cols-2">
               {steps.map((s) => {
                 const Icon = s.icon;
                 return (
@@ -488,12 +488,18 @@ const DashboardPage = () => {
         <main className="flex min-w-0 grow flex-col">
           <Header section={nav.label} />
 
-          <div className="grow overflow-y-auto px-4 pt-6 pb-16 lg:px-8 lg:pt-8">
+          {/* The gutter steps 16 → 24 → 32 with the viewport rather than
+              jumping straight from a phone's margin to a desktop's. */}
+          <div className="grow overflow-y-auto px-4 pt-6 pb-16 sm:px-6 lg:px-8 lg:pt-8">
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page title. Satoshi at display size with the subtitle set on
                   a real measure under it — the section states what it is once,
-                  properly, instead of twice in the same weight. */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+                  properly, instead of twice in the same weight.
+
+                  `pb-2` on top of the column's 24px gap is what makes the
+                  heading→content step 32px, one rung above the 24px that
+                  separates the blocks below it. */}
+              <div className="flex flex-col gap-3 pb-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
                 <div className="min-w-0">
                   <h1 className="font-display text-[26px] leading-[1.1] font-bold tracking-[-0.03em] sm:text-[32px]">
                     {nav.title}

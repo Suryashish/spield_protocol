@@ -152,8 +152,8 @@ const PositionsPanel = () => {
   };
 
   return (
-    <Card className="flex h-full flex-col overflow-hidden rounded-xl">
-      <div className="flex items-start justify-between border-b border-border p-4">
+    <Card className="flex h-full flex-col gap-0 overflow-hidden rounded-xl py-0">
+      <div className="flex items-start justify-between border-b border-border px-5 py-4">
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">Your Positions</h3>
@@ -183,7 +183,7 @@ const PositionsPanel = () => {
           vault contract (not your wallet), so they never appear here — they live under their own
           tab as receipts. Stated up-front so a vault depositor isn't confused by an empty list. */}
       {VAULT_DEPLOYED && (
-        <div className="border-b border-border bg-accent/40 px-4 py-2.5 text-xs text-muted-foreground">
+        <div className="border-b border-border bg-accent/40 px-5 py-3 text-[12.5px] leading-relaxed text-muted-foreground">
           These are your raw <span className="font-semibold text-foreground">PT/YT positions</span>{' '}
           from depositing above. Fixed Vault deposits appear under{' '}
           <button
@@ -200,7 +200,7 @@ const PositionsPanel = () => {
       {/* Scrollable list: `flex-1` fills the card when it's short (matching the Deposit
           panel's height via the row's items-stretch), while `max-h` caps it so a long list
           scrolls in place instead of stretching the whole section taller. */}
-      <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto p-4 lg:max-h-128">
+      <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto p-5 lg:max-h-128">
         {!isConnected ? (
           <EmptySlot
             icon={Coins}

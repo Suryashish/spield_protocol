@@ -135,14 +135,14 @@ const MarketChart = () => {
 
   return (
     <Card className="overflow-hidden rounded-xl">
-      <CardHeader className="p-4 pb-2 sm:p-5">
+      <CardHeader>
         <CardTitle>Market — PT Price &amp; Rate</CardTitle>
         <CardDescription>
           Live price discovery on the time-decay curve
         </CardDescription>
         {/* Folded-in stats strip (replaces the old MarketHeader) — a 2×2 / 4-across grid under the
             title so it stays readable in the narrower column beside the trade panel. */}
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 well rounded-lg p-3 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-3 well rounded-lg p-3.5 sm:grid-cols-4">
           <Stat
             icon={<TrendingUp size={13} className="text-ember-text" />}
             label="Implied APY"
@@ -170,7 +170,7 @@ const MarketChart = () => {
         </div>
       </CardHeader>
 
-      <CardContent className="p-4 pt-1 sm:p-5">
+      <CardContent>
         {/* Series toggle */}
         <div className="mb-3 grid w-fit grid-cols-2 gap-1 well rounded-lg p-1 text-xs font-semibold">
           {(['price', 'apy'] as Series[]).map((s) => (

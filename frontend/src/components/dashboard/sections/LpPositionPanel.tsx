@@ -108,7 +108,7 @@ const LpPositionPanel = () => {
 
   return (
     <Card className="flex h-full flex-col rounded-xl">
-      <CardHeader className="p-4 pb-2">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Droplets size={16} className="text-usdc-text" />
           Your Liquidity
@@ -117,7 +117,7 @@ const LpPositionPanel = () => {
           What your LP shares hold and redeem for right now.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col p-4">{body()}</CardContent>
+      <CardContent className="flex flex-1 flex-col">{body()}</CardContent>
     </Card>
   );
 };

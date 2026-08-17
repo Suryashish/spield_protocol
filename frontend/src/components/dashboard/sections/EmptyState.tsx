@@ -26,7 +26,7 @@ const EmptyState = ({
   action?: React.ReactNode;
   className?: string;
 }) => (
-  <div className={cn('flex flex-col items-center justify-center px-6 py-12 text-center', className)}>
+  <div className={cn('flex flex-col items-center justify-center px-6 py-10 text-center', className)}>
     <div className="well grid size-11 place-items-center rounded-full text-subtle">
       <Icon size={18} />
     </div>

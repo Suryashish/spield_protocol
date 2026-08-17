@@ -175,7 +175,7 @@ const ReceiptsPanel = () => {
 
   return (
     <Card className="flex h-full flex-col rounded-xl">
-      <CardHeader className="flex flex-row items-start justify-between p-4 pb-2">
+      <CardHeader className="flex flex-row items-start justify-between">
         <div>
           <CardTitle>Your fixed-rate receipts</CardTitle>
           <CardDescription>
@@ -206,7 +206,7 @@ const ReceiptsPanel = () => {
           </Button>
         )}
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col space-y-2 p-4">
+      <CardContent className="flex flex-1 flex-col space-y-2">
         {!VAULT_DEPLOYED ? (
           <p className="flex flex-1 items-center justify-center py-6 text-center text-sm text-muted-foreground">
             The Fixed-Rate Vault isn&apos;t deployed yet.

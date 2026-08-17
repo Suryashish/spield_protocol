@@ -73,13 +73,13 @@ const DepositPanel = () => {
 
   return (
     <Card className="h-full rounded-xl">
-      <CardHeader className="p-4 pb-2">
+      <CardHeader>
         <CardTitle>Deposit</CardTitle>
         <CardDescription>
           Supply USDC to mint a fixed-rate bond (PT) + a yield token (YT)
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-4">
         {/* Pay: USDC */}
         <AmountField
           label="Deposit"
@@ -102,14 +102,14 @@ const DepositPanel = () => {
         {/* Receive: PT + YT, minted 1:1:1 with the deposit */}
         <div className="grid gap-3 sm:grid-cols-2">
           <AmountField
-            label="Receive · principal"
+            label="You receive"
             token="PT"
             value={amountValid ? parsed.toLocaleString() : ''}
             hint="Redeems 1:1 at maturity"
             hintTone="brand"
           />
           <AmountField
-            label="Receive · yield"
+            label="You receive"
             token="YT"
             value={amountValid ? parsed.toLocaleString() : ''}
             hint="Variable · claim anytime"

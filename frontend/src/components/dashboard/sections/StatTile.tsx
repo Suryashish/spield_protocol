@@ -44,7 +44,7 @@ export type StatTileProps = {
 };
 
 const StatTile = ({ label, value, sub, tone = 'default', icon: Icon, loading }: StatTileProps) => (
-  <div className="panel panel-hover flex flex-col rounded-xl p-3.5 sm:p-4">
+  <div className="panel panel-hover flex flex-col rounded-xl p-4">
     <div className="flex flex-1 items-start justify-between gap-2">
       <span className="eyebrow pt-1 leading-tight">{label}</span>
       <div
@@ -60,7 +60,7 @@ const StatTile = ({ label, value, sub, tone = 'default', icon: Icon, loading }: 
     {/* The figure and its note are pushed to the foot of the tile, so a strip
         whose labels wrap onto two lines still reads as one row of numbers
         rather than a staircase. */}
-    <div className="mt-3 flex items-baseline pt-1">
+    <div className="mt-2.5 flex items-baseline">
       {loading ? (
         <span className="h-6 w-20 animate-pulse rounded-md bg-muted" />
       ) : (
@@ -78,8 +78,12 @@ const StatTile = ({ label, value, sub, tone = 'default', icon: Icon, loading }: 
       )}
     </div>
 
+    {/* Wraps to a second line rather than clipping: in a two-up phone grid a
+        tile is ~150px, and "Locked for the full…" is a worse read than two
+        short lines. The grid stretches every tile to the tallest, so a
+        wrapping note costs the row nothing. */}
     {sub && !loading && (
-      <p className="mt-2 truncate text-[12px] text-muted-foreground" title={sub}>
+      <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground" title={sub}>
         {sub}
       </p>
     )}

@@ -184,7 +184,7 @@ const TradePanel = () => {
 
   return (
     <Card className="h-full rounded-xl">
-      <CardHeader className="p-4 pb-2">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <TrendingUp size={16} className="text-brand-text" />
           Trade
@@ -193,7 +193,7 @@ const TradePanel = () => {
           Buy PT for a fixed return, sell PT to exit, or long YT to bet on yield.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-4">
         {/* Mode toggle */}
         <div className="grid grid-cols-3 gap-1 well rounded-lg p-1">
           {TABS.map((t) => (

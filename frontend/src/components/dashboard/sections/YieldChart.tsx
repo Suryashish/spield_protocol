@@ -125,7 +125,7 @@ const YieldChart = () => {
 
   return (
     <Card className="overflow-hidden rounded-xl">
-      <CardHeader className="flex flex-col gap-3 p-4 pb-0 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardTitle>Yield — Realized vs Implied</CardTitle>
           <CardDescription>
@@ -175,7 +175,7 @@ const YieldChart = () => {
         </div>
       </CardHeader>
 
-      <CardContent className="p-4 pt-3 sm:p-5">
+      <CardContent>
         {loading ? (
           <div className="h-64 animate-pulse rounded-xl bg-muted" />
         ) : !hasEnough ? (

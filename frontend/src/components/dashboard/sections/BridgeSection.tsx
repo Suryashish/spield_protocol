@@ -374,7 +374,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
 
   return (
     <Card className="h-full rounded-xl">
-      <CardHeader className="p-4 pb-2">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ArrowRightLeft size={16} className="text-brand-text" />
           Bridge to Stellar
@@ -383,7 +383,7 @@ const BridgePanel = ({ onTracked }: { onTracked: BridgeHistoryTracker }) => {
           Bring USDC from any chain into Stellar via Allbridge Core.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-4">
         {loadingChains ? (
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="animate-spin text-muted-foreground" />
@@ -916,7 +916,7 @@ const BridgeSection = () => {
   const { transfers, track, clear } = useBridgeHistory();
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
         <div className="lg:col-span-6">
           <BridgePanel onTracked={track} />
         </div>

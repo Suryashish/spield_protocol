@@ -71,13 +71,17 @@ const AmountField = ({
 }: AmountFieldProps) => {
   const id = useId();
   const editable = typeof onChange === 'function';
+  const hasMeta = Boolean(balance || onMax);
 
   return (
     <div className={cn('field-shell', className)} data-invalid={invalid || undefined}>
       <div className="flex items-center justify-between gap-3">
+        {/* The label is only capped when it has to share the line. On a field
+            with no balance row it gets the full width, so "Guaranteed at
+            maturity" reads out in a half-width column instead of clipping. */}
         <label
           htmlFor={editable ? id : undefined}
-          className="eyebrow max-w-[52%] shrink-0 truncate"
+          className={cn('eyebrow truncate', hasMeta ? 'max-w-[52%] shrink-0' : 'min-w-0')}
         >
           {label}
         </label>
