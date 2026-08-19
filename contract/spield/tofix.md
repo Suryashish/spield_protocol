@@ -21,7 +21,7 @@ meaningful TVL; **P2** = documentation / belt-and-braces.
 | # | Item | Contract / area | Sev | What is left |
 |---|---|---|---|---|
 | [1](#1-market-bought-pt-has-no-redemption-path) | Market-bought PT has no redemption path | wrapper / market | P0 | **Not fixed** — design decision pending |
-| [2](#2-a-seller-who-sold-their-pt-leg-cannot-redeem-transfer-or-combine) | Seller who sold their PT leg cannot exit | wrapper | P0 | **Not fixed** — same decision as item 1 |
+| [2](#2-a-seller-who-sold-their-pt-leg-cannot-redeem-transfer-or-combine) | Seller who sold their PT leg cannot exit | wrapper | P0 | `split_position` landed — **mitigated, not closed**; an already-diverged position still needs item 1 |
 | [13](#13-the-classic-ptyt-issuer-is-never-locked) | The classic PT/YT issuer is never locked | deploy script | P0 | **Not started** — prerequisite for item 1 |
 | [3](#3-b_rate-decrease--a-deep-dip-still-blocks-exits) | `b_rate` dip: deep dips still block exits | strategy | P0 | Valve landed; **residual gap deferred by decision** |
 
@@ -103,7 +103,7 @@ ahead of these §0 P0s.
 | **A. Defer** *(current state)* | Document the gap; do item 13 first, then revisit | Safest ordering; the flagship flow stays broken until then |
 | **B. Post-maturity swaps at par** | Let the market keep quoting at par after maturity so buyers exit via the pool | No wrapper change, no counterfeit exposure; changes the maturity-halt semantics and needs LP-side thought. **Cheaper than it was:** the market↔wrapper cross-check makes the market's maturity provably equal to the wrapper's, so "after maturity" is now a single well-defined instant for both |
 | **C. Balance-based `redeem_pt`** | Burn loose PT 1:1 against a global shares pool | Requires item 13 **first**, plus a wrapper accounting redesign — there is no position to decrement `principal`/`shares` against |
-| **D. `split_position`** | Let a seller hand over a right-sized position with the PT | Small change, but the exit stays a manual off-protocol handoff |
+| **D. `split_position`** ✅ *(landed)* | Let a seller hand over a right-sized position with the PT | **Shipped.** `split_position(id, amount)` + `transfer_position` is now the supported partial-sale path, and it settles first so the yield split is clean. It does **not** close this item: an AMM buyer still holds loose PT with no position, so the exit remains a manual off-protocol handoff. It gives the *forward* flow a correct answer, not the market-bought case |
 
 ---
 
@@ -134,12 +134,25 @@ wrapper stays solvent. Position accounting and SAC balances diverge without corr
 
 ### What is left
 
-Same decision as item 1 — they are one design question, not two. Whichever option is chosen there
-resolves this. Under option **D** (`split_position`) a seller could split off exactly the PT they
-still hold and keep a clean, exitable position.
+**`split_position` has landed** (option D), which gives the *forward* flow a clean answer: split off
+exactly the slice you intend to sell **before** selling it, then `transfer_position` it. Both halves
+stay whole, exitable positions, and the split settles first so the seller keeps the yield earned up
+to that point. That is the supported way to sell part of a holding, and it is what the dApp should
+route users through.
 
-When the fix lands, **keep the graceful-degradation assertions** (atomic failure, solvency held,
-`claim_yield` unaffected) — they are worth having regardless of which exit path is added.
+What it does **not** do is rescue a position that has *already* diverged. Once the PT has been sold
+onto the AMM, the position still records `pt_amount = 100` against a zero balance, and
+`transfer_position` still reverts on the SAC leg — `split_position` splits the *record*, not the
+tokens, so a slice of a diverged position is equally unsellable. Recovering those needs item 1's
+decision (a balance-based redemption, gated on item 13).
+
+So: this is **mitigated, not closed**. The good path exists; the bad state is still reachable by
+selling PT on the AMM first, and is still only survivable because every failure is atomic (the tests
+assert `pos.pt_amount` and ownership are unchanged after each failed attempt, and that the wrapper
+stays solvent).
+
+**Keep the graceful-degradation assertions** when item 1 lands — they are worth having regardless of
+which exit path is added.
 
 ---
 

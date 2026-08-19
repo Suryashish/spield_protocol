@@ -72,6 +72,35 @@ YT can claim stays in the wrapper as surplus backing.
 > Run `stamp_maturity_rate()` at maturity. It is cheap, permissionless, idempotent, and it is the
 > difference between an exact cap and a drifting one.
 
+### Selling part of a holding: `split_position` + `transfer_position`
+
+The **position** is the authoritative claim, not the PT/YT token balance — `claim_yield` pays
+`pos.owner` and never reads a SAC balance. So moving PT/YT with a raw token transfer moves the
+tokens *without* moving the yield claim: the sender keeps earning on tokens they no longer hold.
+
+`split_position(id, amount)` carves a right-sized position out so a partial sale is possible:
+
+```
+hold 50 PT + 50 YT as position P, want to sell half on day 15 of a 30-day term:
+  split_position(P, 25)       -> Q   (25 PT + 25 YT, still yours; P keeps 25 + 25)
+  transfer_position(Q, buyer) ->     buyer owns Q and holds its tokens
+days 1-15 on all 50 -> you.   days 15-30 on Q's 25 -> buyer, on P's 25 -> you.
+```
+
+The split **settles first**, so it is a clean cut in time: the seller is paid everything earned up
+to the split and the new position earns strictly from there. That is the job Pendle's
+`_beforeTokenTransfer` interest-index hook does — PT/YT are Stellar Asset Contracts (protocol
+built-ins with a fixed interface and no hooks), so the checkpoint happens in the split instead.
+Measured in `split_then_transfer_sells_half_a_position_mid_term`: buyer and seller each earn an
+identical 169,759 stroops over days 15–30, and the buyer's immediate post-purchase claim is exactly 0.
+
+The slice is **proportional across the whole position** — a position's Blend shares back its
+principal *and* generate its YT yield, so PT, YT and shares move together. There is no PT-only or
+YT-only split; a buyer wanting pure yield exposure sells the PT leg on the AMM afterwards. The new
+position takes the floored share of every field and the original keeps the remainder by subtraction,
+so `old + new == original` exactly and splitting is economically neutral (measured: 1 stroop across
+a full term vs an unsplit control).
+
 ## SCF bug fixes → regression tests
 
 Every fix is a committed test in `contracts/wrapper/src/test.rs`, run against real Blend WASM:

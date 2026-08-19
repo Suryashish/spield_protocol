@@ -1151,6 +1151,447 @@ fn claim_on_closed_position_is_a_noop() {
 // --------------------------------------------------------------------------
 
 /// Sum `pt_amount` / `yt_amount` over every position id ever opened.
+// ===========================================================================
+// SPLIT_POSITION — selling PART of a holding
+//
+// Before this, a position was all-or-nothing: `transfer_position` moved the whole
+// thing, and a raw PT/YT SAC transfer moved tokens WITHOUT moving the yield claim
+// (the position stayed with the seller, who kept earning on tokens they no longer
+// held). `split_position` carves a right-sized position out, which is then handed
+// over with `transfer_position`.
+//
+// The split SETTLES first, so it is a clean cut in time: the seller is paid
+// everything earned up to the split, and the new position earns strictly from
+// there. That is the job Pendle's `_beforeTokenTransfer` interest-index hook does;
+// PT/YT are Stellar Asset Contracts (protocol built-ins, fixed interface, no
+// hooks), so the checkpoint happens in the split instead.
+// ===========================================================================
+
+/// Sum every field across every position, for conservation checks.
+fn sum_all_positions(w: &World, next_id: u64) -> (i128, i128, i128, i128) {
+    let (mut principal, mut pt, mut yt, mut shares) = (0i128, 0i128, 0i128, 0i128);
+    for id in 0..next_id {
+        if let Ok(Ok(p)) = w.wrapper().try_get_position(&id) {
+            principal += p.principal;
+            pt += p.pt_amount;
+            yt += p.yt_amount;
+            shares += p.shares;
+        }
+    }
+    (principal, pt, yt, shares)
+}
+
+/// A split must re-partition a position EXACTLY — every field of the two halves must sum
+/// to the original, so rounding can neither create nor destroy value.
+#[test]
+fn split_conserves_every_field_exactly() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 3);
+
+    // Settle first so the "before" snapshot is comparable (the split settles internally).
+    w.wrapper().claim_yield(&id);
+    let before = w.wrapper().get_position(&id);
+    let (tp_before, _, _, _) = sum_all_positions(&w, 8);
+
+    let new_id = w.wrapper().split_position(&id, &(30 * USDC));
+    let old = w.wrapper().get_position(&id);
+    let new = w.wrapper().get_position(&new_id);
+
+    assert_eq!(old.principal + new.principal, before.principal, "principal not conserved");
+    assert_eq!(old.pt_amount + new.pt_amount, before.pt_amount, "PT not conserved");
+    assert_eq!(old.yt_amount + new.yt_amount, before.yt_amount, "YT not conserved");
+    assert_eq!(old.shares + new.shares, before.shares, "SHARES not conserved");
+
+    // The requested slice is exact on the principal/PT leg (principal == pt_amount).
+    assert_eq!(new.principal, 30 * USDC);
+    assert_eq!(new.pt_amount, 30 * USDC);
+    assert_eq!(old.principal, 70 * USDC);
+
+    // Both halves are open, owned by the same address, and inherit the term's entry rate.
+    assert!(old.open && new.open);
+    assert_eq!(old.owner, new.owner, "a split does not change ownership");
+    assert_eq!(new.entry_rate, before.entry_rate);
+    // Both start settled to NOW — that is what makes the cut clean in time.
+    assert_eq!(new.settled_rate, old.settled_rate);
+
+    // Protocol totals are untouched: this re-partitions, it does not mint, burn, or move value.
+    let (tp_after, _, _, _) = sum_all_positions(&w, 8);
+    assert_eq!(tp_after, tp_before, "Σ principal changed across a split");
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
+}
+
+/// A split moves NO tokens — the owner still holds every PT and YT afterwards. This is
+/// what lets `transfer_position` do the token movement with its already-audited code.
+#[test]
+fn split_moves_no_tokens_and_changes_no_supply() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+    let pt_before = w.pt().balance(&user);
+    let yt_before = w.yt().balance(&user);
+
+    w.advance(YEAR / 4);
+    let new_id = w.wrapper().split_position(&id, &(40 * USDC));
+
+    assert_eq!(w.pt().balance(&user), pt_before, "split must not move PT");
+    assert_eq!(w.yt().balance(&user), yt_before, "split must not move YT");
+
+    // And Σ position legs still equals the holder's balances (no mint, no burn).
+    let (pt_sum, yt_sum) = sum_position_legs(&w, new_id + 1);
+    assert_eq!(pt_sum, w.pt().balance(&user));
+    assert_eq!(yt_sum, w.yt().balance(&user));
+}
+
+/// **The headline scenario.** 50 YT, 30-day term, sell half on day 15.
+/// Days 1-15 of ALL 50 -> seller. Days 15-30 of the sold 25 -> buyer, of the kept 25 -> seller.
+/// Nothing double-counted, nothing lost.
+#[test]
+fn split_then_transfer_sells_half_a_position_mid_term() {
+    let w = setup(30 * 24 * 60 * 60); // 30-day term
+    let (seller, id) = w.deposit_new_user(50 * USDC);
+    let buyer = Address::generate(w.env());
+
+    // ── Day 15: seller splits off half. The split settles days 1-15 to the seller.
+    w.advance(15 * 24 * 60 * 60);
+    let seller_usdc_before = w.usdc().balance(&seller);
+    let sold_id = w.wrapper().split_position(&id, &(25 * USDC));
+    let first_half_yield = w.usdc().balance(&seller) - seller_usdc_before;
+    assert!(first_half_yield > 0, "the split must pay the seller days 1-15 on all 50 YT");
+
+    // Hand the slice over — this is the part that moves the tokens.
+    w.wrapper().transfer_position(&sold_id, &buyer);
+    assert_eq!(w.wrapper().get_position(&sold_id).owner, buyer);
+    assert_eq!(w.pt().balance(&buyer), 25 * USDC, "buyer holds the slice's PT");
+    assert_eq!(w.yt().balance(&buyer), 25 * USDC, "buyer holds the slice's YT");
+    assert_eq!(w.pt().balance(&seller), 25 * USDC, "seller keeps the rest");
+    assert_eq!(w.yt().balance(&seller), 25 * USDC);
+
+    // ── The buyer's claim RIGHT NOW must be ~0: they bought future yield, not past yield.
+    let buyer_immediate = w.wrapper().claim_yield(&sold_id);
+    assert_eq!(
+        buyer_immediate, 0,
+        "the buyer must not receive a stroop of the seller's pre-split yield (SCF #5 class)"
+    );
+
+    // ── Days 15-30: both earn on their own 25.
+    w.advance(15 * 24 * 60 * 60);
+    let buyer_yield = w.wrapper().claim_yield(&sold_id);
+    let seller_second_half = w.wrapper().claim_yield(&id);
+    assert!(buyer_yield > 0, "the buyer must earn days 15-30 on the YT they bought");
+    assert!(seller_second_half > 0, "the seller must earn days 15-30 on the YT they kept");
+
+    // Equal halves over the same window ⇒ equal yield (Blend share rounding aside).
+    let delta = (buyer_yield - seller_second_half).abs();
+    assert!(
+        delta <= 2,
+        "equal halves must earn equally over the same window: buyer={} seller={}",
+        buyer_yield,
+        seller_second_half
+    );
+
+    // ── Both positions are independently exitable at maturity.
+    warp_to(&w, w.maturity + 1);
+    assert_eq!(w.wrapper().redeem_pt(&sold_id, &(25 * USDC)), 25 * USDC);
+    assert_eq!(w.wrapper().redeem_pt(&id, &(25 * USDC)), 25 * USDC);
+    std::println!(
+        "sold half mid-term: seller days1-15 {} | buyer days15-30 {} | seller days15-30 {}",
+        first_half_yield,
+        buyer_yield,
+        seller_second_half
+    );
+}
+
+/// Splitting must not change the ECONOMICS. A position split in two and held to maturity must
+/// yield the same total as an identical position left whole.
+///
+/// The control has to CLAIM at the same instant the split happens. A split settles internally,
+/// which withdraws that yield from Blend — so a control that never claimed would keep compounding
+/// it and legitimately end up ahead. That difference is the cost of claiming early, not a cost of
+/// splitting, and conflating the two would make this test assert the wrong thing.
+#[test]
+fn splitting_does_not_create_or_destroy_yield() {
+    let w = setup(YEAR);
+    let (control_user, control_id) = w.deposit_new_user(100 * USDC);
+    let (split_user, split_id) = w.deposit_new_user(100 * USDC);
+
+    w.advance(YEAR / 2);
+    // Control: claim. Split: split (which settles the same amount at the same moment).
+    let control_mid = w.wrapper().claim_yield(&control_id);
+    let before = w.usdc().balance(&split_user);
+    let other_id = w.wrapper().split_position(&split_id, &(37 * USDC)); // deliberately uneven
+    let settled_at_split = w.usdc().balance(&split_user) - before;
+    assert!(
+        (control_mid - settled_at_split).abs() <= 2,
+        "the split's settle must equal the control's claim: {} vs {}",
+        control_mid,
+        settled_at_split
+    );
+
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().stamp_maturity_rate();
+
+    let control_total = control_mid + w.wrapper().claim_yield(&control_id);
+    let split_total =
+        settled_at_split + w.wrapper().claim_yield(&split_id) + w.wrapper().claim_yield(&other_id);
+
+    // The split half redeems through two positions instead of one, so Blend's per-withdraw
+    // rounding applies twice — a few stroops on ~1.5 USDC of yield, not a systematic drift.
+    let delta = (control_total - split_total).abs();
+    assert!(
+        delta <= 20,
+        "split total {} must match the unsplit control {} (delta {})",
+        split_total,
+        control_total,
+        delta
+    );
+    assert!(w.usdc().balance(&control_user) > 0);
+    std::println!("control {} vs split-in-two {} (delta {})", control_total, split_total, delta);
+}
+
+/// Repeated splitting stays exact — no drift accumulates across many partitions.
+#[test]
+fn repeated_splits_stay_conserved() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 5);
+    w.wrapper().claim_yield(&id);
+    let before = w.wrapper().get_position(&id);
+
+    // Carve off seven uneven slices in a row.
+    let mut ids = std::vec![id];
+    for cut in [17, 13, 11, 7, 5, 3, 2] {
+        let new_id = w.wrapper().split_position(&id, &(cut * USDC));
+        ids.push(new_id);
+    }
+
+    let (principal, pt, yt, shares) = sum_all_positions(&w, 32);
+    assert_eq!(principal, before.principal, "principal drifted across repeated splits");
+    assert_eq!(pt, before.pt_amount, "PT drifted");
+    assert_eq!(yt, before.yt_amount, "YT drifted");
+    assert_eq!(shares, before.shares, "SHARES drifted");
+    assert_eq!(ids.len(), 8);
+
+    let (backing, total_principal, _) = w.wrapper().solvency();
+    assert!(backing + 12 >= total_principal, "backing {} principal {}", backing, total_principal);
+}
+
+/// A split of a position whose PT and YT have DIVERGED (partial post-maturity PT redemption
+/// leaves `yt_amount > pt_amount`) must slice both legs proportionally, not assume 1:1.
+#[test]
+fn split_handles_a_position_whose_pt_and_yt_have_diverged() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    // Redeem half the PT after maturity — principal and PT fall, YT does not.
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().redeem_pt(&id, &(50 * USDC));
+    // Settle before snapshotting: the split settles internally (burning shares to pay the owner),
+    // so an unsettled "before" would not be comparable on the shares field.
+    w.wrapper().claim_yield(&id);
+    let before = w.wrapper().get_position(&id);
+    assert_eq!(before.pt_amount, 50 * USDC);
+    assert_eq!(before.principal, 50 * USDC);
+    assert_eq!(before.yt_amount, 100 * USDC, "YT is not reduced by redeem_pt");
+
+    // Split a fifth of the remaining principal.
+    let new_id = w.wrapper().split_position(&id, &(10 * USDC));
+    let old = w.wrapper().get_position(&id);
+    let new = w.wrapper().get_position(&new_id);
+
+    assert_eq!(new.principal, 10 * USDC);
+    assert_eq!(new.pt_amount, 10 * USDC);
+    assert_eq!(new.yt_amount, 20 * USDC, "YT must slice proportionally (2x the PT leg here)");
+    assert_eq!(old.pt_amount + new.pt_amount, before.pt_amount);
+    assert_eq!(old.yt_amount + new.yt_amount, before.yt_amount);
+    assert_eq!(old.shares + new.shares, before.shares);
+}
+
+/// Both halves must be independently usable through every exit: claim, combine, redeem.
+#[test]
+fn both_halves_are_independently_exitable() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(80 * USDC);
+    w.advance(YEAR / 4);
+    let other_id = w.wrapper().split_position(&id, &(30 * USDC));
+
+    // Combine the small half out entirely, before maturity.
+    let (principal, _) = w.wrapper().combine_and_redeem(&other_id, &(30 * USDC));
+    assert_eq!(principal, 30 * USDC);
+    let closed = w.wrapper().get_position(&other_id);
+    assert!(!closed.open, "a fully combined half must close");
+
+    // The other half is untouched and still redeems at maturity.
+    warp_to(&w, w.maturity + 1);
+    assert_eq!(w.wrapper().redeem_pt(&id, &(50 * USDC)), 50 * USDC);
+    assert_eq!(w.pt().balance(&user), 0);
+    let (backing, total_principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= total_principal);
+}
+
+/// The dust band is anchored to LIVE positions, so splitting (which adds one) and then
+/// closing both halves must return it to baseline — splitting cannot ratchet the band open.
+#[test]
+fn split_then_close_returns_the_dust_band_to_baseline() {
+    let w = setup(YEAR);
+    let baseline = w.wrapper().open_positions();
+    let (_user, id) = w.deposit_new_user(60 * USDC);
+    assert_eq!(w.wrapper().open_positions(), baseline + 1);
+
+    w.advance(YEAR / 6);
+    let other_id = w.wrapper().split_position(&id, &(20 * USDC));
+    assert_eq!(w.wrapper().open_positions(), baseline + 2, "a split adds one live position");
+
+    // Close both halves.
+    w.wrapper().combine_and_redeem(&other_id, &(20 * USDC));
+    w.wrapper().combine_and_redeem(&id, &(40 * USDC));
+    assert_eq!(
+        w.wrapper().open_positions(),
+        baseline,
+        "the band must shrink back — splitting cannot ratchet it open"
+    );
+}
+
+/// Position management stays available during an emergency pause, like `transfer_position`.
+#[test]
+fn split_works_while_paused() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 4);
+    w.wrapper().pause();
+    let new_id = w.wrapper().split_position(&id, &(25 * USDC));
+    assert_eq!(w.wrapper().get_position(&new_id).principal, 25 * USDC);
+}
+
+/// After maturity a split still works, and the settle it performs is capped by the maturity
+/// ceiling — the split must not become a way to claim post-maturity yield.
+#[test]
+fn split_after_maturity_respects_the_maturity_ceiling() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+
+    warp_to(&w, w.maturity);
+    w.wrapper().stamp_maturity_rate();
+    let term_yield = w.wrapper().position_value(&id).claimable_yield;
+
+    // A year of post-maturity growth that no YT may claim.
+    w.advance(YEAR);
+    let before = w.usdc().balance(&user);
+    let new_id = w.wrapper().split_position(&id, &(40 * USDC));
+    let settled = w.usdc().balance(&user) - before;
+    assert_eq!(settled, term_yield, "the split's settle must be capped at the maturity rate");
+
+    // Neither half can claim anything more.
+    assert_eq!(w.wrapper().claim_yield(&id), 0);
+    assert_eq!(w.wrapper().claim_yield(&new_id), 0);
+    // And both still redeem their principal.
+    assert_eq!(w.wrapper().redeem_pt(&new_id, &(40 * USDC)), 40 * USDC);
+    assert_eq!(w.wrapper().redeem_pt(&id, &(60 * USDC)), 60 * USDC);
+}
+
+// ── guards ────────────────────────────────────────────────────────────────
+
+#[test]
+fn split_rejects_nonsense_amounts() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    for bad in [0i128, -1, -100 * USDC] {
+        assert_eq!(
+            w.wrapper().try_split_position(&id, &bad),
+            Err(Ok(spield_shared::Error::InvalidAmount.into())),
+            "split of {} must be refused",
+            bad
+        );
+    }
+    // The WHOLE position, and more than the whole: `transfer_position` is the tool for that,
+    // and splitting it all would leave an empty husk behind.
+    assert_eq!(
+        w.wrapper().try_split_position(&id, &(100 * USDC)),
+        Err(Ok(spield_shared::Error::InvalidAmount.into())),
+        "splitting the entire position must be refused"
+    );
+    assert_eq!(
+        w.wrapper().try_split_position(&id, &(101 * USDC)),
+        Err(Ok(spield_shared::Error::InvalidAmount.into()))
+    );
+    // Nothing was created by any refused attempt.
+    assert!(w.wrapper().try_get_position(&(id + 1)).is_err());
+}
+
+/// A slice too small to carry a whole Blend share would be principal with nothing behind it.
+/// Refuse it with a distinct error rather than mint an unbacked position.
+#[test]
+fn split_too_small_to_be_backed_is_refused() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    // The fixture's pool opens at b_rate ≈ 1.0, so a fresh position has shares ≈ principal and
+    // even a 1-stroop slice carries a share. Accrue and claim first: the claim burns shares to pay
+    // the yield while principal stays put, so shares fall below principal — which is the ordinary
+    // steady state of any position that has ever claimed, and of any position minted once the pool
+    // has accrued (`entry_rate > 1.0`).
+    w.advance(YEAR / 2);
+    w.wrapper().claim_yield(&id);
+    let pos = w.wrapper().get_position(&id);
+    assert!(
+        pos.shares < pos.principal,
+        "shares {} must be below principal {} for a sub-share slice to exist",
+        pos.shares,
+        pos.principal
+    );
+
+    assert_eq!(
+        w.wrapper().try_split_position(&id, &1i128),
+        Err(Ok(spield_shared::Error::SplitTooSmall.into())),
+        "a slice that floors to zero backing shares must be refused"
+    );
+    assert!(w.wrapper().try_get_position(&(id + 1)).is_err(), "no position was created");
+
+    // The smallest slice that DOES carry a share is accepted, so the guard is a floor and not a
+    // blanket ban on small splits.
+    let min_slice = (pos.principal + pos.shares - 1) / pos.shares; // ceil(principal / shares)
+    let new_id = w.wrapper().split_position(&id, &min_slice);
+    assert!(w.wrapper().get_position(&new_id).shares >= 1, "the minimum viable slice is backed");
+}
+
+#[test]
+fn split_of_a_closed_position_is_refused() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 4);
+    w.wrapper().combine_and_redeem(&id, &(100 * USDC)); // closes it
+    assert_eq!(
+        w.wrapper().try_split_position(&id, &(10 * USDC)),
+        Err(Ok(spield_shared::Error::PositionClosed.into()))
+    );
+}
+
+#[test]
+fn split_of_an_unknown_position_is_refused() {
+    let w = setup(YEAR);
+    assert_eq!(
+        w.wrapper().try_split_position(&999u64, &(10 * USDC)),
+        Err(Ok(spield_shared::Error::PositionNotFound.into()))
+    );
+}
+
+/// Only the owner may split — otherwise anyone could fragment someone else's position.
+#[test]
+fn split_requires_the_owners_authorization() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 4);
+
+    w.env().set_auths(&[]); // no authorizations available at all
+    assert!(
+        w.wrapper().try_split_position(&id, &(25 * USDC)).is_err(),
+        "split must require the position owner's auth"
+    );
+    w.env().mock_all_auths();
+    // With auth it works, proving the failure above was the auth check and nothing else.
+    assert_eq!(w.wrapper().get_position(&w.wrapper().split_position(&id, &(25 * USDC))).principal, 25 * USDC);
+}
+
 fn sum_position_legs(w: &World, next_id: u64) -> (i128, i128) {
     let (mut pt, mut yt) = (0i128, 0i128);
     for id in 0..next_id {

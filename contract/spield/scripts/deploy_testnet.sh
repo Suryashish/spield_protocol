@@ -416,6 +416,15 @@ stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK 
 stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\
   -- harvest --max_positions 3
 
+# Sell PART of a position: split off a right-sized slice, then hand it over. The split settles
+# first, so the yield earned up to now is paid to YOU and the buyer earns only from here forward.
+# The slice is proportional across PT, YT and backing — there is no PT-only or YT-only split.
+# (amount is in USDC base units and must be > 0 and < the position's principal.)
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- split_position --position_id 0 --amount 50000000     # returns the NEW position id
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- transfer_position --position_id <NEW_ID> --to <BUYER_ADDR>
+
 # Pin the YT yield ceiling AT MATURITY (permissionless upkeep — run this once, as close to the
 # maturity timestamp as possible). YT earns for the term and no longer: this records the b_rate at
 # maturity, after which a matured YT generates nothing. Any interaction at/after maturity pins it

@@ -41,6 +41,21 @@ pub struct RedeemPt {
     pub amount: i128,
 }
 
+/// A position was split into two. `amount` is the principal carved into `new_id`; `settled` is the
+/// yield paid to the owner by the mandatory pre-split settlement, which is what makes the new
+/// position start earning from this instant rather than carrying the seller's unclaimed yield.
+/// Nothing is minted or burned — indexers should treat this as a re-partition, not a supply change.
+#[contractevent]
+#[derive(Clone)]
+pub struct Split {
+    #[topic]
+    pub owner: Address,
+    pub position_id: u64,
+    pub new_position_id: u64,
+    pub amount: i128,
+    pub settled: i128,
+}
+
 #[contractevent]
 #[derive(Clone)]
 pub struct Combine {
@@ -128,6 +143,24 @@ pub fn transferred(env: &Env, from: &Address, to: &Address, id: u64) {
 
 pub fn paused(env: &Env, paused: bool) {
     PausedEvent { paused }.publish(env);
+}
+
+pub fn split(
+    env: &Env,
+    owner: &Address,
+    position_id: u64,
+    new_position_id: u64,
+    amount: i128,
+    settled: i128,
+) {
+    Split {
+        owner: owner.clone(),
+        position_id,
+        new_position_id,
+        amount,
+        settled,
+    }
+    .publish(env);
 }
 
 pub fn maturity_rate_stamped(env: &Env, rate: i128) {

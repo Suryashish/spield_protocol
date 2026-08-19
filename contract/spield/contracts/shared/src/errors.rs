@@ -54,6 +54,12 @@ pub enum Error {
     /// inflows, and the wrapper now matches them. Exits (`redeem_pt`, `combine_and_redeem`,
     /// `claim_yield`) are unaffected.
     MarketMatured = 26,
+    /// `split_position` was asked for a slice so small that one side would floor to **zero Blend
+    /// shares** — a position holding principal with nothing backing it (or, in reverse, gutting the
+    /// original). Split a larger amount. Distinct from `InvalidAmount` so the dApp can tell "this
+    /// number is nonsense" (≤ 0, or ≥ the whole position) from "this number is legal but too
+    /// small at the current `b_rate`".
+    SplitTooSmall = 27,
 
     // --- Strategy / Blend adapter (40–59) ---
     /// Blend returned a `bRate` outside the configured sanity bound (defence-in-depth).

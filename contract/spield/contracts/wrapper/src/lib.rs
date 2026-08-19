@@ -398,6 +398,120 @@ impl Wrapper {
     /// Transfer a whole position to a new owner, carrying `settled_rate` (SCF #5: the new owner
     /// can only claim yield accrued *after* the transfer). Also moves the PT+YT SAC balances so
     /// the position and the tokens stay reconciled.
+    /// Carve `amount` of principal out of a position into a **new position with the same owner**,
+    /// and return its id. The way to sell or hand over *part* of a holding.
+    ///
+    /// Pair it with [`Self::transfer_position`]: `split_position` is pure accounting (it moves no
+    /// tokens — the owner still holds every PT and YT), then `transfer_position(new_id, buyer)`
+    /// moves the SAC legs and reassigns ownership. Two audited steps instead of one new compound
+    /// one.
+    ///
+    /// ```text
+    /// hold 50 PT + 50 YT as position P, want to sell half on day 15 of a 30-day term:
+    ///   split_position(P, 25)          -> Q  (25 PT + 25 YT, still yours; P keeps 25 + 25)
+    ///   transfer_position(Q, buyer)    -> buyer owns Q and holds its 25 PT + 25 YT
+    /// days 1-15 yield on all 50 -> you.  days 15-30 yield on Q's 25 -> the buyer.
+    /// ```
+    ///
+    /// ## It settles first, and that is the whole point
+    /// The split **auto-claims** the source position before dividing it. Both halves therefore
+    /// start from `settled_rate == current_rate`, so every stroop earned up to this instant is paid
+    /// to the *current* owner and the new position earns strictly from here forward. This is the
+    /// job Pendle's `_beforeTokenTransfer` hook does with a per-holder interest index; PT/YT are
+    /// Stellar Asset Contracts (built into the protocol, fixed interface, no hooks), so the
+    /// checkpoint happens here instead. Without it the slice would carry the seller's unclaimed
+    /// yield to whoever received it — the SCF #5 phantom-yield class of bug.
+    ///
+    /// ## The slice is proportional across the whole position
+    /// A position's Blend shares back its principal *and* generate its YT yield; the two cannot be
+    /// separated. So a split takes a proportional cut of `pt_amount`, `yt_amount` **and** `shares`.
+    /// There is no PT-only or YT-only split. A buyer who wants pure yield exposure sells the PT leg
+    /// on the AMM afterwards — the same route `buildBuyYtSteps` already uses.
+    ///
+    /// ## Conservation
+    /// The new position takes the **floored** share of every field and the original keeps the
+    /// **remainder by subtraction**, so `old + new == original` exactly for `principal`,
+    /// `pt_amount`, `yt_amount` and `shares`. Rounding can neither create nor destroy value.
+    /// Nothing is minted or burned and `total_principal` is untouched: this re-partitions a
+    /// position, it does not change the protocol's totals.
+    ///
+    /// Allowed while paused (position management, never an inflow) and at any point in the term,
+    /// before or after maturity. Panics `InvalidAmount` unless `0 < amount < principal` (splitting
+    /// the whole thing is just `transfer_position`), `PositionClosed` on a spent position, and
+    /// `SplitTooSmall` if either side would floor to zero backing shares.
+    pub fn split_position(env: Env, position_id: u64, amount: i128) -> u64 {
+        // Position management, not an inflow — open while paused, exactly like `transfer_position`,
+        // so an emergency pause can never trap a holder mid-exit.
+        Self::ensure_initialized(&env);
+        let mut pos = Self::load(&env, position_id);
+        pos.owner.require_auth();
+        if !pos.open {
+            panic_with_error!(&env, Error::PositionClosed);
+        }
+        // `>= principal` is refused rather than clamped: it would leave an empty husk position
+        // behind, and moving the whole thing is what `transfer_position` is for.
+        if amount <= 0 || amount >= pos.principal {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        // Settle to now, so the split is a clean cut in time (see the doc comment above).
+        let settled = Self::do_claim(&env, position_id, &mut pos);
+
+        // Proportion is taken against principal, which is also the PT leg (`principal ==
+        // pt_amount` holds by construction: mint sets them equal and `redeem_pt` /
+        // `combine_and_redeem` only ever decrement them together).
+        let denom = pos.principal;
+        let new_pt = math::mul_div_floor(&env, pos.pt_amount, amount, denom)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
+        let new_yt = math::mul_div_floor(&env, pos.yt_amount, amount, denom)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
+        let new_shares = math::mul_div_floor(&env, pos.shares, amount, denom)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
+
+        // Both halves must come out BACKED. A slice that floors to zero shares would be principal
+        // with nothing behind it, so refuse the split rather than create such a position. This is
+        // reachable whenever `shares < principal` — i.e. after any claim, and for any position
+        // minted once the pool had accrued (`entry_rate > 1.0`).
+        //
+        // The second condition is defence-in-depth and provably cannot fire today: with
+        // `amount < principal`, `floor(shares × amount / principal) <= shares - 1`, so the original
+        // always keeps at least one share. It is kept so a future change to the proportion basis
+        // cannot silently gut a position.
+        if new_shares <= 0 || pos.shares - new_shares <= 0 {
+            panic_with_error!(&env, Error::SplitTooSmall);
+        }
+
+        let new_pos = Position {
+            owner: pos.owner.clone(),
+            principal: amount,
+            pt_amount: new_pt,
+            yt_amount: new_yt,
+            entry_rate: pos.entry_rate,
+            // Equal to `current_rate` after the settle above — the new position starts earning now.
+            settled_rate: pos.settled_rate,
+            shares: new_shares,
+            open: true,
+        };
+        // Remainder by subtraction — this is what makes the conservation exact.
+        pos.principal -= amount;
+        pos.pt_amount -= new_pt;
+        pos.yt_amount -= new_yt;
+        pos.shares -= new_shares;
+
+        let new_id = storage::next_position_id(&env);
+        storage::save_position(&env, new_id, &new_pos);
+        storage::save_position(&env, position_id, &pos);
+        // One more genuinely-live position. This widens the solvency dust band by exactly 1 stroop,
+        // which is the correct accounting: the band is anchored to live positions, and closing
+        // either half shrinks it back (same as `mint`/`combine`).
+        storage::inc_open_positions(&env);
+        storage::bump_instance(&env);
+
+        events::split(&env, &new_pos.owner, position_id, new_id, amount, settled);
+        Self::assert_solvent(&env);
+        new_id
+    }
+
     pub fn transfer_position(env: Env, position_id: u64, to: Address) {
         // Not a fund flow — just reassigns a position's claim. Allowed while paused so users can
         // still manage/transfer their positions during an emergency.
@@ -483,6 +597,14 @@ impl Wrapper {
             0
         };
         (backing, principal, unclaimed)
+    }
+
+    /// How many positions are currently **open**. This is the basis of the solvency dust
+    /// tolerance (`open_positions + WITHDRAW_SLACK`), so exposing it lets the dashboard and the
+    /// off-chain monitor reproduce the exact band the contract enforces instead of guessing it.
+    /// It falls as positions close, which is what keeps the band from ratcheting open.
+    pub fn open_positions(env: Env) -> u64 {
+        storage::open_positions(&env)
     }
 
     pub fn maturity(env: Env) -> u64 {
