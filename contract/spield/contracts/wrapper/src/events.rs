@@ -23,6 +23,15 @@ pub struct Claim {
     pub rate: i128,
 }
 
+/// The `b_rate` capping all YT yield was pinned at maturity. Emitted once, on the first
+/// interaction at/after maturity (or by `stamp_maturity_rate`). Indexers can treat this as the
+/// instant every YT stopped earning.
+#[contractevent]
+#[derive(Clone)]
+pub struct MaturityRateStamped {
+    pub rate: i128,
+}
+
 #[contractevent]
 #[derive(Clone)]
 pub struct RedeemPt {
@@ -119,6 +128,10 @@ pub fn transferred(env: &Env, from: &Address, to: &Address, id: u64) {
 
 pub fn paused(env: &Env, paused: bool) {
     PausedEvent { paused }.publish(env);
+}
+
+pub fn maturity_rate_stamped(env: &Env, rate: i128) {
+    MaturityRateStamped { rate }.publish(env);
 }
 
 pub fn initialized(

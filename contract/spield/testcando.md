@@ -44,7 +44,7 @@ behavior today** — that's the point.
 - [x] **P0 [blend] `vault_redeem_budget_with_many_harvest_positions`** — ~~`redeem_pt_for` walks
   the entire tracked-positions list … a single `redeem` may exceed the tx budget~~ **MEASURED — the
   premise was wrong, and the real breach was one function the other way.** `redeem` at 160 tracked
-  positions costs 8,152,324 instructions — **1.4%** of the 600M budget — and its write-entry and
+  positions costs 9,324,625 instructions — **1.6%** of the 600M budget — and its write-entry and
   ledger-entry footprints are *flat*, because the `Positions` Vec lives in a single instance entry.
   The walk is cheap because positions past the payout target take a `Vec` push, not a cross-contract
   call: only the positions actually needed to cover the payout incur `get_position` + `redeem_pt`.

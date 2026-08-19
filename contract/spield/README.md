@@ -50,6 +50,28 @@ Yield is measured on a position's **bToken shares** (`yield = shares × Δb_rate
 ERC-4626 growth — not on the YT face amount. This is what keeps it solvent for positions minted
 after the pool has already accrued (`entry_rate > 1.0`).
 
+### YT is a term instrument: it earns for the term and no longer
+
+`claim_yield` has **no maturity gate** — yield streams continuously and is claimable at any moment
+during the term, with no lockup, no fee, and without burning the YT. But the rate it is measured
+against is **capped at the `b_rate` observed at maturity**, so a matured YT generates nothing and is
+worth 0 — matching Pendle ("matured YT have 0 value as they no longer generate yield").
+
+Both halves matter: new accrual stops at maturity, and yield earned *before* maturity stays
+claimable indefinitely — capping the rate rather than refusing the call is what prevents maturity
+from confiscating yield a holder had already earned.
+
+Blend publishes no historical `b_rate`, so the maturity rate must be **observed on-chain**. The
+first interaction at/after maturity pins it automatically (`redeem_pt` included, since that is what
+maturity unlocks), and the permissionless **`stamp_maturity_rate()`** lets a keeper pin it exactly
+at maturity. Until it is pinned the ceiling drifts upward slightly, over-paying a little
+post-maturity growth — bounded, always funded by real Blend growth, never a solvency risk, and
+`an_unstamped_ceiling_drifts_until_the_first_interaction` measures it. Post-maturity growth that no
+YT can claim stays in the wrapper as surplus backing.
+
+> Run `stamp_maturity_rate()` at maturity. It is cheap, permissionless, idempotent, and it is the
+> difference between an exact cap and a drifting one.
+
 ## SCF bug fixes → regression tests
 
 Every fix is a committed test in `contracts/wrapper/src/test.rs`, run against real Blend WASM:

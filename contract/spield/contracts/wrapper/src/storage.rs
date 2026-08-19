@@ -30,6 +30,14 @@ pub enum DataKey {
     YtToken,
     /// Market maturity (unix seconds). PT redeems 1:1 only at/after this time.
     Maturity,
+    /// The Blend `b_rate` observed at (or as soon after as the contract was first touched)
+    /// [`DataKey::Maturity`]. Absent until then.
+    ///
+    /// Once set this is the **ceiling on every YT yield computation**: the term is over, so YT stops
+    /// generating yield. Yield accrued *before* maturity is unaffected and stays claimable forever;
+    /// only new accrual stops. Blend's `b_rate` has no historical lookup, so the value has to be
+    /// observed on-chain rather than derived — see `Wrapper::stamp_maturity_rate`.
+    MaturityRate,
     /// Circuit-breaker pause flag.
     Paused,
     /// Monotonic counter for position ids.
@@ -123,6 +131,18 @@ pub fn get_maturity(env: &Env) -> u64 {
 
 pub fn set_maturity(env: &Env, m: u64) {
     env.storage().instance().set(&DataKey::Maturity, &m);
+}
+
+/// The stamped maturity `b_rate`, or `None` if maturity has not been observed on-chain yet.
+pub fn maturity_rate(env: &Env) -> Option<i128> {
+    env.storage().instance().get(&DataKey::MaturityRate)
+}
+
+/// Stamp the maturity `b_rate`. **Write-once by policy** — every caller checks
+/// [`maturity_rate`] first, because re-stamping later would let YT resume earning after the term
+/// ended, which is the exact behaviour the ceiling exists to stop.
+pub fn set_maturity_rate(env: &Env, rate: i128) {
+    env.storage().instance().set(&DataKey::MaturityRate, &rate);
 }
 
 pub fn is_paused(env: &Env) -> bool {

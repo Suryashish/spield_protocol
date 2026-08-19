@@ -223,6 +223,48 @@ impl Wrapper {
         paid
     }
 
+    /// The rate YT yield is measured **up to**.
+    ///
+    /// * **Before maturity** — the live Blend `b_rate`. Yield streams continuously and is claimable
+    ///   at any time; nothing is locked up.
+    /// * **At/after maturity** — the rate observed at maturity, and never higher. The term is over,
+    ///   so **YT stops generating yield**: a matured YT is worth 0, matching Pendle ("matured YT
+    ///   have 0 value as they no longer generate yield"). Yield accrued *before* maturity is
+    ///   untouched and stays claimable indefinitely — only new accrual stops. That is why this caps
+    ///   the rate rather than refusing the call: refusing would strand yield the holder had already
+    ///   earned.
+    ///
+    /// ## Why this has to be stamped rather than computed
+    /// Blend exposes only the *current* `b_rate`; there is no historical lookup, so the rate at
+    /// maturity cannot be derived after the fact — it must be observed on-chain. The first
+    /// interaction at/after maturity records it. Until something touches the contract the ceiling
+    /// is not yet pinned, so a late first touch stamps a slightly higher rate and pays out a little
+    /// post-maturity growth. That errs toward the holder, is bounded by how long the contract sits
+    /// untouched, and is never a solvency risk (the payout is real Blend growth on the position's
+    /// own shares, and `assert_solvent` still runs). [`Self::stamp_maturity_rate`] exists so a
+    /// keeper can pin it exactly at maturity and remove even that drift.
+    ///
+    /// `stamp` distinguishes mutating callers (which persist the first observation) from views
+    /// (which must not write).
+    fn yield_rate(env: &Env, stamp: bool) -> i128 {
+        let matured = env.ledger().timestamp() >= storage::get_maturity(env);
+        // Write-once: an existing stamp always wins, so the ceiling can never ratchet upward and
+        // let a matured YT start earning again. Checking it *before* reading Blend also means a
+        // post-maturity claim/redeem skips the cross-contract rate call entirely — one instance
+        // read instead of a strategy round-trip.
+        if matured {
+            if let Some(stamped) = storage::maturity_rate(env) {
+                return stamped;
+            }
+        }
+        let strategy = YieldStrategyClient::new(env, &storage::get_strategy(env));
+        let live = strategy.current_rate();
+        if matured && stamp {
+            storage::set_maturity_rate(env, live);
+        }
+        live
+    }
+
     /// Internal claim: settle a position's yield up to the current rate, paying the owner. Mutates
     /// `pos` in place (caller persists it). Does NOT re-auth / re-check active — callers do that,
     /// so it composes safely inside `combine_and_redeem` without double-authing.
@@ -236,7 +278,8 @@ impl Wrapper {
             return 0;
         }
         let strategy = YieldStrategyClient::new(env, &storage::get_strategy(env));
-        let current_rate = strategy.current_rate();
+        // Capped at the maturity rate: YT earns for the term and no longer (see `yield_rate`).
+        let current_rate = Self::yield_rate(env, true);
 
         // Yield is measured on the position's bToken *shares* (the exact ERC-4626 growth), not on
         // the YT face amount — see `math::yield_amount`. This keeps the vault solvent for
@@ -275,6 +318,11 @@ impl Wrapper {
         if env.ledger().timestamp() < storage::get_maturity(&env) {
             panic_with_error!(&env, Error::NotMatured);
         }
+        // Pin the YT yield ceiling on the way past. `redeem_pt` is only callable at/after maturity,
+        // so it is the most likely first post-maturity interaction — stamping here keeps the
+        // ceiling tight even when nobody claims or runs the keeper. After the first call this is a
+        // single instance read (see `yield_rate`), not a strategy round-trip.
+        Self::yield_rate(&env, true);
         let mut pos = Self::load(&env, position_id);
         pos.owner.require_auth();
         if amount > pos.pt_amount {
@@ -384,8 +432,10 @@ impl Wrapper {
     /// Live value of a position: principal + currently-claimable yield.
     pub fn position_value(env: Env, position_id: u64) -> PositionValue {
         let pos = Self::load(&env, position_id);
-        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
-        let current_rate = strategy.current_rate();
+        // Same maturity ceiling the claim path uses, so the dashboard shows a matured YT's
+        // claimable yield flattening at maturity instead of ticking up forever. `stamp = false`:
+        // a view must never write.
+        let current_rate = Self::yield_rate(&env, false);
         let claimable =
             math::yield_amount(&env, pos.shares, pos.settled_rate, current_rate).unwrap_or(0);
         PositionValue {
@@ -437,6 +487,41 @@ impl Wrapper {
 
     pub fn maturity(env: Env) -> u64 {
         storage::get_maturity(&env)
+    }
+
+    /// **Permissionless** — pin the `b_rate` that caps all YT yield, at/after maturity.
+    ///
+    /// YT earns for the term and no longer, so the protocol needs the rate *as of maturity*. Blend
+    /// keeps no history, so it must be observed on-chain. Any interaction at/after maturity records
+    /// it automatically, but that means a contract nobody touches for a week stamps a week-late
+    /// rate and pays a little post-maturity growth to whoever claims. Calling this at maturity
+    /// removes that drift entirely.
+    ///
+    /// No auth and no pause gate: it can only ever *reduce* what YT can claim, never move funds or
+    /// increase anyone's entitlement — so it is safe for a keeper, a cron, or any user to call.
+    ///
+    /// **Idempotent and write-once.** A second call returns the already-stamped rate unchanged; the
+    /// ceiling can never ratchet upward and revive a matured YT. Returns the rate in force.
+    /// Panics `NotMatured` before maturity — there is nothing to stamp while the term is running.
+    pub fn stamp_maturity_rate(env: Env) -> i128 {
+        Self::ensure_initialized(&env);
+        if env.ledger().timestamp() < storage::get_maturity(&env) {
+            panic_with_error!(&env, Error::NotMatured);
+        }
+        if let Some(stamped) = storage::maturity_rate(&env) {
+            return stamped; // already pinned — never overwrite
+        }
+        let rate = Self::yield_rate(&env, true);
+        storage::bump_instance(&env);
+        events::maturity_rate_stamped(&env, rate);
+        rate
+    }
+
+    /// The stamped maturity `b_rate` capping all YT yield, or `None` while the term is still
+    /// running (or if nothing has touched the contract since maturity). See
+    /// [`Self::stamp_maturity_rate`].
+    pub fn maturity_rate(env: Env) -> Option<i128> {
+        storage::maturity_rate(&env)
     }
 
     pub fn is_paused(env: Env) -> bool {

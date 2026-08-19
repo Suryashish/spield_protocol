@@ -762,30 +762,345 @@ fn mint_after_maturity_is_rejected() {
     assert_eq!(redeemed, 100 * USDC, "post-maturity redemption must still work");
 }
 
-/// The deliberate other half of the decision: `claim_yield` is **not** capped at
-/// maturity. A YT holder genuinely owns the yield their shares produce, and their
-/// shares stay supplied to Blend until the principal is redeemed — so a position
-/// minted before maturity keeps accruing past it. That is a stated choice, not an
-/// omission, and this test is what makes it one.
+// ===========================================================================
+// YT STOPS EARNING AT MATURITY (Pendle parity)
+//
+// Pendle: "matured YT have 0 value as they no longer generate yield." Spield used
+// to do the opposite — `claim_yield` was uncapped, so a position held past maturity
+// kept accruing forever, making YT a perpetual claim rather than a term instrument.
+//
+// Now `Wrapper::yield_rate` caps the measuring rate at the `b_rate` observed at
+// maturity. Two halves, and BOTH matter:
+//   * no NEW yield accrues after maturity — the YT is worth 0;
+//   * yield accrued BEFORE maturity stays claimable indefinitely, because refusing
+//     the call outright would strand yield the holder had already earned (Pendle
+//     likewise leaves "claiming yield" as the one action still available at expiry).
+// ===========================================================================
+
+/// The headline property. A position held well past maturity claims exactly what it
+/// earned during the term, and not one stroop of the growth that happened after.
 #[test]
-fn yt_keeps_accruing_past_maturity_for_a_pre_maturity_position() {
+fn yt_stops_accruing_at_maturity() {
     let w = setup(YEAR);
     let (_user, id) = w.deposit_new_user(100 * USDC);
 
-    // Cross maturity without redeeming, then let another year accrue.
-    warp_to(&w, w.maturity + 1);
+    // Sit exactly on maturity and pin the ceiling, then record what the full term earned.
+    // (Any interaction would pin it — see `the_first_post_maturity_interaction_stamps_the_ceiling
+    // _automatically`. The explicit call is the keeper path, and mirrors Pendle's explicit
+    // post-expiry settlement.)
+    warp_to(&w, w.maturity);
+    w.wrapper().stamp_maturity_rate();
+    let at_maturity = w.wrapper().position_value(&id).claimable_yield;
+    assert!(at_maturity > 0, "the term must have produced real yield to make this meaningful");
+
+    // Now let a WHOLE EXTRA YEAR of Blend interest pile up without claiming.
     w.advance(YEAR);
-    let claimed = w.wrapper().claim_yield(&id);
-    assert!(
-        claimed > 0,
-        "YT must keep earning past maturity — claim_yield is deliberately uncapped"
+    let after_a_year = w.wrapper().position_value(&id).claimable_yield;
+    assert_eq!(
+        after_a_year, at_maturity,
+        "claimable yield must FREEZE at maturity — a matured YT generates nothing (Pendle parity)"
     );
-    // And the principal is still fully redeemable afterwards: the yield came from
-    // real Blend growth, not from the principal's backing.
+
+    // And the claim pays that frozen figure, not the post-maturity growth.
+    let claimed = w.wrapper().claim_yield(&id);
+    assert_eq!(claimed, at_maturity, "claim must pay the term's yield only");
+
+    // A second claim pays nothing at all: the YT is spent and worth 0.
+    assert_eq!(w.wrapper().claim_yield(&id), 0, "a matured, settled YT is worth 0");
+
+    // Principal is untouched by any of this.
     let (backing, principal, _) = w.wrapper().solvency();
     assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
     assert_eq!(w.wrapper().redeem_pt(&id, &(100 * USDC)), 100 * USDC);
-    std::println!("post-maturity accrual on a pre-maturity position: {} USDC", claimed);
+    std::println!("term yield {} USDC, post-maturity accrual to YT: 0", claimed);
+}
+
+/// The other half: maturity must not CONFISCATE yield, only stop new accrual. A holder
+/// who never claimed during the term can still collect all of it afterwards.
+#[test]
+fn yield_earned_before_maturity_is_still_claimable_after_it() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+
+    warp_to(&w, w.maturity);
+    w.wrapper().stamp_maturity_rate();
+    let earned_in_term = w.wrapper().position_value(&id).claimable_yield;
+    assert!(earned_in_term > 0);
+
+    // Cross maturity and wait a long time before bothering to claim.
+    w.advance(2 * YEAR);
+    let before = w.usdc().balance(&user);
+    let claimed = w.wrapper().claim_yield(&id);
+    let received = w.usdc().balance(&user) - before;
+
+    assert_eq!(claimed, earned_in_term, "the term's yield must survive maturity, not be forfeited");
+    assert_eq!(received, claimed, "and actually be paid out in USDC");
+}
+
+/// Claiming early vs. claiming late must pay the SAME total. This is what makes the cap
+/// fair: two identical positions, one that claims the instant the term ends and one that
+/// forgets for a year, end up with identical yield.
+#[test]
+fn claim_timing_after_maturity_does_not_change_the_payout() {
+    let w = setup(YEAR);
+    let (_prompt_user, prompt_id) = w.deposit_new_user(100 * USDC);
+    let (_late_user, late_id) = w.deposit_new_user(100 * USDC);
+
+    warp_to(&w, w.maturity);
+    let prompt = w.wrapper().claim_yield(&prompt_id); // claims immediately at maturity
+
+    w.advance(YEAR); // ...the other holder waits a year
+    let late = w.wrapper().claim_yield(&late_id);
+
+    // Equal principals over an equal term ⇒ equal yield, regardless of when they claimed.
+    // (Blend share rounding can differ by a stroop or two between two separate positions.)
+    let delta = (prompt - late).abs();
+    assert!(
+        delta <= 2,
+        "waiting must not change the payout: prompt={} late={} (delta {})",
+        prompt,
+        late,
+        delta
+    );
+    std::println!("prompt claim {} vs late claim {} (delta {})", prompt, late, delta);
+}
+
+/// Mid-term claiming is untouched by the cap — this is the Pendle "claimable in real-time"
+/// behaviour, and it must keep working. Claim during the term, then again after maturity;
+/// the two together equal exactly the term's total yield, with no double-count and no loss.
+#[test]
+fn mid_term_claims_still_work_and_sum_to_the_term_total() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    // A claim halfway through the term still pays out — nothing is locked up.
+    w.advance(YEAR / 2);
+    let mid = w.wrapper().claim_yield(&id);
+    assert!(mid > 0, "mid-term yield must be claimable — no lockup (Pendle parity)");
+
+    // What remains claimable for the rest of the term, measured at maturity.
+    warp_to(&w, w.maturity);
+    w.wrapper().stamp_maturity_rate();
+    let rest = w.wrapper().position_value(&id).claimable_yield;
+    assert!(rest > 0);
+
+    // Wait past maturity; the remainder does not grow.
+    w.advance(YEAR);
+    let final_claim = w.wrapper().claim_yield(&id);
+    assert_eq!(final_claim, rest, "the post-maturity claim must not include post-maturity growth");
+
+    // A third claim is worth nothing.
+    assert_eq!(w.wrapper().claim_yield(&id), 0);
+    std::println!("split claims: mid-term {} + post-maturity {} = {}", mid, final_claim, mid + final_claim);
+}
+
+/// The ceiling is write-once. Once stamped it must never ratchet upward, or a matured YT
+/// would quietly start earning again on the next rate rise.
+#[test]
+fn the_maturity_rate_ceiling_is_stamped_once_and_never_rises() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    assert_eq!(w.wrapper().maturity_rate(), None, "nothing to stamp while the term runs");
+
+    warp_to(&w, w.maturity);
+    let stamped = w.wrapper().stamp_maturity_rate();
+    assert!(stamped > 0);
+    assert_eq!(w.wrapper().maturity_rate(), Some(stamped));
+
+    // Let the real Blend rate climb well above the stamp, then try to re-stamp.
+    w.advance(2 * YEAR);
+    assert_eq!(
+        w.wrapper().stamp_maturity_rate(),
+        stamped,
+        "re-stamping must be a no-op — the ceiling can never ratchet up"
+    );
+    assert_eq!(w.wrapper().maturity_rate(), Some(stamped));
+
+    // And the claim is still measured against the original stamp.
+    let claimed = w.wrapper().claim_yield(&id);
+    let expected = w.wrapper().get_position(&id); // settled_rate now == stamped
+    assert_eq!(expected.settled_rate, stamped, "claims settle to the ceiling, not the live rate");
+    assert!(claimed > 0);
+    assert_eq!(w.wrapper().claim_yield(&id), 0);
+}
+
+/// Stamping is permissionless upkeep — any address may pin the ceiling, and doing so can
+/// only ever REDUCE what YT can claim, so it needs no auth.
+#[test]
+fn stamp_maturity_rate_is_permissionless() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    warp_to(&w, w.maturity);
+
+    // Drop ALL mocked authorizations, then call: a function that requires no auth succeeds with
+    // an empty auth list, which is what "permissionless" actually means on Soroban.
+    w.env().set_auths(&[]);
+    let stamped = w.wrapper().stamp_maturity_rate();
+    assert!(stamped > 0, "anyone must be able to pin the ceiling — no auth required");
+    assert_eq!(w.wrapper().maturity_rate(), Some(stamped));
+    w.env().mock_all_auths(); // restore for the rest of the test
+
+    // The position owner's claim is capped by the stranger's stamp.
+    w.advance(YEAR);
+    let claimed = w.wrapper().claim_yield(&id);
+    assert!(claimed > 0, "the holder still gets the term's yield");
+    assert_eq!(w.wrapper().claim_yield(&id), 0, "and nothing more");
+}
+
+/// Before maturity there is no rate to pin — refuse rather than stamp a mid-term rate,
+/// which would cap YT early and confiscate the rest of the term's yield.
+#[test]
+#[should_panic(expected = "Error(Contract, #22)")] // NotMatured
+fn stamp_maturity_rate_is_refused_before_maturity() {
+    let w = setup(YEAR);
+    w.advance(YEAR / 2);
+    w.wrapper().stamp_maturity_rate();
+}
+
+/// If nobody stamps at maturity, the FIRST interaction pins the ceiling automatically —
+/// the cap must not depend on a keeper existing. `redeem_pt` is the likeliest first
+/// post-maturity call (it is the only thing maturity unlocks), so it stamps too.
+#[test]
+fn the_first_post_maturity_interaction_stamps_the_ceiling_automatically() {
+    let w = setup(YEAR);
+    let (_a, redeemer_id) = w.deposit_new_user(100 * USDC);
+    let (_b, holder_id) = w.deposit_new_user(100 * USDC);
+
+    warp_to(&w, w.maturity);
+    assert_eq!(w.wrapper().maturity_rate(), None, "not stamped yet — nobody has called anything");
+
+    // A redemption — not a claim — is the first thing that happens.
+    w.wrapper().redeem_pt(&redeemer_id, &(100 * USDC));
+    let stamped = w.wrapper().maturity_rate().expect("redeem_pt must pin the ceiling");
+
+    // A year later, the other holder's claim is still capped by that automatic stamp.
+    w.advance(YEAR);
+    assert_eq!(w.wrapper().maturity_rate(), Some(stamped), "still the original stamp");
+    let claimed = w.wrapper().claim_yield(&holder_id);
+    assert!(claimed > 0);
+    assert_eq!(w.wrapper().claim_yield(&holder_id), 0, "capped — no post-maturity accrual");
+}
+
+/// **The known limit of the design, pinned so it is a stated cost rather than a surprise.**
+///
+/// Blend publishes no historical `b_rate`, so the maturity rate has to be *observed* on-chain —
+/// it cannot be reconstructed later. If literally nothing touches the wrapper at maturity, the
+/// ceiling is not pinned, and whichever call comes first stamps a slightly-too-high rate, paying
+/// out a little post-maturity growth. Reads do NOT pin it: a view must never write.
+///
+/// This is the same trade-off Pendle makes (auto-settle on the first post-expiry interaction, plus
+/// an explicit settlement call to remove the drift), and it is exactly why
+/// `stamp_maturity_rate` exists and why running it at maturity is documented upkeep.
+///
+/// The drift errs toward the holder, is bounded by how long the contract sits untouched, and is
+/// never a solvency risk — the payout is real Blend growth on the position's own shares.
+#[test]
+fn an_unstamped_ceiling_drifts_until_the_first_interaction() {
+    // Two identical worlds; the only difference is whether the ceiling gets pinned at maturity.
+    let pinned = {
+        let w = setup(YEAR);
+        let (_u, id) = w.deposit_new_user(100 * USDC);
+        warp_to(&w, w.maturity);
+        w.wrapper().stamp_maturity_rate(); // keeper runs at maturity
+        w.advance(YEAR);
+        w.wrapper().claim_yield(&id)
+    };
+    let drifted = {
+        let w = setup(YEAR);
+        let (_u, id) = w.deposit_new_user(100 * USDC);
+        warp_to(&w, w.maturity);
+        // Only READS happen at maturity — a view cannot write, so nothing is pinned.
+        assert!(w.wrapper().position_value(&id).claimable_yield > 0);
+        assert_eq!(w.wrapper().maturity_rate(), None, "a view must not stamp the ceiling");
+        w.advance(YEAR);
+        w.wrapper().claim_yield(&id) // this call stamps — a year late
+    };
+
+    assert!(
+        drifted > pinned,
+        "an unpinned ceiling should overpay: pinned={} drifted={}",
+        pinned,
+        drifted
+    );
+    // Both are still fully backed — the overpayment is real Blend growth, not principal.
+    std::println!(
+        "ceiling drift over a year of neglect: pinned {} vs drifted {} ({} extra) — run \
+         stamp_maturity_rate at maturity to make this 0",
+        pinned,
+        drifted,
+        drifted - pinned
+    );
+}
+
+/// `combine_and_redeem` auto-claims first, so it must be capped too — otherwise the cap
+/// could be bypassed by exiting through the combine path instead of claiming.
+#[test]
+fn combine_and_redeem_after_maturity_is_also_capped() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+
+    warp_to(&w, w.maturity);
+    w.wrapper().stamp_maturity_rate();
+    let term_yield = w.wrapper().position_value(&id).claimable_yield;
+    assert!(term_yield > 0);
+
+    w.advance(YEAR); // a year of post-maturity growth that must NOT be paid out
+    let (principal, claimed) = w.wrapper().combine_and_redeem(&id, &(100 * USDC));
+    assert_eq!(principal, 100 * USDC);
+    assert_eq!(
+        claimed, term_yield,
+        "the combine path's auto-claim must respect the same maturity ceiling"
+    );
+    assert_eq!(w.pt().balance(&user), 0);
+    assert_eq!(w.yt().balance(&user), 0);
+}
+
+/// Where the post-maturity growth actually goes: nobody's YT claims it, so it stays in the
+/// wrapper as SURPLUS BACKING. That is a real accounting consequence of Pendle parity and is
+/// pinned here so it is a known quantity rather than a surprise. It can only ever make the
+/// protocol more solvent, never less.
+#[test]
+fn post_maturity_growth_becomes_wrapper_surplus_not_yt_yield() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+
+    warp_to(&w, w.maturity);
+    w.wrapper().stamp_maturity_rate();
+    w.wrapper().claim_yield(&id); // settle everything the term earned
+
+    let (backing_at_maturity, principal, _) = w.wrapper().solvency();
+    assert!(backing_at_maturity + 5 >= principal);
+
+    // A year of growth on shares whose YT is now worth 0.
+    w.advance(YEAR);
+    let (backing_later, principal_later, _) = w.wrapper().solvency();
+    assert_eq!(principal_later, principal, "principal does not move");
+    assert!(
+        backing_later > backing_at_maturity,
+        "Blend keeps growing: {} -> {}",
+        backing_at_maturity,
+        backing_later
+    );
+    // None of that growth is claimable by the YT holder.
+    assert_eq!(w.wrapper().position_value(&id).claimable_yield, 0);
+    assert_eq!(w.wrapper().claim_yield(&id), 0);
+
+    // The surplus sits above principal — strictly a solvency improvement, and the principal
+    // is still fully redeemable.
+    let surplus = backing_later - principal_later;
+    assert!(surplus > 0, "post-maturity growth accrues to the wrapper as surplus");
+    assert_eq!(w.wrapper().redeem_pt(&id, &(100 * USDC)), 100 * USDC);
+    // Note the shape, not the magnitude: post-claim the backing sits at EXACTLY principal (the
+    // claim took out precisely the term's yield), and everything Blend adds afterwards is surplus
+    // nobody's YT can reach. The size depends on the test fixture's pool dynamics.
+    std::println!(
+        "backing at maturity (post-claim) {} == principal {} -> a year later {} | surplus {}",
+        backing_at_maturity,
+        principal_later,
+        backing_later,
+        surplus
+    );
 }
 
 // --------------------------------------------------------------------------

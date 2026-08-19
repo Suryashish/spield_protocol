@@ -416,6 +416,17 @@ stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK 
 stellar contract invoke --id $VAULT --source-account $SOURCE --network $NETWORK \\
   -- harvest --max_positions 3
 
+# Pin the YT yield ceiling AT MATURITY (permissionless upkeep — run this once, as close to the
+# maturity timestamp as possible). YT earns for the term and no longer: this records the b_rate at
+# maturity, after which a matured YT generates nothing. Any interaction at/after maturity pins it
+# automatically, but pinning it late over-pays a little post-maturity growth, so run it deliberately.
+# Idempotent (a second call is a no-op) and reverts NotMatured (#22) before maturity.
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- stamp_maturity_rate
+# Read it back (None until pinned):
+stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
+  -- maturity_rate
+
 # Keep a long-dated position/receipt alive (permissionless TTL bump — anyone can call so a
 # held-to-maturity bond never archives before maturity):
 stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\

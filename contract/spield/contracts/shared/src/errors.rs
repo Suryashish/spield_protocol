@@ -38,7 +38,9 @@ pub enum Error {
     PositionNotFound = 20,
     /// Caller does not own the referenced position.
     NotPositionOwner = 21,
-    /// `redeem_pt` called before `maturity`.
+    /// A post-maturity-only operation was called while the term is still running: `redeem_pt`
+    /// (PT redeems 1:1 only at/after maturity) or `stamp_maturity_rate` (there is no maturity rate
+    /// to pin yet).
     NotMatured = 22,
     /// Tried to redeem/split more PT or YT than the position holds.
     InsufficientBalance = 23,

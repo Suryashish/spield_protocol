@@ -482,6 +482,11 @@ NEXT STEPS (see MAINNET.md §6 — none are required to operate; do them as TVL 
        stellar contract invoke --id <each> ... -- code_hash
   2) Start the off-chain solvency monitor against the wrapper (free, pure reads):
        node scripts/solvency_monitor.mjs --wrapper $WRAPPER --rpc $RPC_URL --interval 60
+  2b) SCHEDULE FOR MATURITY ($MATURITY): pin the YT yield ceiling, permissionless + idempotent.
+      YT earns for the term and no longer; this records the b_rate at maturity, after which a
+      matured YT generates nothing. Any post-maturity interaction pins it automatically, but a late
+      pin over-pays a little post-maturity growth — so run this as close to maturity as possible:
+       stellar contract invoke --id $WRAPPER --source-account $SOURCE ... -- stamp_maturity_rate
   3) RECOMMENDED for real TVL: rotate ALL FOUR admins to a MULTISIG (the deployer is a hot key):
        propose_admin --new_admin <MULTISIG>   then the multisig signs   accept_admin
      Until then, keep the deployer secret offline / hardware-backed.
