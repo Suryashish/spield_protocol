@@ -92,6 +92,64 @@ if [ "${FRESH:-0}" = "1" ]; then
   rm -f "$STATE_FILE"
 fi
 
+# ─── Selective redeploy: REDEPLOY=market[,vault] ────────────────────────────────────────────────
+# Replace ONE already-deployed contract in place, keeping every other address. Use this — never
+# FRESH=1 — when a contract's code or ABI changed after the stack was already deployed.
+#
+#   FRESH=1           deletes the state file  ⇒  redeploys wrapper + strategy + vault + market AND
+#                     re-creates both PT/YT SACs, re-hands SAC admin, and recomputes the maturity.
+#                     EVERY address changes. Correct only for a brand-new deployment.
+#   REDEPLOY=market   keeps every existing address, the PT/YT SACs and the pinned SAVED_MATURITY,
+#                     and re-runs only the market's deploy + initialize steps.
+#
+# Only leaf contracts are offered, because the rest genuinely cannot be replaced on their own:
+#   * wrapper  — PT/YT SAC admin was handed to the CURRENT wrapper, and the issuer can no longer
+#                call set_admin, so a fresh wrapper could never mint PT/YT. Needs new SACs ⇒ FRESH=1.
+#   * strategy — the wrapper stores the strategy address in its one-shot initialize(), so nothing
+#                can re-point it at a replacement. Needs a new wrapper ⇒ FRESH=1.
+REDEPLOY="${REDEPLOY:-}"
+if [ -n "$REDEPLOY" ]; then
+  if [ ! -f "$STATE_FILE" ]; then
+    echo "ERROR: REDEPLOY=$REDEPLOY needs an existing deployment to redeploy into, but there is no"
+    echo "       state file at $STATE_FILE. For a first deploy, run with no REDEPLOY."
+    exit 1
+  fi
+  CLEAR_KEYS=""
+  IFS=',' read -r -a REDEPLOY_PARTS <<< "$REDEPLOY"
+  for part in "${REDEPLOY_PARTS[@]}"; do
+    case "$part" in
+      market) CLEAR_KEYS="$CLEAR_KEYS MARKET MARKET_INIT MARKET_MINTED MARKET_SEEDED" ;;
+      vault)  CLEAR_KEYS="$CLEAR_KEYS VAULT VAULT_INIT VAULT_SEEDED" ;;
+      wrapper|strategy)
+        echo "ERROR: REDEPLOY=$part is refused — it cannot work in isolation and would leave a"
+        echo "       half-broken stack (see the comment above this check). Use FRESH=1 for a"
+        echo "       brand-new deployment instead, and migrate any TVL off the old one first."
+        exit 1 ;;
+      *)
+        echo "ERROR: unknown REDEPLOY component '$part'. Supported: market, vault."
+        exit 1 ;;
+    esac
+  done
+  # Clearing DEPLOY_COMPLETE is what re-opens the script; without it the run exits early below.
+  CLEAR_KEYS="$CLEAR_KEYS DEPLOY_COMPLETE"
+
+  STATE_BACKUP="$STATE_FILE.bak.$(date +%Y%m%d-%H%M%S)"
+  cp "$STATE_FILE" "$STATE_BACKUP"
+  echo "==> REDEPLOY=$REDEPLOY — forgetting these checkpoints:"
+  for k in $CLEAR_KEYS; do
+    OLD_LINE=$(grep -E "^$k=" "$STATE_FILE" | tail -1 || true)
+    if [ -n "$OLD_LINE" ]; then echo "      - $OLD_LINE"; fi
+  done
+  CLEAR_RE=$(echo $CLEAR_KEYS | tr ' ' '|')
+  grep -Ev "^($CLEAR_RE)=" "$STATE_FILE" > "$STATE_FILE.tmp" || true
+  mv "$STATE_FILE.tmp" "$STATE_FILE"
+  echo "    previous state backed up to: $STATE_BACKUP"
+  echo "    ⚠ The old contracts stay live on chain — nothing is destroyed, they simply stop being"
+  echo "      the ones this deployment points at. WITHDRAW ANY LIQUIDITY / POSITIONS FROM THEM"
+  echo "      FIRST: a replaced market keeps its reserves, and no one will be trading against it."
+  echo
+fi
+
 # Variables that may be restored from the state file (declare so `set -u` is happy when absent).
 WRAPPER=""; STRATEGY=""; VAULT=""; MARKET=""; PT_SAC=""; YT_SAC=""
 PT_ADMIN_SET=""; YT_ADMIN_SET=""; TRUSTLINES_SET=""
@@ -324,6 +382,7 @@ if [ -z "$MARKET_INIT" ]; then
   echo "    initializing market..."
   stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- initialize \
+       --wrapper "$WRAPPER" \
        --pt "$PT_SAC" \
        --usdc "$USDC_SAC" \
        --maturity "$MATURITY" \
@@ -335,6 +394,49 @@ if [ -z "$MARKET_INIT" ]; then
   echo "    market initialized (fee=${MARKET_FEE_BPS}bps, anchor=par, root=${MARKET_SCALAR_ROOT})"
 else
   echo "    market already initialized — skipping."
+fi
+
+# Verify the market ↔ wrapper binding by READING IT BACK from chain, on every run.
+#
+# `market::initialize` already refuses a mismatched pairing (MaturityMismatch = 86,
+# PtTokenMismatch = 87), so a bad init could not have landed — but that only proves the arguments
+# THIS script passed were consistent. Reading the views back also proves the state file is not
+# stale: if MARKET points at an old contract deployed before the cross-check existed, or at a pool
+# built against a different wrapper, this is what catches it. Pure simulation, costs nothing.
+read_view() {  # read_view <contract-id> <no-arg view fn> -> value, or "" if unreadable
+  local out
+  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "$2" 2>/dev/null) || return 0
+  printf '%s' "$out" | tr -d '"' | tr -d '[:space:]'
+}
+echo "    verifying the market <-> wrapper binding on chain..."
+MKT_WRAPPER=$(read_view "$MARKET" wrapper)
+MKT_MATURITY=$(read_view "$MARKET" maturity)
+MKT_PT=$(read_view "$MARKET" pt_token)
+if [ -z "$MKT_WRAPPER$MKT_MATURITY$MKT_PT" ]; then
+  echo "    ⚠ could not read the market's views (RPC issue, or a pre-cross-check build with no"
+  echo "      wrapper() view). VERIFY MANUALLY before seeding — see MAINNET.md."
+else
+  BINDING_OK=1
+  if [ "$MKT_WRAPPER" != "$WRAPPER" ]; then
+    echo "    ✗ market.wrapper()  = ${MKT_WRAPPER:-<unreadable>}  expected $WRAPPER"; BINDING_OK=0
+  fi
+  if [ "$MKT_MATURITY" != "$MATURITY" ]; then
+    echo "    ✗ market.maturity() = ${MKT_MATURITY:-<unreadable>}  expected $MATURITY"; BINDING_OK=0
+  fi
+  if [ "$MKT_PT" != "$PT_SAC" ]; then
+    echo "    ✗ market.pt_token() = ${MKT_PT:-<unreadable>}  expected $PT_SAC"; BINDING_OK=0
+  fi
+  if [ "$BINDING_OK" = "1" ]; then
+    echo "    ✓ market is bound to wrapper $WRAPPER — maturity and PT match on chain"
+  else
+    echo
+    echo "ERROR: the live market is NOT the one this state file describes. Do NOT seed it."
+    echo "       A market whose maturity differs from the wrapper's is a standing arbitrage against"
+    echo "       the LPs (past the wrapper's maturity the curve keeps quoting PT at a discount while"
+    echo "       every PT already redeems at par). Redeploy the market with:"
+    echo "           REDEPLOY=market bash scripts/deploy_mainnet.sh"
+    exit 1
+  fi
 fi
 
 if [ "$MARKET_SEED_AMOUNT" -gt 0 ] && [ -z "$MARKET_SEEDED" ]; then
@@ -393,4 +495,19 @@ Frontend: record these in your mainnet env (we'll wire env-driven config later):
   VITE_PT=$PT_SAC
   VITE_YT=$YT_SAC
   VITE_USDC=$USDC_SAC
+
+──────────────────────────────────────────────────────────────────────
+OFF-CHAIN FILES THAT PIN THESE ADDRESSES — update them now, or the app keeps talking to whatever
+was deployed before. The env var alone is NOT enough: it falls back to a hardcoded profile value,
+so changing only VITE_* leaves a stale default that ships whenever the env var is unset.
+
+  1) MAINNETCONTRACTADDRESSES.md
+       - the address table
+       - the VITE_MARKET line at the bottom
+  2) website/frontend/src/lib/config.ts
+       - the mainnet profile's hardcoded ids (\`wrapper:\`/\`vault:\`/\`market:\` ~line 109)
+       - the env overrides (~line 141) read VITE_* and DEFAULT to the profile above
+
+Quick check that nothing stale is left (should print only the new ids):
+  grep -rn "$MARKET" MAINNETCONTRACTADDRESSES.md ../../frontend/src/lib/config.ts
 EOF

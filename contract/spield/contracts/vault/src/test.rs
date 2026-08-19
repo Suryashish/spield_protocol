@@ -9,7 +9,7 @@
 
 extern crate std;
 
-use crate::{Vault, VaultClient};
+use crate::{Vault, VaultClient, MAX_HARVEST_BATCH, MIN_HEADROOM_PCT, MIN_REINVEST, REDEEM_DUST};
 use blend_contract_sdk::{pool, testutils::BlendFixture};
 use sep_40_oracle::testutils::{Asset, MockPriceOracleClient, MockPriceOracleWASM};
 use soroban_sdk::{
@@ -287,6 +287,7 @@ fn harvest_grows_capacity_from_yield() {
     w.env().cost_estimate().budget().reset_unlimited();
     let (claimed, pt_added) = w.vault().harvest(&50u32);
     assert!(claimed > 0, "harvest must claim real accrued yield");
+    // The vault held no resting USDC, so the full sweep equals this call's claim.
     assert_eq!(claimed, pt_added);
 
     let cap_after = w.vault().stats().coupon_capacity;
@@ -347,6 +348,149 @@ fn many_deposits_stay_solvent_and_all_redeem() {
         assert_eq!(after - before, payouts[i], "user {} didn't receive payout", i);
     }
     assert_eq!(w.vault().stats().total_liability, 0);
+}
+
+// --------------------------------------------------------------------------
+// Post-maturity `redeem` must not strand USDC.
+//
+// `redeem` collects whatever Blend's withdraw actually returned (`got`) and used to
+// forward `min(got, payout)`. Blend's share math rounds in BOTH directions — a withdraw
+// burns `ceil(amount / b_rate)` shares and the strategy forwards the real balance delta —
+// so `got` can land a stroop or two ABOVE the payout, and that excess was left in the
+// vault. Unlike harvest's resting balance (swept by the next harvest, above), this residue
+// is unreachable forever: `harvest` is gated BEFORE maturity and `redeem` only runs at or
+// after it, so no code path can ever collect it again.
+//
+// The fix pays the collected amount out whenever it is within the dust band. The invariant
+// this pins is the one that matters for a post-maturity balance reconciliation: **winding
+// the vault down leaves nothing behind.**
+// --------------------------------------------------------------------------
+
+/// Every branch of the settlement rule, directly. The end-to-end test below proves the
+/// invariant against real Blend, but real Blend never returns more than it was asked for,
+/// so the over-collection branch is dead there — and it is exactly the branch the fix
+/// adds. A pure function lets it be pinned without waiting for a pool build that rounds
+/// the other way.
+#[test]
+fn settle_redeem_forwards_dust_in_both_directions() {
+    let payout = 100 * USDC;
+
+    // Exact: the overwhelmingly common case.
+    assert_eq!(crate::settle_redeem(payout, payout), Ok(payout));
+
+    // Short within the band: pay what was collected, close the receipt.
+    for short in 1..=REDEEM_DUST {
+        assert_eq!(
+            crate::settle_redeem(payout - short, payout),
+            Ok(payout - short),
+            "a {}-stroop shortfall is rounding and must still settle",
+            short
+        );
+    }
+    // Short past the band: an accounting fault, not rounding.
+    assert_eq!(
+        crate::settle_redeem(payout - REDEEM_DUST - 1, payout),
+        Err(spield_shared::Error::WithdrawShortfall)
+    );
+
+    // Over within the band: pay it out rather than strand it. THIS is the fix — under the
+    // old `min(got, payout)` each of these returned `payout` and left the rest in a vault
+    // that nothing can ever sweep again.
+    for over in 1..=REDEEM_DUST {
+        assert_eq!(
+            crate::settle_redeem(payout + over, payout),
+            Ok(payout + over),
+            "a {}-stroop over-collection must go to the owner, not be stranded",
+            over
+        );
+    }
+    // Over past the band: not rounding, so not the owner's.
+    assert_eq!(
+        crate::settle_redeem(payout + REDEEM_DUST + 1, payout),
+        Ok(payout),
+        "a larger-than-dust surplus must not be handed over"
+    );
+    assert_eq!(crate::settle_redeem(payout * 2, payout), Ok(payout));
+}
+
+#[test]
+fn redeem_strands_no_usdc_in_the_vault() {
+    let w = setup(YEAR);
+    let seeder = w.new_user(1_000 * USDC);
+    w.vault().seed(&seeder, &(1_000 * USDC));
+
+    // Several receipts, and several tracked positions for `redeem_pt_for` to walk — each
+    // Blend withdraw it performs is an independent chance to round.
+    let mut users = std::vec::Vec::new();
+    let mut ids = std::vec::Vec::new();
+    let mut payouts = std::vec::Vec::new();
+    for _ in 0..5 {
+        let user = w.new_user(100 * USDC);
+        let (payout, _, _) = w.vault().quote(&(100 * USDC));
+        ids.push(w.vault().deposit(&user, &(100 * USDC)));
+        users.push(user);
+        payouts.push(payout);
+    }
+    // Harvests add more tracked positions, so a single redeem spans several of them.
+    for _ in 0..3 {
+        w.advance(30 * 24 * 60 * 60);
+        w.env().cost_estimate().budget().reset_unlimited();
+        w.vault().harvest(&u32::MAX);
+    }
+    // Sweep any harvest-resting USDC into PT so the only balance movement left is redeem's.
+    w.advance(30 * 24 * 60 * 60);
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.vault().harvest(&u32::MAX);
+    let resting_before = w.usdc().balance(&w.vault);
+
+    w.env().ledger().set_timestamp(w.maturity + 1);
+    w.oracle().set_price_stable(&vec![w.env(), 1_0000000, 1_0000000]);
+
+    let mut total_excess = 0i128;
+    for (i, id) in ids.iter().enumerate() {
+        w.env().cost_estimate().budget().reset_unlimited();
+        let before = w.usdc().balance(&users[i]);
+        let paid = w.vault().redeem(id);
+        let received = w.usdc().balance(&users[i]) - before;
+
+        assert_eq!(paid, received, "receipt {} reported {} but moved {}", i, paid, received);
+        // Never short-changed…
+        assert!(
+            paid >= payouts[i],
+            "receipt {} paid {} < its locked payout {}",
+            i,
+            paid,
+            payouts[i]
+        );
+        // …and never handed more than rounding dust.
+        assert!(
+            paid - payouts[i] <= REDEEM_DUST,
+            "receipt {} paid {} — {} over its payout {}, beyond the {} dust band",
+            i,
+            paid,
+            paid - payouts[i],
+            payouts[i],
+            REDEEM_DUST
+        );
+        total_excess += paid - payouts[i];
+
+        // THE POINT: every redeem forwards everything it collected. Nothing accumulates.
+        assert_eq!(
+            w.usdc().balance(&w.vault),
+            resting_before,
+            "receipt {} left USDC resting in the vault — post-maturity, nothing can ever \
+             sweep it (harvest is gated before maturity)",
+            i
+        );
+    }
+
+    assert_eq!(w.vault().stats().total_liability, 0, "every receipt closed");
+    std::println!(
+        "redeem rounding excess paid out across {} receipts: {} stroops (vault residue: {})",
+        ids.len(),
+        total_excess,
+        w.usdc().balance(&w.vault) - resting_before,
+    );
 }
 
 // ===========================================================================
@@ -439,12 +583,25 @@ fn harvest_pagination_sweeps_all_positions() {
     // Harvest only 2 positions per call. Several calls must, together, sweep every position and
     // claim real yield (each call advances the stored cursor). We loop a few times to cover all 5+.
     let mut total_claimed = 0i128;
+    let mut total_added = 0i128;
     for _ in 0..5 {
         w.env().cost_estimate().budget().reset_unlimited();
         let (claimed, pt_added) = w.vault().harvest(&2u32); // bounded batch
-        assert_eq!(claimed, pt_added);
         total_claimed += claimed;
+        total_added += pt_added;
     }
+    // Conservation across the whole sweep: every stroop claimed is either already reinvested as PT
+    // or still resting in the vault awaiting the next harvest. Nothing leaks. (A single call may
+    // hold its claim back below MIN_REINVEST; a later call sweeps the full balance, not a delta.)
+    let resting = w.usdc().balance(&w.vault);
+    assert_eq!(
+        total_claimed,
+        total_added + resting,
+        "claimed {} != reinvested {} + resting {}",
+        total_claimed,
+        total_added,
+        resting
+    );
     assert!(total_claimed > 0, "paginated harvest must claim real yield across positions");
 
     let cap_after = w.vault().stats().coupon_capacity;
@@ -586,16 +743,22 @@ fn warp_to(w: &World, ts: u64) {
 }
 
 // --------------------------------------------------------------------------
-// §0 P0 — `vault_harvest_reverts_while_wrapper_paused`
+// §0 P0 (fixed) — `vault_harvest_reverts_while_wrapper_paused`
 //
-// `harvest` is documented "allowed while paused" and its OWN pause gate does let
-// it through. But its reinvest step calls `wrapper::mint`, which the WRAPPER's
-// pause blocks. So pausing the wrapper — the natural first move in an emergency —
-// silently disables the vault's coupon-capacity upkeep entirely.
+// `harvest` is upkeep, so the vault's OWN pause lets it through. But its reinvest
+// step calls `wrapper::mint`, which the WRAPPER's pause blocks — so pausing the
+// wrapper (the natural first move in an emergency) used to revert the whole call,
+// throwing away the yield the same call had already claimed, with a `Paused` error
+// pointing at the wrong contract.
+//
+// The fix: harvest CLAIMS as normal and SKIPS the reinvest while the wrapper is
+// paused, holding the USDC. The next harvest after the unpause sweeps it into PT
+// (it reinvests the full balance, not a delta). A wrapper pause now DEFERS
+// coupon-capacity upkeep instead of destroying claimed yield.
 // --------------------------------------------------------------------------
 
 #[test]
-fn vault_harvest_reverts_while_wrapper_is_paused() {
+fn vault_harvest_defers_the_reinvest_while_wrapper_is_paused() {
     let w = setup(YEAR);
     let seeder = w.new_user(1_000 * USDC);
     w.vault().seed(&seeder, &(1_000 * USDC));
@@ -609,29 +772,52 @@ fn vault_harvest_reverts_while_wrapper_is_paused() {
     assert!(w.wrapper().is_paused());
     assert!(!w.vault().is_paused(), "the vault's own pause is NOT set");
 
-    // The vault's own gate would allow harvest, but the reinvest `wrapper::mint`
-    // panics `Paused` and reverts the whole call — including the claim that
-    // already succeeded.
-    assert_eq!(
-        w.vault().try_harvest(&50u32),
-        Err(Ok(spield_shared::Error::Paused.into())),
-        "harvest must be documented as blocked by a WRAPPER pause, not a vault pause"
+    let cap_before = w.vault().stats().coupon_capacity;
+
+    // Harvest succeeds: the claim goes through, the reinvest is skipped.
+    let (claimed, added) = w.vault().harvest(&u32::MAX);
+    assert!(claimed > 0, "the claim leg must still run under a wrapper pause");
+    assert_eq!(added, 0, "the reinvest leg must be skipped, not attempted");
+    assert!(
+        claimed >= MIN_REINVEST,
+        "precondition: the claim is big enough that only the pause can be holding it back ({})",
+        claimed
     );
 
-    // Nothing was half-applied: capacity is untouched, so the revert is clean.
+    // The claimed USDC is held in the vault — not lost to a revert, not yet PT.
+    assert_eq!(
+        w.usdc().balance(&w.vault),
+        claimed,
+        "claimed yield rests in the vault while the wrapper is paused"
+    );
+    assert_eq!(
+        w.vault().stats().coupon_capacity,
+        cap_before,
+        "capacity is unchanged until the USDC can be reinvested"
+    );
     let stats = w.vault().stats();
-    assert!(stats.pt_inventory >= stats.total_liability);
+    assert!(stats.pt_inventory >= stats.total_liability, "solvent throughout");
 
-    // Unpausing the wrapper restores harvest immediately.
+    // Unpausing restores the reinvest, and the HELD balance is swept along with
+    // whatever the next call claims — nothing was stranded by the pause.
     w.wrapper().unpause();
     w.env().cost_estimate().budget().reset_unlimited();
-    let (claimed, _) = w.vault().harvest(&50u32);
-    assert!(claimed > 0, "harvest works again once the wrapper is unpaused");
+    let (claimed2, added2) = w.vault().harvest(&u32::MAX);
+    assert_eq!(
+        added2,
+        claimed + claimed2,
+        "the post-unpause harvest must reinvest the held balance plus its own claim"
+    );
+    assert_eq!(w.usdc().balance(&w.vault), 0, "nothing left resting");
+    assert!(
+        w.vault().stats().coupon_capacity > cap_before,
+        "deferred capacity lands once the wrapper is unpaused"
+    );
 }
 
-/// The benign half: with **no yield to reinvest** there is no `wrapper::mint`, so
-/// harvest is a genuine no-op and succeeds even under a wrapper pause. Pinning
-/// this shows the failure is specifically the reinvest leg, not the claim leg.
+/// The benign half: with **no yield to reinvest** there is no `wrapper::mint` to
+/// attempt at all, so harvest is a genuine no-op under a wrapper pause. Pinned to
+/// keep the two skip reasons (nothing to invest vs. paused) distinguishable.
 #[test]
 fn vault_harvest_with_zero_yield_succeeds_under_wrapper_pause() {
     let w = setup(YEAR);
@@ -639,8 +825,8 @@ fn vault_harvest_with_zero_yield_succeeds_under_wrapper_pause() {
     w.vault().seed(&seeder, &(100 * USDC));
     w.wrapper().pause();
 
-    // No time has passed → nothing accrued → the early return fires before mint.
-    let (claimed, added) = w.vault().harvest(&50u32);
+    // No time has passed → nothing accrued → nothing to reinvest.
+    let (claimed, added) = w.vault().harvest(&u32::MAX);
     assert_eq!((claimed, added), (0, 0));
 }
 
@@ -675,23 +861,25 @@ fn vault_redeem_works_while_wrapper_is_paused() {
 // over. This measures the real cost growth.
 // --------------------------------------------------------------------------
 
-/// Run `cycles` harvests spread over the term so each appends a tracked position.
-/// Resource-limit enforcement is disabled while BUILDING the scenario (the setup
-/// itself is not what we are measuring); the measured call re-enables it.
-/// Uses a full-sweep batch so the claim always clears the dust floor — this
-/// isolates the *walk length* question from the *dust reinvest* question.
+/// How many wrapper positions the vault currently tracks (read from its own storage — the
+/// `Positions` Vec has no public view).
+fn tracked_positions(w: &World) -> u32 {
+    w.env()
+        .as_contract(&w.vault, || crate::storage::positions(w.env()).len())
+}
+
+/// Run `cycles` harvests spread over the term, each appending a tracked position when its claim
+/// clears `MIN_REINVEST`. Resource-limit enforcement is disabled while BUILDING the scenario (the
+/// setup itself is not what we are measuring); the measured call re-enables it. Returns the real
+/// tracked-position count afterwards, read from storage rather than inferred from return values.
 fn build_harvest_positions(w: &World, cycles: u32, step_secs: u64) -> u32 {
     w.env().cost_estimate().disable_resource_limits();
-    let mut n = 0u32;
     for _ in 0..cycles {
         w.advance(step_secs);
         w.env().cost_estimate().budget().reset_unlimited();
-        let (claimed, _) = w.vault().harvest(&50u32);
-        if claimed > 0 {
-            n += 1;
-        }
+        w.vault().harvest(&u32::MAX); // clamped to MAX_HARVEST_BATCH internally
     }
-    n
+    tracked_positions(w)
 }
 
 /// Mainnet's per-transaction ceilings, as the SDK models them.
@@ -751,8 +939,8 @@ fn vault_redeem_cost_grows_with_the_number_of_tracked_positions() {
 
     let (n_few, few) = measure(5);
     let (n_many, many) = measure(60);
-    report(&std::format!("redeem, {} positions", n_few + 2), few);
-    report(&std::format!("redeem, {} positions", n_many + 2), many);
+    report(&std::format!("redeem, {} positions", n_few), few);
+    report(&std::format!("redeem, {} positions", n_many), many);
 
     // The finding: `redeem_pt_for`'s cost is NOT constant in the tracked-position
     // count — the walk is unbounded by construction, so it scales with history.
@@ -783,9 +971,13 @@ fn vault_redeem_with_a_long_harvest_history_fits_mainnet_limits() {
     let user = w.new_user(500 * USDC);
     let id = w.vault().deposit(&user, &(500 * USDC));
 
-    // ~180 daily harvest cycles — half a year of upkeep on a 1-year market.
-    let added = build_harvest_positions(&w, 180, 24 * 60 * 60);
-    assert!(added > 100, "the scenario must really build a long list (got {})", added);
+    // Daily harvest cycles across most of the 1-year term. Note a cycle does not always
+    // append a position: the batch only mints when its claim clears `MIN_REINVEST`, and as
+    // the list fills with small reinvest positions the round-robin cursor lands on a
+    // large one less often. So the cycle count is comfortably above the position count —
+    // it is `tracked`, read from real storage below, that the assertions are about.
+    let tracked = build_harvest_positions(&w, 340, 24 * 60 * 60);
+    assert!(tracked > 100, "the scenario must really build a long list (got {})", tracked);
 
     warp_to(&w, w.maturity + 1);
     w.env().cost_estimate().disable_resource_limits();
@@ -794,7 +986,7 @@ fn vault_redeem_with_a_long_harvest_history_fits_mainnet_limits() {
     assert!(paid > 500 * USDC, "the receipt still pays out in full");
 
     let r = last_resources(&w);
-    report(&std::format!("redeem, {} positions", added + 2), r);
+    report(&std::format!("redeem, {} positions", tracked), r);
     assert!(r.0 <= MAINNET_INSTRUCTIONS, "redeem exceeds the mainnet instruction limit: {}", r.0);
     assert!(r.1 <= MAINNET_MEM_BYTES, "redeem exceeds the mainnet memory limit: {}", r.1);
     assert!(r.2 <= MAINNET_WRITE_ENTRIES, "redeem exceeds the mainnet write-entry limit: {}", r.2);
@@ -813,75 +1005,164 @@ fn vault_redeem_with_a_long_harvest_history_fits_mainnet_limits() {
 /// §9 / §0.4 (corrected) — the harvest side is where the budget actually breaks.
 ///
 /// `redeem`'s walk turns out to be cheap (see above: 182 tracked positions ⇒ ~1.3%
-/// of the instruction budget). The real breach is in `harvest`, the function that
-/// was *built* to be the bounded one: `MAX_HARVEST_BATCH = 50` is far past what a
-/// mainnet transaction can carry, because each batch item is a full
+/// of the instruction budget). The real breach was in `harvest`, the function that
+/// was *built* to be the bounded one: the old `MAX_HARVEST_BATCH = 50` was far past
+/// what a mainnet transaction can carry, because each batch item is a full
 /// vault→wrapper→strategy→Blend `claim_yield` with a real pool withdraw, and each
 /// Blend `submit` costs ~8 MB of modelled memory against a 40 MiB tx ceiling.
 ///
-/// This scans batch sizes and pins the largest one that fits every mainnet ceiling,
-/// so `MAX_HARVEST_BATCH` (and whatever ops passes) can be set from a measured
-/// number instead of a guess.
+/// This is the acceptance test for the fix. It asserts three things about the shipped
+/// constant, all from measurement rather than assertion-by-comment:
+///   1. **It is safe** — a full `MAX_HARVEST_BATCH` sweep fits every mainnet ceiling.
+///   2. **It keeps its margin** — the full batch leaves at least `MIN_HEADROOM_PCT` of
+///      the memory ceiling free. "It fits" is not the bar: `harvest` is permissionless
+///      upkeep, and the cost of a batch item is set by Blend, so a constant that only
+///      just fits today can become un-runnable under a pool upgrade we do not control.
+///   3. **It is not needlessly small** — one more batch item *would* breach that margin,
+///      so 3 is the largest value satisfying the policy, not an arbitrary retreat.
+/// Plus that the clamp is real: no caller-supplied `max_positions` can exceed it.
+///
+/// (2) and (3) together pin the constant from both sides: the margin cannot be silently
+/// eroded, and it cannot be silently over-paid either.
+///
+/// The scenario is deliberately built as the **worst case**, because harvest cost is
+/// not a function of batch size alone: a swept position with no accrued yield skips
+/// the Blend withdraw entirely and costs almost nothing, and a claim below
+/// `MIN_REINVEST` skips the reinvest `submit` too. Measuring a mixed batch would
+/// under-report and let a genuinely unsafe constant pass. So we seed several large,
+/// equal positions and let them all accrue: every position in every measured batch
+/// performs a real Blend withdraw, plus the one reinvest — which is exactly the
+/// shape of the most expensive harvest a mainnet caller can trigger.
 #[test]
 fn harvest_batch_size_that_fits_mainnet_limits() {
     let w = setup(YEAR);
-    let seeder = w.new_user(5_000 * USDC);
-    w.vault().seed(&seeder, &(5_000 * USDC));
-    let added = build_harvest_positions(&w, 60, 24 * 60 * 60);
-    assert!(added >= 50, "need >=50 positions to fill a max batch (got {})", added);
+    // One position per seed, each big enough that a day of accrual is far above the
+    // reinvest floor — so no claim in any measured batch can be a cheap no-op.
+    let n_positions = MAX_HARVEST_BATCH * 2 + 1;
+    for _ in 0..n_positions {
+        let seeder = w.new_user(500 * USDC);
+        w.vault().seed(&seeder, &(500 * USDC));
+    }
+    assert_eq!(tracked_positions(&w), n_positions);
+    // A month of real Blend interest on every one of them.
+    w.advance(30 * 24 * 60 * 60);
 
-    let mut largest_ok = 0u32;
-    let mut smallest_bad = u32::MAX;
-    for batch in [1u32, 2, 3, 4, 5, 10, 25, 50] {
+    // Measure every batch size up to and including the shipped ceiling.
+    let mut mem = std::vec::Vec::new();
+    for batch in 1..=MAX_HARVEST_BATCH {
         w.advance(24 * 60 * 60);
         w.env().cost_estimate().disable_resource_limits();
         w.env().cost_estimate().budget().reset_unlimited();
-        let (claimed, _) = w.vault().harvest(&batch);
+        let (claimed, added) = w.vault().harvest(&batch);
         assert!(claimed > 0, "batch {} claimed nothing", batch);
+        assert!(added > 0, "batch {} must also pay the reinvest cost (worst case)", batch);
         let r = last_resources(&w);
         report(&std::format!("harvest({})", batch), r);
-        let fits = r.0 <= MAINNET_INSTRUCTIONS
-            && r.1 <= MAINNET_MEM_BYTES
-            && r.2 <= MAINNET_WRITE_ENTRIES
-            && r.3 <= MAINNET_LEDGER_ENTRIES
-            && r.4 <= MAINNET_WRITE_BYTES;
-        if fits {
-            largest_ok = largest_ok.max(batch);
-        } else {
-            smallest_bad = smallest_bad.min(batch);
-        }
+        // (1) Every batch up to the ceiling fits a real mainnet transaction.
+        assert!(r.0 <= MAINNET_INSTRUCTIONS, "harvest({}) over instructions: {}", batch, r.0);
+        assert!(r.1 <= MAINNET_MEM_BYTES, "harvest({}) over memory: {}", batch, r.1);
+        assert!(r.2 <= MAINNET_WRITE_ENTRIES, "harvest({}) over write entries: {}", batch, r.2);
+        assert!(r.3 <= MAINNET_LEDGER_ENTRIES, "harvest({}) over ledger entries: {}", batch, r.3);
+        assert!(r.4 <= MAINNET_WRITE_BYTES, "harvest({}) over write bytes: {}", batch, r.4);
+        mem.push(r.1);
     }
+
+    // Memory is the binding constraint — instructions never come close, which is why
+    // reasoning about loop counts alone missed this. Extrapolate one more batch item from
+    // the measured marginal cost to judge the next size up.
+    let full = *mem.last().unwrap();
+    let marginal = (full - mem[0]) / (MAX_HARVEST_BATCH as i64 - 1);
+    let headroom = MAINNET_MEM_BYTES - full;
+    let headroom_pct = headroom * 100 / MAINNET_MEM_BYTES;
+    let next = full + marginal;
+    let next_headroom_pct = (MAINNET_MEM_BYTES - next) * 100 / MAINNET_MEM_BYTES;
     std::println!(
-        "LARGEST harvest batch fitting every mainnet limit: {} | smallest failing: {} | \
-         MAX_HARVEST_BATCH is {}",
-        largest_ok,
-        smallest_bad,
-        50
+        "harvest({}) mem {}/{} = {}% of the ceiling | marginal ≈ {} bytes per extra position",
+        MAX_HARVEST_BATCH,
+        full,
+        MAINNET_MEM_BYTES,
+        full * 100 / MAINNET_MEM_BYTES,
+        marginal,
+    );
+    // Surface the margin on every run, so erosion is visible long before either assertion
+    // below flips.
+    std::println!(
+        "HEADROOM at a full batch: {} bytes ({}%), policy floor {}%. Batch {} would leave \
+         {}% ({}).",
+        headroom,
+        headroom_pct,
+        MIN_HEADROOM_PCT,
+        MAX_HARVEST_BATCH + 1,
+        next_headroom_pct,
+        if next > MAINNET_MEM_BYTES { "over the ceiling outright" } else { "fits, but under the policy floor" },
     );
 
-    // The finding, asserted so it cannot silently regress: the contract's own
-    // documented ceiling is NOT a safe batch size on a mainnet transaction.
-    assert!(largest_ok >= 1, "even a 1-position harvest must fit a mainnet tx");
+    // (2) The margin is intact. This is the assertion that fires if Blend's per-`submit`
+    // cost rises: it goes red while `harvest` still works, which is the entire point of
+    // holding margin rather than shipping the maximal value.
     assert!(
-        smallest_bad <= 50,
-        "MAX_HARVEST_BATCH = 50 now fits mainnet limits — update this test and the constant"
+        headroom_pct >= MIN_HEADROOM_PCT,
+        "MAX_HARVEST_BATCH = {} now leaves only {}% memory headroom, below the {}% policy \
+         floor ({} of {} bytes used). Blend's per-submit cost has risen — lower the constant.",
+        MAX_HARVEST_BATCH,
+        headroom_pct,
+        MIN_HEADROOM_PCT,
+        full,
+        MAINNET_MEM_BYTES
+    );
+
+    // (3) …and it is not over-paid: the next size up would breach the policy, so this is
+    // the largest batch that satisfies it. Without this, the constant could drift down to
+    // 1 and nothing would notice.
+    assert!(
+        next_headroom_pct < MIN_HEADROOM_PCT,
+        "MAX_HARVEST_BATCH = {} is needlessly small: batch {} would still clear the {}% \
+         policy floor ({} of {} bytes, {}% free). Re-measure and raise the constant.",
+        MAX_HARVEST_BATCH,
+        MAX_HARVEST_BATCH + 1,
+        MIN_HEADROOM_PCT,
+        next,
+        MAINNET_MEM_BYTES,
+        next_headroom_pct
+    );
+
+    // (3) The clamp is real: an oversized `max_positions` costs exactly a full batch,
+    // never more. This is what makes the ceiling a guarantee rather than a suggestion.
+    w.advance(24 * 60 * 60);
+    w.env().cost_estimate().disable_resource_limits();
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.vault().harvest(&u32::MAX);
+    let clamped = last_resources(&w);
+    report("harvest(u32::MAX) [clamped]", clamped);
+    assert!(
+        clamped.1 <= MAINNET_MEM_BYTES,
+        "an oversized max_positions must be clamped to a mainnet-safe batch, got {} bytes",
+        clamped.1
     );
 }
 
 // --------------------------------------------------------------------------
-// §0 P0 — `vault_dust_tolerance_does_not_grow_with_receipt_churn`
+// §0 P0 (fixed) — `vault_dust_tolerance_does_not_grow_with_receipt_churn`
 //
-// The vault's `assert_solvent` dust band is `peek_next_receipt_id + 2`, which is
-// MONOTONIC — the exact gameable pattern the wrapper already fixed (its band is
-// now `open_positions + 4`, anchored to live state). Every receipt ever issued
-// widens the vault's solvency tolerance by 1 stroop, forever, even after it is
-// redeemed and closed.
+// The vault's `assert_solvent` dust band used to be `peek_next_receipt_id + 2`,
+// which is MONOTONIC — the exact gameable pattern the wrapper had already fixed
+// (its band is `open_positions + 4`, anchored to live state). Every receipt ever
+// issued widened the vault's solvency tolerance by 1 stroop forever, even after it
+// was redeemed and closed. It is now `open_receipts + 2`: it rises with live
+// obligations and falls back as they close.
 // --------------------------------------------------------------------------
 
 /// Read the vault's live solvency dust band from inside its own storage context.
 fn vault_dust_band(w: &World) -> i128 {
     w.env()
-        .as_contract(&w.vault, || crate::storage::peek_next_receipt_id(w.env()) as i128 + 2)
+        .as_contract(&w.vault, || crate::storage::open_receipts(w.env()) as i128 + 2)
+}
+
+/// The monotonic quantity the band used to be anchored to — kept so the test can
+/// show the two diverging rather than just asserting the new value.
+fn receipts_ever_issued(w: &World) -> u64 {
+    w.env()
+        .as_contract(&w.vault, || crate::storage::peek_next_receipt_id(w.env()))
 }
 
 /// Count receipts that are still open — what the band SHOULD be anchored to.
@@ -898,7 +1179,7 @@ fn open_receipts(w: &World, next_id: u64) -> i128 {
 }
 
 #[test]
-fn vault_dust_band_grows_without_bound_under_receipt_churn() {
+fn vault_dust_band_returns_to_baseline_after_receipt_churn() {
     let w = setup(YEAR);
     let seeder = w.new_user(5_000 * USDC);
     w.vault().seed(&seeder, &(5_000 * USDC));
@@ -913,6 +1194,15 @@ fn vault_dust_band_grows_without_bound_under_receipt_churn() {
         let u = w.new_user(20 * USDC);
         ids.push(w.vault().deposit(&u, &(20 * USDC)));
     }
+
+    // While they are all open the band DOES widen — that is correct, each live
+    // receipt can carry a stroop of mint-floor dust.
+    assert_eq!(
+        vault_dust_band(&w),
+        25 + 2,
+        "the band tracks live obligations while they exist"
+    );
+
     warp_to(&w, w.maturity + 1);
     for id in &ids {
         w.env().cost_estimate().budget().reset_unlimited();
@@ -923,30 +1213,71 @@ fn vault_dust_band_grows_without_bound_under_receipt_churn() {
     assert_eq!(w.vault().stats().total_liability, 0);
     assert_eq!(open_receipts(&w, 25), 0, "no receipt is still open");
 
-    // …yet the solvency tolerance has widened by one stroop per receipt EVER
-    // issued and never shrinks back. This is the ungameable-band property the
-    // wrapper has and the vault does not.
+    // …so the tolerance falls back to the baseline. Under the old monotonic
+    // anchoring it would have stayed at 27 forever.
     let band_end = vault_dust_band(&w);
-    assert_eq!(band_end, 25 + 2, "band == peek_next_receipt_id + 2");
-    assert!(
-        band_end > band_start,
-        "the band is monotonic in history: {} -> {}",
-        band_start,
-        band_end
+    assert_eq!(band_end, 2, "band == open_receipts + 2, and none are open");
+    assert_eq!(
+        band_end, band_start,
+        "the band must be a function of LIVE state, not of history: {} -> {}",
+        band_start, band_end
     );
+
+    // The monotonic counter kept climbing — proving the band is genuinely no longer
+    // anchored to it, rather than the churn having failed to happen.
+    let ever = receipts_ever_issued(&w);
+    assert_eq!(ever, 25, "the receipts really were issued");
     std::println!(
-        "vault dust band after 25 closed receipts: {} (open receipts: {}) — wrapper-style \
-         anchoring would give {}",
+        "after 25 issued-and-closed receipts: band = {} (open receipts 0); the old \
+         next_receipt_id anchoring would give {}",
         band_end,
-        open_receipts(&w, 25),
-        open_receipts(&w, 25) + 2
+        ever + 2
+    );
+
+    // The tight band is not just cosmetic — the vault still passes its own solvency
+    // assertion under it. (`redeem` runs `assert_solvent` after every close above,
+    // so reaching this line already proves it; assert the margin explicitly too.)
+    let stats = w.vault().stats();
+    assert!(
+        stats.pt_inventory + band_end >= stats.total_liability,
+        "solvency must hold under the TIGHT band: inventory {} liability {}",
+        stats.pt_inventory,
+        stats.total_liability
     );
 }
 
-/// The wrapper's equivalent churn leaves ITS band flat — the direct contrast that
-/// shows this is a vault-specific regression, not an accepted protocol-wide rule.
+/// The anchor's two load-bearing properties, checked directly on the counter: it
+/// returns to baseline however far it has been driven (so no amount of churn can
+/// inflate the band), and its decrement saturates (so an underflow can never wrap
+/// into a `u64::MAX`-sized tolerance that would swallow a real accounting bug).
 #[test]
-fn wrapper_band_stays_flat_where_the_vault_band_grows() {
+fn open_receipt_counter_is_live_state_and_saturates() {
+    let w = setup(YEAR);
+    w.env().as_contract(&w.vault, || {
+        let e = w.env();
+        assert_eq!(crate::storage::open_receipts(e), 0);
+        for _ in 0..1_000 {
+            crate::storage::inc_open_receipts(e);
+        }
+        assert_eq!(crate::storage::open_receipts(e), 1_000);
+        for _ in 0..1_000 {
+            crate::storage::dec_open_receipts(e);
+        }
+        assert_eq!(
+            crate::storage::open_receipts(e),
+            0,
+            "the counter must return to baseline no matter how far it was driven"
+        );
+        // Defence-in-depth: an extra decrement must not wrap the band wide open.
+        crate::storage::dec_open_receipts(e);
+        assert_eq!(crate::storage::open_receipts(e), 0, "decrement must saturate at 0");
+    });
+}
+
+/// The wrapper's equivalent churn leaves ITS band flat too — the direct contrast that
+/// showed this was a vault-specific regression, kept now that both agree.
+#[test]
+fn wrapper_band_stays_flat_under_the_same_churn() {
     let w = setup(YEAR);
     // 10 open-then-close wrapper cycles via the vault's seed path would leave
     // positions open, so drive the wrapper directly.
@@ -968,25 +1299,30 @@ fn wrapper_band_stays_flat_where_the_vault_band_grows() {
 
 
 // --------------------------------------------------------------------------
-// Surfaced while writing §0.4: `harvest` REVERTS when the yield it claims is
-// too small to mint a Blend share.
+// Surfaced while writing §0.4 (fixed): `harvest` used to REVERT when the yield it
+// claimed was too small to mint a Blend share.
 //
-// `harvest` claims the yield, then reinvests it via `wrapper::mint(claimed)`.
-// At `b_rate > 1` a 1-stroop supply floors to 0 shares and **Blend itself**
-// rejects the request, reverting the whole harvest. There is no lower bound
-// check and no "skip the reinvest if it's dust" path, so a vault whose harvest
-// cadence outruns its accrual is stuck: every `harvest` call reverts until
-// enough yield piles up. On mainnet `b_rate ≈ 1.124`, so this is live from
-// block one, and `harvest` is the permissionless upkeep that funds all coupons.
+// `harvest` claims the yield, then reinvests it via `wrapper::mint`. At
+// `b_rate > 1` a 1-stroop supply floors to 0 shares and **Blend itself** rejects
+// the request, which reverted the whole harvest — including the claim that had
+// already succeeded. With no lower-bound check, a vault whose harvest cadence
+// outran its accrual was stuck: every call reverted until enough yield piled up.
+// On mainnet `b_rate ≈ 1.124`, so this was live from block one, and `harvest` is
+// the permissionless upkeep that funds every coupon.
+//
+// The fix: a `MIN_REINVEST` floor checked BEFORE the mint. Below it the harvest
+// keeps the USDC and returns cleanly; the next harvest that clears the floor
+// reinvests the whole resting balance.
 // --------------------------------------------------------------------------
 
 #[test]
-fn harvest_reverts_when_claimed_yield_is_below_one_blend_share() {
+fn harvest_holds_dust_instead_of_reverting_below_one_blend_share() {
     let w = setup(YEAR);
     let seeder = w.new_user(100 * USDC);
     w.vault().seed(&seeder, &(100 * USDC));
 
-    // Two seconds of accrual on a 100 USDC position yields exactly 1 stroop.
+    // Two seconds of accrual on a 100 USDC position yields exactly 1 stroop —
+    // the exact boundary that used to brick the call.
     w.advance(2);
     w.env().cost_estimate().budget().reset_unlimited();
     assert_eq!(
@@ -995,35 +1331,51 @@ fn harvest_reverts_when_claimed_yield_is_below_one_blend_share() {
         "precondition: exactly 1 stroop of claimable yield"
     );
 
-    // Harvest claims that 1 stroop and then tries to reinvest it — Blend refuses
-    // to mint 0 shares for a 1-stroop supply and the whole call reverts.
-    let r = w.vault().try_harvest(&50u32);
-    assert!(
-        r.is_err(),
-        "harvest must be shown to revert on a dust-sized reinvest, not silently succeed"
-    );
-
-    // Nothing was applied — the claim is rolled back with the reinvest.
+    // Harvest now SUCCEEDS: it claims the stroop and skips the dust reinvest.
+    let (claimed, added) = w.vault().harvest(&u32::MAX);
+    assert_eq!(claimed, 1, "the stroop is claimed, not rolled back");
+    assert_eq!(added, 0, "…and not fed to a mint Blend would reject");
     assert_eq!(
         w.wrapper().position_value(&0u64).claimable_yield,
-        1,
-        "the claim reverted with the mint; the yield is still unclaimed"
+        0,
+        "the claim really happened — the position has nothing left to claim"
+    );
+    assert_eq!(w.usdc().balance(&w.vault), 1, "the stroop rests in the vault");
+
+    // Repeated dust harvests keep accumulating rather than failing — this is the
+    // "cadence outruns accrual" case that used to be a permanent revert loop.
+    w.advance(2);
+    w.env().cost_estimate().budget().reset_unlimited();
+    let (claimed2, added2) = w.vault().harvest(&u32::MAX);
+    assert_eq!(added2, 0);
+    assert_eq!(
+        w.usdc().balance(&w.vault),
+        1 + claimed2,
+        "dust accumulates across calls instead of reverting"
     );
 
-    // Once enough yield accrues (≥ 2 stroops of mintable size), it works again.
-    w.advance(60);
+    // Once enough accrues to clear the floor, the whole accumulated balance —
+    // including every earlier stroop — is reinvested. Nothing was stranded.
+    w.advance(24 * 60 * 60);
     w.env().cost_estimate().budget().reset_unlimited();
-    let (claimed, added) = w.vault().harvest(&50u32);
-    assert!(claimed > 1, "harvest recovers once the yield exceeds the dust floor");
-    assert_eq!(claimed, added);
+    let held = w.usdc().balance(&w.vault);
+    let (claimed3, added3) = w.vault().harvest(&u32::MAX);
+    assert!(claimed3 >= MIN_REINVEST, "a day of accrual clears the floor");
+    assert_eq!(
+        added3,
+        held + claimed3,
+        "the reinvest sweeps the held dust as well as the fresh claim"
+    );
+    assert_eq!(w.usdc().balance(&w.vault), 0, "nothing left resting");
 }
 
-/// The same dust floor bites the round-robin cursor: a `harvest(1)` batch that
-/// lands on a small position can claim 1 stroop and revert, even when sweeping
-/// the whole list at once would have claimed plenty. So the paginated form —
-/// the one built for bounded cost — is the more fragile one.
+/// The same dust floor used to bite the round-robin cursor hardest: a `harvest(1)`
+/// batch landing on a small position could claim 1 stroop and revert, even when
+/// sweeping the whole list would have claimed plenty — so the paginated form, the
+/// one built for bounded cost, was the more fragile one. It must now be the
+/// safest: bounded AND unbrickable.
 #[test]
-fn paginated_harvest_can_revert_on_a_dust_sized_position() {
+fn paginated_harvest_survives_a_dust_sized_position() {
     let w = setup(YEAR);
     let seeder = w.new_user(100 * USDC);
     w.vault().seed(&seeder, &(100 * USDC)); // position #0, 100 USDC
@@ -1031,22 +1383,85 @@ fn paginated_harvest_can_revert_on_a_dust_sized_position() {
     let dust_seeder = w.new_user(1 * USDC);
     w.vault().seed(&dust_seeder, &(5000i128)); // position #1, 0.0005 USDC
 
-    // Sweep both so the cursor lands back on #0, then park it on #1.
+    // Sweep #0 so the cursor parks on the dust position #1.
     w.advance(24 * 60 * 60);
     w.env().cost_estimate().budget().reset_unlimited();
     w.vault().harvest(&1u32); // claims #0 (large) -> cursor now at #1
 
-    // Two seconds later position #1's accrual is far below one share.
+    // Two seconds later position #1's accrual is far below one Blend share.
     w.advance(2);
     w.env().cost_estimate().budget().reset_unlimited();
-    let r = w.vault().try_harvest(&1u32);
-    // Either it claims 0 (clean early return) or it reverts on the dust mint —
-    // both are pinned here; the point is it can never claim a useful amount.
-    match r {
-        Ok(Ok((claimed, _))) => assert_eq!(
-            claimed, 0,
-            "a dust position can only ever yield 0 or a reverting dust mint"
-        ),
-        Ok(Err(_)) | Err(_) => { /* reverted on the dust reinvest — the finding */ }
-    }
+    let (claimed, added) = w.vault().harvest(&1u32);
+    assert_eq!(added, 0, "a dust position must not attempt a mint Blend would reject");
+    assert!(claimed >= 0);
+    assert_eq!(
+        w.usdc().balance(&w.vault),
+        claimed,
+        "whatever the dust position yielded is held, not lost"
+    );
+
+    // And the vault is not wedged: a full sweep still works immediately after.
+    w.advance(24 * 60 * 60);
+    w.env().cost_estimate().budget().reset_unlimited();
+    let (_, added2) = w.vault().harvest(&u32::MAX);
+    assert!(added2 > 0, "the vault is not stuck behind the dust position");
+}
+
+// --------------------------------------------------------------------------
+// Harvested USDC that is not reinvested must NOT be stranded.
+//
+// `harvest` used to compute what to reinvest as a delta (`after - before`), reading
+// `before` at the start of every call — so any USDC already resting in the vault was
+// excluded from every future harvest and could never become coupon capacity. That was
+// latent while the resting balance was always ~zero, and became a real leak the moment
+// the MIN_REINVEST floor and the wrapper-pause skip started deliberately leaving USDC
+// behind. The fix reinvests the vault's FULL balance.
+// --------------------------------------------------------------------------
+
+#[test]
+fn resting_usdc_is_swept_by_the_next_successful_harvest() {
+    let w = setup(YEAR);
+    let seeder = w.new_user(1_000 * USDC);
+    w.vault().seed(&seeder, &(1_000 * USDC));
+
+    // Strand a balance the honest way: pause the wrapper, harvest (claim succeeds,
+    // reinvest is skipped), unpause. Under the old delta form this USDC would be
+    // invisible to every subsequent harvest.
+    w.advance(30 * 24 * 60 * 60);
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.wrapper().pause();
+    let (stranded, added) = w.vault().harvest(&u32::MAX);
+    w.wrapper().unpause();
+    assert!(stranded > 0 && added == 0, "the scenario must really leave USDC behind");
+    assert_eq!(w.usdc().balance(&w.vault), stranded);
+
+    let cap_before = w.vault().stats().coupon_capacity;
+
+    // The next successful harvest must mint against the FULL balance: the stranded
+    // amount plus whatever it claims itself.
+    w.advance(30 * 24 * 60 * 60);
+    w.env().cost_estimate().budget().reset_unlimited();
+    let (claimed, pt_added) = w.vault().harvest(&u32::MAX);
+    assert_eq!(
+        pt_added,
+        stranded + claimed,
+        "reinvest must mint the whole resting balance ({}), not just this call's claim ({})",
+        stranded + claimed,
+        claimed
+    );
+    assert_eq!(w.usdc().balance(&w.vault), 0, "the vault holds no un-reinvested USDC");
+
+    // And the recovered dust really became coupon capacity, not just a bigger number.
+    let cap_after = w.vault().stats().coupon_capacity;
+    assert!(
+        cap_after - cap_before >= stranded,
+        "recovered USDC must show up as capacity: {} -> {} (stranded {})",
+        cap_before,
+        cap_after,
+        stranded
+    );
+
+    // The event/return still reports the newly-claimed figure, so the indexer's yield
+    // series stays a yield series and doesn't double-count the swept residue.
+    assert!(claimed < pt_added, "yield_claimed ({}) must exclude the residue", claimed);
 }

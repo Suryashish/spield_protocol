@@ -145,9 +145,21 @@ market suites.
   long-dated positions alive across the whole term. Logic in `shared/src/ttl.rs`.
 - **Paginated vault harvest — no unbounded loop (#6).** The vault tracks a growing list of wrapper
   positions; `harvest(max_positions)` sweeps it a **bounded chunk at a time** via a stored round-robin
-  cursor (clamped to `MAX_HARVEST_BATCH = 50`), so a single call can never exceed the tx resource
+  cursor (clamped to `MAX_HARVEST_BATCH = 3`), so a single call can never exceed the tx resource
   budget no matter how many positions accumulate. Repeated calls cover the whole list. Proven by
   `harvest_pagination_sweeps_all_positions`.
+  The batch ceiling is **measured, not assumed**: each item is a real Blend `submit` costing ~8 MB
+  of modelled memory against mainnet's 40 MiB per-transaction limit. 4 is the largest batch that
+  fits, but only at ~93% of the memory ceiling; we ship **3** (~74%) on purpose, because `harvest`
+  is permissionless upkeep that must never become un-runnable and the per-item cost is set by
+  Blend, not by us. `harvest_batch_size_that_fits_mainnet_limits` pins the constant from both
+  sides — that a full batch keeps ≥20% memory headroom, and that the next size up would not — so
+  the margin can neither silently erode nor be silently over-paid.
+- **Harvest never bricks (#6, cont).** Two cases used to revert the whole call and discard the yield
+  it had already claimed: a reinvest below Blend's one-share floor, and a **wrapper** pause blocking
+  the reinvest `mint`. Both now skip the reinvest and hold the USDC; because harvest reinvests the
+  vault's *full* balance rather than the newly-claimed delta, held USDC is swept by the next
+  successful call instead of being stranded.
 
 ## AMM curve hardening (the highest-risk math)
 

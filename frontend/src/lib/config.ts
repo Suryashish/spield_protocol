@@ -157,6 +157,21 @@ export const MARKET_DEPLOYED = CONTRACTS.market.length > 0;
 export const DECIMALS = 7;
 
 /**
+ * Smallest deposit the wrapper will accept, in base units (stroops).
+ *
+ * Blend credits `floor(amount / b_rate)` bToken shares, so once the pool has accrued
+ * (`b_rate > 1` — mainnet's is ≈1.124) a 1-stroop deposit floors to **0 shares** and is
+ * rejected. `wrapper::mint` refuses anything below `ceil(b_rate)` stroops up front with
+ * `InvalidAmount`, which makes the real minimum **2 stroops, not 1**.
+ *
+ * This mirrors that floor so the UI can say so before asking the user to sign. It is a
+ * static 2 because `b_rate` would have to exceed 2.0 for the contract's floor to move to
+ * 3 — a doubling of the Blend pool's cumulative index, far outside any near-term range.
+ * If it ever does, the contract still refuses correctly; only this hint goes stale.
+ */
+export const MIN_MINT_BASE_UNITS = 2n;
+
+/**
  * PT and YT are classic Stellar assets (wrapped as the SACs above). A holder must
  * establish a trustline to each before the wrapper can mint them — otherwise the
  * first `mint` fails. The dashboard offers a one-click trustline setup using these.

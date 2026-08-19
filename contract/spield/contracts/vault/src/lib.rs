@@ -53,10 +53,100 @@ use spield_shared::{governance, math, types::VaultStats, Error, WrapperContractC
 
 /// Hard ceiling on how many positions a single `harvest` call may process, so the per-call work
 /// (and thus the tx resource cost) is bounded regardless of the caller-supplied `max_positions`.
-const MAX_HARVEST_BATCH: u32 = 50;
+///
+/// **Measured, not guessed.** Each batch item is a full vault→wrapper→strategy→Blend `claim_yield`
+/// with a real pool withdraw, and every Blend `submit` costs ~8 MB of modelled memory against
+/// mainnet's 41,943,040-byte per-transaction ceiling. Memory — not instructions — is the binding
+/// constraint, which is why reasoning about loop counts alone missed it (a batch of 50 used 9.2×
+/// the memory ceiling while still sitting at ~52% of the instruction budget).
+///
+/// Worst case — every position in the batch has accrued yield, so every one performs a real
+/// withdraw, plus the one reinvest `submit`:
+///
+/// | batch | memory / 41,943,040 | headroom |
+/// |---:|---:|---:|
+/// | 1 | 14,896,536 | 64% |
+/// | 2 | 22,876,877 | 45% |
+/// | **3** | **30,861,132** (73.6%) | **26%** |
+/// | 4 | 38,851,613 (92.6%) | 7% |
+/// | 5 | ~46,836,638 ❌ | — |
+///
+/// **Why 3 and not 4.** 4 is the largest value that *fits*, but it fits with only ~7% to spare.
+/// `harvest` is permissionless upkeep that must never become un-runnable: if Blend's per-`submit`
+/// cost ever rises, this is the first thing to break, and it would break in production rather than
+/// in CI. 3 buys ~26% margin for one extra transaction per 12 tracked positions — a cost paid in
+/// fees by whoever runs upkeep, against a failure mode that strands coupon-capacity growth for
+/// everyone. The margin was chosen deliberately, so the constant is *sub-maximal on purpose*.
+///
+/// Pinned by `test::harvest_batch_size_that_fits_mainnet_limits`, which asserts this value fits,
+/// that it clears the [`MIN_HEADROOM_PCT`] policy floor, and that it is the largest value which
+/// does — so the margin cannot be silently eroded or silently over-paid.
+const MAX_HARVEST_BATCH: u32 = 3;
+
+/// The memory margin [`MAX_HARVEST_BATCH`] is required to leave against the mainnet per-transaction
+/// ceiling, as a percentage. This is the policy that makes the batch size sub-maximal on purpose:
+/// "it fits today" is not a sufficient bar for permissionless upkeep, because the cost of a batch
+/// item is set by Blend, not by us, and can rise under a pool upgrade we do not control.
+#[cfg(test)]
+pub(crate) const MIN_HEADROOM_PCT: i64 = 20;
+
+/// The smallest USDC balance worth reinvesting through `wrapper::mint`.
+///
+/// Blend credits `floor(amount / b_rate)` shares, so at any `b_rate > 1` (mainnet's is ≈1.124
+/// today) a dust-sized supply floors to **0 shares** and the pool rejects the request outright —
+/// which would revert the whole harvest, throwing away the yield it had already claimed. The true
+/// floor is `ceil(b_rate)` stroops (2 on mainnet); we sit three orders of magnitude above it so the
+/// guard stays correct without recalibration even if `b_rate` drifts far from today's value.
+///
+/// Skipping the reinvest is safe *only* because `harvest` reinvests the vault's **whole** USDC
+/// balance rather than just this call's delta — anything held back here is swept by the next
+/// harvest that clears the floor. 0.0001 USDC.
+const MIN_REINVEST: i128 = 1_000;
+
+/// How far the USDC collected by a single [`Vault::redeem`] may differ from the receipt's `payout`
+/// before it stops being Blend's share-math rounding and starts being an accounting fault.
+///
+/// One `redeem` performs a small, fixed number of Blend withdraws, each of which can round by about
+/// a stroop (`ceil(amount / b_rate)` shares burned, the real balance delta forwarded). So the band
+/// is a small CONSTANT, deliberately not a function of history or of tracked-position count — the
+/// same reasoning as the wrapper's `WITHDRAW_SLACK`. It bounds the deviation in **both** directions:
+/// a shortfall past it reverts, and an excess past it is not treated as the owner's dust.
+///
+/// Matches the vault solvency band's constant term (`open_receipts + 2`), so a redeem that lands
+/// inside this band can never be the thing that trips `assert_solvent`.
+const REDEEM_DUST: i128 = 2;
 
 /// The USDC the vault holds/settles in must have exactly 7 decimals (Stellar USDC, testnet + mainnet).
 const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
+
+/// Decide what a matured [`Vault::redeem`] forwards to the owner, given the receipt's locked
+/// `payout` and the USDC the vault actually collected (`got`) from redeeming that much PT.
+///
+/// Pure and total, so every branch is directly testable — the end-to-end suite runs against real
+/// Blend, which currently never returns more than requested, so the over-collection branch would
+/// otherwise be dead in CI while remaining live in production against a future pool build.
+///
+/// * `got` short by more than [`REDEEM_DUST`] ⇒ `Err(WithdrawShortfall)`. Blend paid materially
+///   less than the PT was worth; that is an accounting fault, not rounding, so the call reverts and
+///   the receipt stays open rather than closing for a partial payout.
+/// * `got` short *within* the band ⇒ pay `got`. Floor-rounding on Blend's share math; the receipt
+///   closes. (Unchanged behaviour.)
+/// * `got` over by up to [`REDEEM_DUST`] ⇒ pay `got`, **not** `payout`. This is the fix: `harvest`
+///   is gated before maturity and `redeem` only runs at/after it, so any excess left behind here is
+///   unreachable by every code path for the rest of time. The owner is the only party with a claim
+///   on their own rounding dust.
+/// * `got` over by more than [`REDEEM_DUST`] ⇒ pay `payout`. Not rounding, so it is not treated as
+///   the owner's; the surplus stays with the vault where `assert_solvent` and the off-chain monitor
+///   can see it.
+fn settle_redeem(got: i128, payout: i128) -> Result<i128, Error> {
+    if got + REDEEM_DUST < payout {
+        return Err(Error::WithdrawShortfall);
+    }
+    if got > payout + REDEEM_DUST {
+        return Ok(payout);
+    }
+    Ok(got)
+}
 
 #[contract]
 pub struct Vault;
@@ -215,6 +305,7 @@ impl Vault {
         };
         storage::save_receipt(&env, id, &receipt);
         storage::set_total_liability(&env, new_liability);
+        storage::inc_open_receipts(&env); // new open receipt (bounds the dust tolerance)
         storage::bump_instance(&env);
 
         events::deposited(&env, &user, id, amount, payout, rate_bps);
@@ -224,6 +315,23 @@ impl Vault {
 
     /// Redeem a matured receipt: at/after maturity, redeem `payout` PT from the vault's inventory
     /// 1:1 and pay the owner `payout` USDC. Closes the receipt and clears its liability.
+    ///
+    /// ## Rounding, in both directions
+    /// The USDC actually collected (`got`) is whatever Blend's withdraw returned, which its share
+    /// math can round a stroop or two either side of the `payout` we asked for
+    /// (`strategy::withdraw_underlying` forwards the real delta, not the requested amount):
+    ///
+    /// * **Short** by more than [`REDEEM_DUST`] — a real accounting fault, so the call reverts with
+    ///   `WithdrawShortfall`. Short *within* the band pays what was collected.
+    /// * **Over** by up to [`REDEEM_DUST`] — the excess is paid to the owner rather than left
+    ///   behind. This matters because `harvest` is gated *before* maturity while `redeem` runs
+    ///   *at/after* it, so anything `redeem` strands can never be swept by anything, ever. Handing
+    ///   the owner their own rounding dust is the only exit it has.
+    /// * **Over** by more than [`REDEEM_DUST`] — not dust, so it is *not* handed over; the owner
+    ///   gets exactly `payout` and the anomaly is left for the solvency assertion and the monitor.
+    ///
+    /// The band is bounded per receipt and each redeem closes its receipt, so this cannot be
+    /// repeated against the same liability.
     pub fn redeem(env: Env, receipt_id: u64) -> i128 {
         Self::ensure_initialized(&env); // user exit — allowed even while paused
         let mut receipt = storage::get_receipt(&env, receipt_id)
@@ -237,14 +345,11 @@ impl Vault {
         }
 
         // Redeem `payout` USDC worth of PT from the vault's positions (PT → USDC 1:1 at maturity),
-        // collecting the USDC into the vault, then forward exactly `payout` to the owner.
+        // collecting the USDC into the vault, then forward it to the owner.
         let usdc = storage::get_underlying(&env);
         let got = Self::redeem_pt_for(&env, receipt.payout);
-        // `got` should equal `payout` (PT is 1:1); guard the rare Blend floor-rounding shortfall.
-        if got + 2 < receipt.payout {
-            panic_with_error!(&env, Error::WithdrawShortfall);
-        }
-        let pay = if got < receipt.payout { got } else { receipt.payout };
+        let pay = settle_redeem(got, receipt.payout)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
         token::Client::new(&env, &usdc).transfer(
             &env.current_contract_address(),
             &receipt.owner,
@@ -254,6 +359,7 @@ impl Vault {
         receipt.open = false;
         storage::save_receipt(&env, receipt_id, &receipt);
         storage::set_total_liability(&env, storage::total_liability(&env) - receipt.payout);
+        storage::dec_open_receipts(&env); // receipt closed — the band shrinks back with it
         storage::bump_instance(&env);
 
         events::redeemed(&env, &receipt.owner, receipt_id, pay);
@@ -266,9 +372,29 @@ impl Vault {
     /// capacity. **Paginated** so the per-call work is bounded no matter how many positions the vault
     /// has accumulated — repeated calls sweep the whole list a chunk at a time (mainnet-readiness #6:
     /// an un-paginated loop over an ever-growing list would eventually exceed the tx budget and
-    /// permanently revert). Permissionless (it only ever *increases* backing) and allowed while
-    /// paused (it's an upkeep/outflow-side op, never an inflow of new user money). `max_positions`
-    /// is clamped to a sane ceiling; pass e.g. 20–50. Returns (yield_claimed_usdc, pt_added).
+    /// permanently revert). Permissionless (it only ever *increases* backing).
+    /// Returns `(yield_claimed_usdc, pt_added)`.
+    ///
+    /// `max_positions` is clamped to [`MAX_HARVEST_BATCH`] = **3**, which fits every mainnet
+    /// transaction ceiling with a deliberate ~26% memory margin (memory is the binding one). Passing
+    /// more is harmless but buys nothing; sweeping N tracked positions takes ⌈N/3⌉ calls.
+    ///
+    /// ## Pause semantics — read this carefully, there are two pauses
+    /// * The **vault's own** pause does not block harvest: it is upkeep, never an inflow of new user
+    ///   money, so it stays open during an emergency.
+    /// * The **wrapper's** pause blocks `mint`, which is the reinvest leg. Rather than revert — and
+    ///   throw away the yield already claimed in the same call — harvest **skips the reinvest and
+    ///   holds the USDC**. The next harvest after the unpause sweeps it into PT. So a wrapper pause
+    ///   defers coupon-capacity upkeep; it never destroys claimed yield and never bricks the call.
+    ///
+    /// ## Reinvesting the balance, not the delta
+    /// The reinvest mints against the vault's **entire** USDC balance, not just what this call
+    /// claimed. Anything a previous harvest held back (below [`MIN_REINVEST`], or during a wrapper
+    /// pause) is therefore recovered rather than stranded. This is safe because the vault's resting
+    /// USDC is only ever un-reinvested yield: `deposit`/`seed` pull USDC in and mint it within the
+    /// same call, and `redeem` collects and forwards within the same call. The returned/emitted
+    /// `yield_claimed` stays the newly-claimed figure so the indexer's yield series remains
+    /// meaningful — only `pt_added` reflects the full sweep.
     pub fn harvest(env: Env, max_positions: u32) -> (i128, i128) {
         Self::ensure_initialized(&env);
         Self::ensure_before_maturity(&env);
@@ -302,21 +428,31 @@ impl Vault {
         storage::set_harvest_cursor(&env, idx);
 
         let after = token::Client::new(&env, &usdc).balance(&env.current_contract_address());
+        // What THIS call claimed (the figure the event/indexer reports)…
         let claimed = after - before;
-        if claimed <= 0 {
+        // …versus what we can actually put to work: the whole resting balance, which also picks up
+        // anything an earlier harvest held back below the floor or during a wrapper pause.
+        let reinvestable = after;
+
+        // Skip the reinvest — but keep the claim — in the two cases where minting would fail:
+        //  * below MIN_REINVEST, Blend floors the credited shares to 0 and rejects the supply;
+        //  * under a WRAPPER pause, `wrapper::mint` panics `Paused`.
+        // In both cases the USDC simply rests in the vault until the next harvest can use it.
+        // Reverting instead would discard the yield this call already claimed.
+        if reinvestable < MIN_REINVEST || w.is_paused() {
             storage::bump_instance(&env);
-            events::harvested(&env, 0, 0);
-            return (0, 0);
+            events::harvested(&env, claimed, 0);
+            return (claimed, 0);
         }
 
-        // Reinvest the claimed USDC as fresh PT (+YT) → new coupon capacity.
-        let position_id = Self::wrapper_mint(&env, &usdc, claimed);
+        // Reinvest the vault's full USDC balance as fresh PT (+YT) → new coupon capacity.
+        let position_id = Self::wrapper_mint(&env, &usdc, reinvestable);
         Self::track_position(&env, position_id);
         storage::bump_instance(&env);
 
-        events::harvested(&env, claimed, claimed);
+        events::harvested(&env, claimed, reinvestable);
         Self::assert_solvent(&env);
-        (claimed, claimed)
+        (claimed, reinvestable)
     }
 
     // ---------- read-only views (frontend / dashboard) ----------
@@ -621,11 +757,19 @@ impl Vault {
     /// The vault solvency invariant: PT inventory must cover every open receipt's payout. Because
     /// PT redeems 1:1, holding `pt_inventory >= total_liability` guarantees every receipt is
     /// payable. We allow a tiny dust tolerance for Blend's floor-rounding on the PT mints that
-    /// build inventory (bounded by the number of positions opened).
+    /// build inventory.
+    ///
+    /// **Bounded by construction.** The tolerance is `open_receipts + 2` — anchored to *live*
+    /// state, exactly like the wrapper's `open_positions + WITHDRAW_SLACK`. The earlier form used
+    /// the monotonic `peek_next_receipt_id`, which counts every receipt ever issued and never
+    /// decreases: each deposit permanently widened the band by a stroop even after that receipt was
+    /// redeemed and closed. Closed receipts carry no dust (their liability is gone too), so
+    /// anchoring to the open count is both tighter and ungameable by churn. A real accounting bug —
+    /// issuing an unbacked receipt — moves inventory by whole units, far past this band.
     fn assert_solvent(env: &Env) {
         let pt_inventory = Self::pt_inventory(env);
         let liability = storage::total_liability(env);
-        let dust = storage::peek_next_receipt_id(env) as i128 + 2;
+        let dust = storage::open_receipts(env) as i128 + 2;
         if pt_inventory + dust < liability {
             panic_with_error!(env, Error::SolvencyViolation);
         }

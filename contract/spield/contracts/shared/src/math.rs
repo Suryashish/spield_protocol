@@ -68,6 +68,24 @@ pub fn yield_amount(
     mul_div_floor(env, shares, delta, SCALAR_12)
 }
 
+/// The smallest underlying amount (stroops) that Blend will credit **at least one share** for at
+/// `b_rate`: `ceil(b_rate / SCALAR_12)`.
+///
+/// Blend mints `floor(amount * SCALAR_12 / b_rate)` shares, so anything below this floors to 0 and
+/// the pool rejects the supply with its own error — before Spield's `shares <= 0` guard is ever
+/// reached. Callers check against this so the revert names *our* constraint. At mainnet's
+/// `b_rate ≈ 1.124` this is **2 stroops**, which is the real minimum viable mint (not 1).
+///
+/// A non-positive rate yields 1 (the trivial floor); rate sanity is enforced separately by
+/// [`check_rate_bound_timed`].
+pub fn min_mintable(b_rate: i128) -> i128 {
+    if b_rate <= SCALAR_12 {
+        return 1;
+    }
+    // ceil(b_rate / SCALAR_12) — b_rate is an i128 rate, so this cannot overflow.
+    (b_rate + SCALAR_12 - 1) / SCALAR_12
+}
+
 /// Seconds in a (non-leap) year, used to pro-rate an annual fixed rate over a deposit's term.
 pub const SECONDS_PER_YEAR: i128 = 365 * 24 * 60 * 60;
 

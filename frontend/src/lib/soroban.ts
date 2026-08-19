@@ -69,6 +69,9 @@ export const i128 = (v: bigint): xdr.ScVal => nativeToScVal(v, { type: 'i128' })
 /** Build a u64 ScVal. */
 export const u64 = (v: bigint | number): xdr.ScVal => nativeToScVal(BigInt(v), { type: 'u64' });
 
+/** Build a u32 ScVal. */
+export const u32 = (v: number): xdr.ScVal => nativeToScVal(v, { type: 'u32' });
+
 /** Build an address ScVal from a G… or C… string. */
 export const addr = (a: string): xdr.ScVal => new Address(a).toScVal();
 

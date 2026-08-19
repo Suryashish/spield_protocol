@@ -712,62 +712,80 @@ fn warp_to(w: &World, ts: u64) {
 }
 
 // --------------------------------------------------------------------------
-// §0 P0 — `mint_after_maturity_behavior`
+// §0 P0 (fixed) — `mint_after_maturity_behavior`
 //
-// `wrapper::mint` has NO maturity gate (the vault and the market both refuse
-// post-maturity inflows; the wrapper does not). A post-maturity mint creates a
-// position whose PT is instantly redeemable and whose YT keeps accruing with no
-// maturity cap on `claim_yield`.
+// `wrapper::mint` had NO maturity gate, while the vault (`ensure_before_maturity`)
+// and the market (`ensure_tradeable`) both refuse post-maturity inflows. A
+// post-maturity mint created a position whose PT was redeemable in the very same
+// ledger — a zero-duration round trip in a market the rest of the protocol had
+// already closed. `mint` now matches them and refuses with `MarketMatured`.
 // --------------------------------------------------------------------------
 
 #[test]
-fn mint_after_maturity_is_currently_allowed() {
+fn mint_after_maturity_is_rejected() {
     let w = setup(YEAR);
-    warp_to(&w, w.maturity + 1);
+    // A mint just BEFORE maturity is still fine — the gate is at the boundary, not before it.
+    warp_to(&w, w.maturity - 1);
+    let (_early_user, early_id) = w.deposit_new_user(100 * USDC);
+    assert!(w.wrapper().get_position(&early_id).open);
 
-    // The wrapper happily accepts a deposit for a bond that has already matured.
-    let (user, id) = w.deposit_new_user(100 * USDC);
-    let pos = w.wrapper().get_position(&id);
-    assert!(pos.open);
-    assert_eq!(pos.pt_amount, 100 * USDC);
-    assert_eq!(pos.yt_amount, 100 * USDC);
-
-    // The PT it minted is redeemable in the very same ledger — a zero-duration
-    // round trip that exists only because there is no maturity gate on `mint`.
-    let before = w.usdc().balance(&user);
-    let redeemed = w.wrapper().redeem_pt(&id, &(100 * USDC));
-    assert_eq!(redeemed, 100 * USDC);
-    // Blend floors the withdraw, so the delivered USDC can trail the returned
-    // figure by ≤1 stroop (the tolerance `redeem_underlying` itself allows).
-    let received = w.usdc().balance(&user) - before;
-    assert!(
-        (100 * USDC - received) <= 1,
-        "received {} vs redeemed {}",
-        received,
-        redeemed
+    // At maturity exactly, and after it, the inflow is refused.
+    warp_to(&w, w.maturity);
+    let user = Address::generate(w.env());
+    w.usdc_admin().mint(&user, &(100 * USDC));
+    assert_eq!(
+        w.wrapper().try_mint(&user, &(100 * USDC)),
+        Err(Ok(spield_shared::Error::MarketMatured.into())),
+        "mint must be refused AT maturity (the same `>=` boundary the vault uses)"
+    );
+    warp_to(&w, w.maturity + 30 * 24 * 60 * 60);
+    assert_eq!(
+        w.wrapper().try_mint(&user, &(100 * USDC)),
+        Err(Ok(spield_shared::Error::MarketMatured.into())),
+        "…and after it"
     );
 
-    // Solvency is not violated by it (you get back exactly what you put in) —
-    // this is a product/consistency gap, not a value leak.
+    // The refusal is atomic: no PT/YT, no position, no USDC moved.
+    assert_eq!(w.pt().balance(&user), 0);
+    assert_eq!(w.yt().balance(&user), 0);
+    assert_eq!(w.usdc().balance(&user), 100 * USDC, "the deposit was not pulled");
+    assert!(
+        w.wrapper().try_get_position(&(early_id + 1)).is_err(),
+        "no position was created for the refused mint"
+    );
+
+    // EXITS are unaffected — the gate is inflow-only, and this is the whole point of
+    // maturity. The pre-maturity position redeems normally.
     let (backing, principal, _) = w.wrapper().solvency();
     assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
+    let redeemed = w.wrapper().redeem_pt(&early_id, &(100 * USDC));
+    assert_eq!(redeemed, 100 * USDC, "post-maturity redemption must still work");
 }
 
+/// The deliberate other half of the decision: `claim_yield` is **not** capped at
+/// maturity. A YT holder genuinely owns the yield their shares produce, and their
+/// shares stay supplied to Blend until the principal is redeemed — so a position
+/// minted before maturity keeps accruing past it. That is a stated choice, not an
+/// omission, and this test is what makes it one.
 #[test]
-fn yt_minted_after_maturity_keeps_accruing_forever() {
+fn yt_keeps_accruing_past_maturity_for_a_pre_maturity_position() {
     let w = setup(YEAR);
-    warp_to(&w, w.maturity + 1);
     let (_user, id) = w.deposit_new_user(100 * USDC);
 
-    // `claim_yield` has no maturity cap either: the YT of a post-maturity mint
-    // keeps earning real Blend interest indefinitely.
+    // Cross maturity without redeeming, then let another year accrue.
+    warp_to(&w, w.maturity + 1);
     w.advance(YEAR);
     let claimed = w.wrapper().claim_yield(&id);
     assert!(
         claimed > 0,
-        "YT minted AFTER maturity still accrues — claim_yield has no maturity cap"
+        "YT must keep earning past maturity — claim_yield is deliberately uncapped"
     );
-    std::println!("post-maturity mint accrued {} USDC of yield a year later", claimed);
+    // And the principal is still fully redeemable afterwards: the yield came from
+    // real Blend growth, not from the principal's backing.
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
+    assert_eq!(w.wrapper().redeem_pt(&id, &(100 * USDC)), 100 * USDC);
+    std::println!("post-maturity accrual on a pre-maturity position: {} USDC", claimed);
 }
 
 // --------------------------------------------------------------------------
@@ -935,39 +953,66 @@ fn extra_pt_outside_a_position_breaks_conservation_but_not_the_wrapper() {
 }
 
 // --------------------------------------------------------------------------
-// §1 P1 — `one_stroop_mint_at_elevated_entry_rate` (surfaced while testing §0.4)
+// §1 P1 (fixed) — `one_stroop_mint_at_elevated_entry_rate`
 //
 // Once the pool has accrued (`b_rate > 1`), Blend floors the credited shares of a
 // 1-stroop supply to 0 and rejects the request *inside the pool* — before the
-// wrapper's own `shares <= 0` guard is ever reached. The practical consequence
-// is a hard **2-stroop minimum mint** on any pool with a non-unit `b_rate`, which
-// is exactly mainnet's state (`b_rate ≈ 1.124`). This is what makes a dust-sized
-// vault `harvest` reinvest revert (see the vault suite).
+// wrapper's own `shares <= 0` guard was ever reached, so callers saw an opaque
+// Blend error code. The practical consequence is a hard **2-stroop minimum mint**
+// on any pool with a non-unit `b_rate`, which is exactly mainnet's state
+// (`b_rate ≈ 1.124`).
+//
+// The behavior was already safe (atomic refusal, no unbacked PT); what was missing
+// was that it named nothing the caller could act on. `mint` now checks
+// `math::min_mintable(entry_rate)` up front and refuses with Spield's own
+// `InvalidAmount`.
 // --------------------------------------------------------------------------
 
 #[test]
-fn one_stroop_mint_is_rejected_once_brate_exceeds_one() {
+fn sub_minimum_mint_is_refused_with_spields_own_error() {
     let w = setup(YEAR);
     w.advance(30 * 24 * 60 * 60); // let b_rate rise above 1.0
 
     let user = Address::generate(w.env());
     w.usdc_admin().mint(&user, &(100 * USDC));
 
-    // 1 stroop floors to 0 shares → refused.
-    let one = w.wrapper().try_mint(&user, &1i128);
-    assert!(
-        one.is_err(),
-        "a 1-stroop mint must be refused at b_rate > 1, never mint unbacked PT"
+    // The floor is derived from the live rate, not hardcoded — read it and check the
+    // boundary on both sides, so this stays honest if Blend's rate moves.
+    let rate = BlendStrategyClient::new(w.env(), &w.strategy).current_rate();
+    let min = spield_shared::math::min_mintable(rate);
+    assert_eq!(min, 2, "at a b_rate just over 1.0 the floor is 2 stroops (mainnet's case)");
+
+    // Below the floor: refused with OUR error, not Blend's, so the message is actionable.
+    assert_eq!(
+        w.wrapper().try_mint(&user, &(min - 1)),
+        Err(Ok(spield_shared::Error::InvalidAmount.into())),
+        "a sub-floor mint must name Spield's own constraint, not surface a Blend code"
     );
-    // 2 stroops is the smallest viable deposit.
+    // At the floor: succeeds.
     assert!(
-        w.wrapper().try_mint(&user, &2i128).is_ok(),
-        "2 stroops is the minimum viable mint at an elevated b_rate"
+        w.wrapper().try_mint(&user, &min).is_ok(),
+        "{} stroops is the minimum viable mint at an elevated b_rate",
+        min
     );
 
-    // The refusal is atomic: no PT/YT was minted for the failed attempt.
-    assert_eq!(w.pt().balance(&user), 2, "only the successful 2-stroop mint exists");
-    assert_eq!(w.yt().balance(&user), 2);
+    // The refusal is atomic: no PT/YT was minted for the failed attempt, and the USDC
+    // pulled before the check was returned by the revert.
+    assert_eq!(w.pt().balance(&user), min, "only the successful mint exists");
+    assert_eq!(w.yt().balance(&user), min);
+    assert_eq!(w.usdc().balance(&user), 100 * USDC - min, "only the successful mint was charged");
     let (backing, principal, _) = w.wrapper().solvency();
     assert!(backing + 5 >= principal);
+}
+
+/// `min_mintable` is pure and the boundary matters, so pin it directly too: at or
+/// below par the floor is 1 stroop; above par it is `ceil(rate)`.
+#[test]
+fn min_mintable_tracks_the_rate() {
+    use spield_shared::{math::min_mintable, SCALAR_12};
+    assert_eq!(min_mintable(SCALAR_12), 1, "at par, 1 stroop credits 1 share");
+    assert_eq!(min_mintable(SCALAR_12 / 2), 1, "below par the floor cannot go under 1");
+    assert_eq!(min_mintable(SCALAR_12 + 1), 2, "a hair over par already needs 2");
+    assert_eq!(min_mintable(SCALAR_12 * 1124 / 1000), 2, "mainnet's b_rate ≈ 1.124 ⇒ 2");
+    assert_eq!(min_mintable(SCALAR_12 * 2), 2, "exactly 2.0 ⇒ 2");
+    assert_eq!(min_mintable(SCALAR_12 * 2 + 1), 3, "just over 2.0 ⇒ 3");
 }

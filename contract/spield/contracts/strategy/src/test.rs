@@ -364,6 +364,99 @@ fn tiny_annual_cap_trips_then_set_max_apr_bps_unsticks() {
     assert!(strategy.position_value(&total) > 0, "downstream value reads unfrozen");
 }
 
+// ---------------------------------------------------------------------------
+// The `b_rate` DECREASE valve: `reset_rate_floor` (tofix.md item 3)
+// ---------------------------------------------------------------------------
+
+/// The valve against the real Blend pool. Blend's `b_rate` only rises, so we cannot make
+/// it dip here — instead we drive the stored high-water mark ABOVE the live rate the only
+/// honest way available: read at a late timestamp (recording a high `last_rate`), then
+/// evaluate at an earlier one. That reproduces exactly the `current < last` condition a
+/// bad-debt socialisation would create, against real pool data.
+#[test]
+fn reset_rate_floor_recovers_from_a_stale_high_water_mark() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 30_000u32);
+
+    let deposit = 1_000 * USDC;
+    b.usdc_admin().mint(&wrapper, &deposit);
+    strategy.deposit(&wrapper, &deposit);
+
+    // Record a high-water mark a year out…
+    advance(&b, 365 * 24 * 60 * 60);
+    let high = strategy.current_rate();
+    let (stored, _, _) = strategy.rate_bound();
+    assert_eq!(stored, high);
+
+    // …then evaluate against an earlier ledger, where the pool's real rate is lower.
+    b.env.ledger().set_timestamp(b.env.ledger().timestamp() - 180 * 24 * 60 * 60);
+    b.oracle().set_price_stable(&vec![&b.env, 1_0000000, 1_0000000]);
+    let frozen = strategy.try_current_rate();
+    assert_eq!(
+        frozen,
+        Err(Ok(spield_shared::Error::RateOutOfBounds.into())),
+        "a rate below the stored high-water mark must freeze reads (the failure mode)"
+    );
+    // The wrong valve stays wrong, against real Blend too.
+    strategy.set_max_apr_bps(&u32::MAX);
+    assert_eq!(
+        strategy.try_current_rate(),
+        Err(Ok(spield_shared::Error::RateOutOfBounds.into())),
+        "set_max_apr_bps widens the UPPER ceiling; it cannot clear a decrease"
+    );
+
+    // The right valve: one admin call, and reads resolve again.
+    let new_floor = strategy.reset_rate_floor();
+    assert!(new_floor < high, "the floor was lowered: {} -> {}", high, new_floor);
+    let rate = strategy.current_rate();
+    assert_eq!(rate, new_floor, "reads return the live pool rate");
+    let total = strategy.total_shares();
+    assert!(strategy.position_value(&total) > 0, "downstream value reads unfrozen");
+}
+
+/// The valve is admin-only. It can only ever lower a sanity threshold, but it is still a
+/// privileged operation and must not be callable by anyone who notices the freeze.
+#[test]
+fn reset_rate_floor_is_admin_gated() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 30_000u32);
+
+    // The env mocks all auths, so assert the requirement was RECORDED against the admin —
+    // that is what proves the gate exists rather than that the call happened to succeed.
+    strategy.reset_rate_floor();
+    let auths = b.env.auths();
+    assert!(
+        auths.iter().any(|(addr, _)| addr == &admin),
+        "reset_rate_floor must require the admin's authorization, got {:?}",
+        auths.len()
+    );
+}
+
+/// It is not timelocked, deliberately: a liveness valve that must work during an incident.
+/// Governance still applies to *who* may call it, so a rotated admin inherits it.
+#[test]
+fn rotated_admin_inherits_the_rate_floor_valve() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 30_000u32);
+
+    let new_admin = Address::generate(&b.env);
+    strategy.propose_admin(&new_admin);
+    strategy.accept_admin();
+    assert_eq!(strategy.admin(), new_admin);
+
+    strategy.reset_rate_floor();
+    assert!(
+        b.env.auths().iter().any(|(addr, _)| addr == &new_admin),
+        "the rotated admin must be the one authorizing the valve"
+    );
+}
+
 /// Admin can rotate (two-step) and the new admin controls `set_max_apr_bps`.
 #[test]
 fn strategy_admin_rotation_and_governed_set_max_apr() {

@@ -293,6 +293,59 @@ impl BlendStrategy {
         Self::bump_instance(&env);
     }
 
+    /// **The recovery valve for a `b_rate` DECREASE.** Lowers the stored `last_rate` high-water
+    /// mark to the pool's live `b_rate`, re-stamping `last_ts` to now. Admin only. Returns the
+    /// floor in effect after the call.
+    ///
+    /// `check_rate_bound_timed` rejects `current < last` outright, because Blend documents `b_rate`
+    /// as monotonic non-decreasing. If Blend ever socialises bad debt and the rate dips by even one
+    /// stroop, that guard sits under `current_rate`, which sits under **every** wrapper entry point
+    /// — mint, `claim_yield`, `redeem_pt` (even at maturity), `combine_and_redeem`,
+    /// `position_value` and `solvency` all revert `RateOutOfBounds`. Only `transfer_position`
+    /// survives (it never reads the rate), so a position could be moved but never exited, and the
+    /// freeze lasts until Blend's rate climbs back above the high-water mark — with no admin
+    /// action, timelock, or upgrade able to shorten it.
+    ///
+    /// [`Self::set_max_apr_bps`] is **not** a substitute: it widens the *upper* ceiling, and this
+    /// failure is the *lower* monotonicity guard. Widening it to `u32::MAX` leaves the freeze
+    /// exactly where it was.
+    ///
+    /// ## Why this cannot mint value
+    /// Resetting the floor only lets reads resolve again; it changes no balance and no share count.
+    /// The wrapper still asserts `backing >= principal` against Blend's **real** position after
+    /// every mutation, so if the dip is deep enough that the backing genuinely no longer covers
+    /// outstanding principal, mutations still refuse — with `SolvencyViolation` instead of
+    /// `RateOutOfBounds`. That is the honest limit of this valve: it restores exits for the class
+    /// of dips the position can still absorb, and correctly declines to paper over the ones it
+    /// cannot. Read paths (`position_value`, `solvency`) come back in **both** cases, which is what
+    /// the dashboard and the off-chain monitor need during an incident.
+    ///
+    /// Immediate rather than timelocked, for the same reason as `set_max_apr_bps`: it is a liveness
+    /// valve that can only ever *lower* a sanity threshold on an already-trusted pool reading.
+    /// It requires a human in the loop during an incident — that is deliberate, not an oversight.
+    pub fn reset_rate_floor(env: Env) -> i128 {
+        Self::current_admin(&env).require_auth();
+        // Read the RAW pool rate, deliberately bypassing `current_rate` — that is the very call
+        // the stale floor is bricking, so going through it would make this valve unusable.
+        let pool = Self::pool_addr(&env);
+        let underlying = Self::underlying(env.clone());
+        let raw = PoolClient::new(&env, &pool).get_reserve(&underlying).data.b_rate;
+        if raw <= 0 {
+            panic_with_error!(&env, Error::RateOutOfBounds);
+        }
+        let mut bound = Self::bound(&env);
+        // Only ever LOWER the floor. If the live rate is already at/above the stored mark there is
+        // no freeze to clear, and *raising* it would brick reads that currently pass — the exact
+        // failure this exists to undo. So that case is a no-op that reports the unchanged floor.
+        if raw < bound.last_rate {
+            bound.last_rate = raw;
+            bound.last_ts = env.ledger().timestamp();
+            env.storage().instance().set(&DataKey::Bound, &bound);
+            Self::bump_instance(&env);
+        }
+        bound.last_rate
+    }
+
     // ---------- governance: admin rotation (two-step) + upgrade timelock ----------
 
     /// Propose a new admin (step 1 of 2). Current admin authorizes; the proposed admin must then

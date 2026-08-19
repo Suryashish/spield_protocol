@@ -175,11 +175,11 @@ fn setup(maturity_secs_from_now: u64) -> World {
     let maturity = env.ledger().timestamp() + maturity_secs_from_now;
     WrapperClient::new(&env, &wrapper).initialize(&strategy, &pt, &yt, &maturity);
 
-    // The market trades PT against USDC. It's told the SACs + maturity explicitly (the deploy
-    // script reads them from the wrapper), exactly like the vault is told `underlying`.
+    // The market trades PT against USDC. It's told the wrapper it trades against and
+    // cross-checks `pt` + `maturity` against it on chain, so the pairing is an invariant.
     let market = env.register(Market, (admin.clone(),));
     MarketClient::new(&env, &market).initialize(
-        &pt, &usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+        &wrapper, &pt, &usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
     );
 
     World { env, pool, usdc, oracle_id, wrapper, market, pt, maturity }
@@ -209,6 +209,11 @@ fn init_sets_market_params() {
     assert!(!w.market().is_paused());
     assert_eq!(w.market().reserves(), (0, 0));
     assert_eq!(w.market().total_shares(), 0);
+    // The pool records which wrapper it is bound to, and that binding is verifiable:
+    // both cross-checked fields agree with the wrapper's own views.
+    assert_eq!(w.market().wrapper(), w.wrapper);
+    assert_eq!(w.market().maturity(), w.wrapper().maturity());
+    assert_eq!(w.market().pt_token(), w.wrapper().pt_token());
 }
 
 #[test]
@@ -216,7 +221,7 @@ fn init_sets_market_params() {
 fn double_initialize_panics() {
     let w = setup(YEAR);
     w.market().initialize(
-        &w.pt, &w.usdc, &w.maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+        &w.wrapper, &w.pt, &w.usdc, &w.maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
     );
 }
 
@@ -413,9 +418,11 @@ fn full_lifecycle_mint_lp_swap_claim_redeem() {
 fn swap_after_maturity_panics() {
     let w = setup(YEAR);
     seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
-    w.env().ledger().set_timestamp(w.maturity + 1);
+    // Acquire the PT BEFORE maturity — `wrapper::mint` is now maturity-gated too, and we
+    // want this test to fail on the swap's halt, not on the mint's.
     let trader = w.new_user(100 * USDC);
     w.mint_position(&trader, 100 * USDC);
+    w.env().ledger().set_timestamp(w.maturity + 1);
     w.market().swap_exact_pt_for_usdc(&trader, &(100 * USDC), &0);
 }
 
@@ -849,6 +856,27 @@ mod mock6 {
     }
 }
 
+/// A stand-in exposing just the two wrapper views `market::initialize` cross-checks,
+/// so the decimals test doesn't need the whole Blend stack behind it.
+mod mock_wrapper {
+    use soroban_sdk::{contract, contractimpl, Address, Env};
+    #[contract]
+    pub struct W;
+    #[contractimpl]
+    impl W {
+        pub fn __constructor(env: Env, pt: Address, maturity: u64) {
+            env.storage().instance().set(&0u32, &pt);
+            env.storage().instance().set(&1u32, &maturity);
+        }
+        pub fn pt_token(env: Env) -> Address {
+            env.storage().instance().get(&0u32).unwrap()
+        }
+        pub fn maturity(env: Env) -> u64 {
+            env.storage().instance().get(&1u32).unwrap()
+        }
+    }
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #11)")] // UnexpectedDecimals
 fn init_rejects_non_seven_decimal_usdc() {
@@ -858,10 +886,14 @@ fn init_rejects_non_seven_decimal_usdc() {
     let admin = Address::generate(&env);
     let pt = env.register_stellar_asset_contract_v2(admin.clone()).address();
     let bad_usdc = env.register(mock6::Token6, ());
-    let market = env.register(Market, (admin.clone(),));
     let maturity = env.ledger().timestamp() + YEAR;
+    // A wrapper that WOULD pass the cross-check, so the only thing left to fail is the
+    // decimals assertion — the test can't accidentally pass for the wrong reason.
+    let wrapper = env.register(mock_wrapper::W, (pt.clone(), maturity));
+    let market = env.register(Market, (admin.clone(),));
     // 6-decimal usdc must be rejected at init.
     MarketClient::new(&env, &market).initialize(
+        &wrapper,
         &pt,
         &bad_usdc,
         &maturity,
@@ -1073,117 +1105,167 @@ fn seller_with_sold_pt_cannot_combine_or_transfer() {
 }
 
 // --------------------------------------------------------------------------
-// §0 P1 — `market_maturity_mismatch_with_wrapper`
+// §0 P1 (fixed) — `market_maturity_mismatch_with_wrapper`
 //
-// `market::initialize` takes `maturity` as a free parameter and never checks it
-// against the wrapper it trades PT for. A market dated LATER than the wrapper
-// keeps quoting PT at a discount after PT is already redeemable at par — a
-// risk-free arbitrage paid for by the LPs.
+// `market::initialize` used to take `maturity` as a free parameter and never check
+// it against the wrapper whose PT it trades: a deploy-script promise, not an
+// on-chain invariant. Both directions failed, in opposite ways —
+//
+//   * LATE-dated  → past the wrapper's maturity the curve is still live, so the pool
+//                   keeps quoting PT at a discount while every PT already redeems at
+//                   par. Measured before the fix: 100 USDC bought 101.07 PT, a
+//                   risk-free draw on the LPs, repeatable until their USDC was gone.
+//   * EARLY-dated → between the market's maturity and the wrapper's, holders have no
+//                   venue (`MarketExpired`) and no redemption (`NotMatured`).
+//
+// `initialize` now takes the `wrapper` and asserts both `pt` and `maturity` against
+// it, so neither market can be constructed at all.
 // --------------------------------------------------------------------------
 
-#[test]
-fn market_init_does_not_cross_check_wrapper_maturity() {
-    let w = setup(YEAR);
+/// Deploy a fresh market with a caller-chosen `pt`/`maturity` against `w`'s wrapper and
+/// try to initialize it, flattening the nested `try_*` result to the contract error so
+/// callers can assert the exact rejection. A host-level error is a test bug, not an
+/// expected outcome, so it panics rather than being folded into the comparison.
+fn try_init_market(w: &World, pt: &Address, maturity: u64) -> Result<(), soroban_sdk::Error> {
     let admin = w.wrapper().admin();
-
-    // A market dated 30 days AFTER the wrapper's maturity initializes happily.
-    let late = w.maturity + 30 * 24 * 60 * 60;
-    let late_market = w.env().register(Market, (admin.clone(),));
-    MarketClient::new(w.env(), &late_market).initialize(
-        &w.pt, &w.usdc, &late, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
-    );
-    assert_eq!(MarketClient::new(w.env(), &late_market).maturity(), late);
-    assert_ne!(
-        MarketClient::new(w.env(), &late_market).maturity(),
-        w.wrapper().maturity(),
-        "market maturity is NOT validated against the wrapper's"
-    );
-
-    // A market dated 30 days BEFORE the wrapper's maturity is equally accepted.
-    let early = w.maturity - 30 * 24 * 60 * 60;
-    let early_market = w.env().register(Market, (admin.clone(),));
-    MarketClient::new(w.env(), &early_market).initialize(
-        &w.pt, &w.usdc, &early, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
-    );
-    assert_eq!(MarketClient::new(w.env(), &early_market).maturity(), early);
+    let m = MarketClient::new(w.env(), &w.env().register(Market, (admin,)));
+    match m.try_initialize(
+        &w.wrapper, pt, &w.usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
+    ) {
+        Ok(_) => Ok(()),
+        Err(Ok(e)) => Err(e),
+        Err(Err(e)) => std::panic!("expected a contract error, got host error {:?}", e),
+    }
 }
 
 #[test]
-fn late_dated_market_sells_pt_below_par_after_it_redeems_at_par() {
+fn market_init_cross_checks_wrapper_maturity() {
     let w = setup(YEAR);
-    let admin = w.wrapper().admin();
-    // Market dated 180 days AFTER the wrapper's maturity (the deploy-script
-    // promise slipped — nothing on chain forbids it).
-    let late = w.maturity + 180 * 24 * 60 * 60;
-    let market = MarketClient::new(w.env(), &w.env().register(Market, (admin.clone(),)));
-    market.initialize(&w.pt, &w.usdc, &late, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR);
 
-    // Seed PT-heavy (proportion 0.8) so the curve discounts PT — the normal state
-    // of a fixed-income pool before maturity.
+    // A market dated 30 days AFTER the wrapper's maturity is refused…
+    assert_eq!(
+        try_init_market(&w, &w.pt, w.maturity + 30 * 24 * 60 * 60),
+        Err(spield_shared::Error::MaturityMismatch.into()),
+        "a late-dated market must be refused at init"
+    );
+    // …as is one dated 30 days BEFORE it…
+    assert_eq!(
+        try_init_market(&w, &w.pt, w.maturity - 30 * 24 * 60 * 60),
+        Err(spield_shared::Error::MaturityMismatch.into()),
+        "an early-dated market must be refused at init"
+    );
+    // …and so is a one-second slip in either direction: the check is exact equality,
+    // not a tolerance, because even a small window is an arbitrage window.
+    assert_eq!(
+        try_init_market(&w, &w.pt, w.maturity + 1),
+        Err(spield_shared::Error::MaturityMismatch.into())
+    );
+    assert_eq!(
+        try_init_market(&w, &w.pt, w.maturity - 1),
+        Err(spield_shared::Error::MaturityMismatch.into())
+    );
+
+    // The matching maturity is accepted (proving the tests above fail for the right reason).
+    assert!(try_init_market(&w, &w.pt, w.maturity).is_ok());
+}
+
+/// The other half of the binding: a pool pointed at the wrong PT SAC is refused too.
+/// Without this a market could quote a *different* bond's PT against this wrapper's
+/// maturity, which is the same class of mismatch one field over.
+#[test]
+fn market_init_cross_checks_wrapper_pt_token() {
+    let w = setup(YEAR);
+    // A PT-shaped SAC that this wrapper does not mint.
+    let impostor = register_sac(w.env(), &w.wrapper);
+    assert_eq!(
+        try_init_market(&w, &impostor, w.maturity),
+        Err(spield_shared::Error::PtTokenMismatch.into()),
+        "a market must trade the wrapper's own PT, not a look-alike SAC"
+    );
+    // The YT SAC is a particularly plausible mix-up — also refused.
+    let yt = w.wrapper().yt_token();
+    assert_eq!(
+        try_init_market(&w, &yt, w.maturity),
+        Err(spield_shared::Error::PtTokenMismatch.into()),
+        "passing YT where PT belongs must be caught"
+    );
+}
+
+/// The economic property the cross-check buys, stated positively: because the two
+/// maturities are now identical, the moment trading halts is the moment PT becomes
+/// redeemable at par. There is no window in which the curve quotes a discount on an
+/// already-redeemable bond — which is what the late-dated arbitrage fed on.
+#[test]
+fn trading_halts_exactly_when_pt_becomes_redeemable() {
+    let w = setup(YEAR);
+    // PT-heavy pool (proportion 0.8): PT is clearly discounted, the state the
+    // late-dated arbitrage exploited.
     let lp = w.new_user(2_000 * USDC);
     w.mint_position(&lp, 1_600 * USDC);
-    market.add_liquidity(&lp, &(1_600 * USDC), &(400 * USDC));
+    w.market().add_liquidity(&lp, &(1_600 * USDC), &(400 * USDC));
 
-    // Warp PAST the wrapper's maturity but BEFORE the market's. PT is now
-    // redeemable 1:1 at the wrapper, yet the market still quotes it at a discount.
-    warp_to(&w, w.maturity + 1);
-    let price = market.pt_price();
-    assert!(price > 0, "the late market still has a live curve");
-    assert!(
-        price < SCALAR_12,
-        "PT still quoted BELOW par ({}) while already redeemable AT par",
-        price
-    );
-
-    // The structural failure: swaps still execute after the bond has matured.
-    let arb = w.new_user(100 * USDC);
-    let pt_bought = market.swap_exact_usdc_for_pt(&arb, &(100 * USDC), &0);
-    assert!(
-        pt_bought > 100 * USDC,
-        "100 USDC bought {} PT — more than 1 PT per USDC, and every PT is already \
-         worth exactly 1 USDC at the wrapper: a risk-free draw on the LPs",
-        pt_bought
-    );
-    std::println!(
-        "late-dated market: price={} 100 USDC -> {} PT (par-redeemable) — LP loss {}",
-        price,
-        pt_bought,
-        pt_bought - 100 * USDC
-    );
-}
-
-#[test]
-fn early_dated_market_strands_pt_holders_between_the_two_maturities() {
-    let w = setup(YEAR);
-    let admin = w.wrapper().admin();
-    // Market dated 30 days BEFORE the wrapper's maturity.
-    let early = w.maturity - 30 * 24 * 60 * 60;
-    let market = MarketClient::new(w.env(), &w.env().register(Market, (admin.clone(),)));
-    market.initialize(&w.pt, &w.usdc, &early, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR);
-
-    let lp = w.new_user(2_000 * USDC);
-    w.mint_position(&lp, 1_000 * USDC);
-    market.add_liquidity(&lp, &(1_000 * USDC), &(1_000 * USDC));
-
+    // One second BEFORE maturity: the curve is live and PT is below par, but
+    // redemption is not open yet — so there is nothing to arbitrage against.
+    warp_to(&w, w.maturity - 1);
+    let price = w.market().pt_price();
+    assert!(price > 0 && price < SCALAR_12, "PT trades below par pre-maturity: {}", price);
     let holder = w.new_user(100 * USDC);
     let hid = w.mint_position(&holder, 100 * USDC);
-
-    // Between the market's maturity and the wrapper's, the holder has NO venue…
-    warp_to(&w, early + 1);
-    assert_eq!(
-        market.try_swap_exact_pt_for_usdc(&holder, &(100 * USDC), &0),
-        Err(Ok(spield_shared::Error::MarketExpired.into())),
-        "trading halted while PT is still a live bond"
-    );
-    // …and NO redemption either: the bond has not matured yet.
     assert_eq!(
         w.wrapper().try_redeem_pt(&hid, &(100 * USDC)),
         Err(Ok(spield_shared::Error::NotMatured.into())),
-        "PT is not redeemable until the wrapper's maturity"
+        "PT is not yet redeemable while the curve still discounts it"
     );
-    // The only exit left is `combine_and_redeem` (needs both legs) — pin that it works,
-    // so the stranding is a liquidity failure, not a trapped-funds failure.
+
+    // AT maturity: the discount window closes in the same instant redemption opens.
+    warp_to(&w, w.maturity);
+    assert_eq!(w.market().pt_price(), 0, "no live curve past maturity");
+    assert_eq!(
+        w.market().try_swap_exact_usdc_for_pt(&holder, &(10 * USDC), &0),
+        Err(Ok(spield_shared::Error::MarketExpired.into())),
+        "no discounted PT can be bought once it redeems at par"
+    );
     w.env().cost_estimate().budget().reset_unlimited();
-    let (returned, _) = w.wrapper().combine_and_redeem(&hid, &(100 * USDC));
-    assert_eq!(returned, 100 * USDC);
+    assert_eq!(
+        w.wrapper().redeem_pt(&hid, &(100 * USDC)),
+        100 * USDC,
+        "…and redemption at par is open in that same instant"
+    );
+}
+
+/// The early-dated failure's mirror: with matched maturities there is no interval in
+/// which a holder has neither a venue nor a redemption. Before maturity they can trade;
+/// from maturity they can redeem. The two intervals meet with no gap.
+#[test]
+fn no_window_exists_with_neither_a_venue_nor_a_redemption() {
+    let w = setup(YEAR);
+    let lp = w.new_user(2_000 * USDC);
+    w.mint_position(&lp, 1_000 * USDC);
+    w.market().add_liquidity(&lp, &(1_000 * USDC), &(1_000 * USDC));
+
+    let holder = w.new_user(200 * USDC);
+    let hid = w.mint_position(&holder, 100 * USDC);
+
+    // Sample across the term, including both sides of the boundary.
+    for offset in [-(YEAR as i64) / 2, -(24 * 60 * 60), -1, 0, 1, 24 * 60 * 60] {
+        let ts = (w.maturity as i64 + offset) as u64;
+        warp_to(&w, ts);
+        let can_trade = w.market().quote_pt_for_usdc(&(1 * USDC)) > 0;
+        let can_redeem = w
+            .wrapper()
+            .try_redeem_pt(&hid, &1i128)
+            .is_ok();
+        assert!(
+            can_trade || can_redeem,
+            "at maturity{:+}s the holder had neither a venue nor a redemption",
+            offset
+        );
+        // And they are never both open — the handoff is clean, not overlapping
+        // (an overlap is exactly the late-dated arbitrage).
+        assert!(
+            !(can_trade && can_redeem),
+            "at maturity{:+}s the pool still quotes PT that already redeems at par",
+            offset
+        );
+    }
 }

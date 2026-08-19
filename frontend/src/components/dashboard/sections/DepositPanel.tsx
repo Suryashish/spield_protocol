@@ -9,9 +9,9 @@ import { useProtocol } from '@/context/ProtocolContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { mint } from '@/lib/spield';
-import { fromBaseUnits, formatAmount } from '@/lib/soroban';
+import { fromBaseUnits, toBaseUnits, formatAmount } from '@/lib/soroban';
 import { setupTrustlines } from '@/lib/horizon';
-import { NETWORK, VAULT_DEPLOYED, MARKET_DEPLOYED } from '@/lib/config';
+import { NETWORK, VAULT_DEPLOYED, MARKET_DEPLOYED, MIN_MINT_BASE_UNITS } from '@/lib/config';
 
 /**
  * Deposit panel — the protocol's primary action.
@@ -29,7 +29,11 @@ const DepositPanel = () => {
 
   const usdcBalance = fromBaseUnits(balances.usdc);
   const parsed = Number(amount);
-  const amountValid = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
+  const entered = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
+  // Below the wrapper's minimum, Blend credits 0 shares and `mint` refuses with
+  // `InvalidAmount`. Catch it here so the user reads why instead of a failed tx.
+  const belowMinimum = entered && toBaseUnits(amount) < MIN_MINT_BASE_UNITS;
+  const amountValid = entered && !belowMinimum;
   const overBalance = amountValid && parsed > usdcBalance;
 
   // A connected wallet must trust PT + YT before the wrapper can mint to it.
@@ -40,10 +44,19 @@ const DepositPanel = () => {
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
     if (needsTrustlines) return 'Enable PT & YT';
     if (paused) return 'Protocol Paused';
+    if (belowMinimum) return 'Amount too small';
     if (!amountValid) return 'Enter an amount';
     if (overBalance) return 'Insufficient USDC';
     return 'Deposit & Mint';
-  }, [isConnected, onCorrectNetwork, needsTrustlines, paused, amountValid, overBalance]);
+  }, [
+    isConnected,
+    onCorrectNetwork,
+    needsTrustlines,
+    paused,
+    amountValid,
+    belowMinimum,
+    overBalance,
+  ]);
 
   const disabled =
     busy ||

@@ -47,12 +47,14 @@ pub struct PausedEvent {
     pub paused: bool,
 }
 
-/// Emitted once when `initialize` configures the market (curve params + maturity).
+/// Emitted once when `initialize` configures the market (curve params + maturity). Carries the
+/// `wrapper` the pool was bound to, so an indexer can verify the pairing without a separate read.
 #[contractevent]
 #[derive(Clone)]
 pub struct Initialized {
     #[topic]
     pub admin: Address,
+    pub wrapper: Address,
     pub pt: Address,
     pub usdc: Address,
     pub maturity: u64,
@@ -64,6 +66,7 @@ pub struct Initialized {
 pub fn initialized(
     env: &Env,
     admin: &Address,
+    wrapper: &Address,
     pt: &Address,
     usdc: &Address,
     maturity: u64,
@@ -73,6 +76,7 @@ pub fn initialized(
 ) {
     Initialized {
         admin: admin.clone(),
+        wrapper: wrapper.clone(),
         pt: pt.clone(),
         usdc: usdc.clone(),
         maturity,

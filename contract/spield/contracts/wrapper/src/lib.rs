@@ -133,11 +133,30 @@ impl Wrapper {
 
     /// Deposit `amount` USDC; supply it to the yield source; mint `amount` PT + `amount` YT to
     /// `user`; record a **new** position. Returns the new position id.
+    ///
+    /// ## Minimum viable mint
+    /// Blend credits `floor(amount / b_rate)` shares, so once the pool has accrued (`b_rate > 1` —
+    /// mainnet's is ≈1.124 today) a **1-stroop deposit floors to 0 shares** and the pool rejects it
+    /// with its own error code. We refuse below `ceil(b_rate)` stroops up front so the revert names
+    /// Spield's own constraint (`InvalidAmount`) instead of surfacing an opaque Blend error. In
+    /// practice this means the minimum viable mint on mainnet is **2 stroops, not 1**.
+    ///
+    /// ## Maturity
+    /// Refused at/after `maturity` (`MarketMatured`): the bond term is over, so a new position
+    /// would be a zero-duration round trip in a market the vault and the AMM have already closed.
+    /// Exits are unaffected.
     pub fn mint(env: Env, user: Address, amount: i128) -> u64 {
         user.require_auth();
         Self::ensure_can_deposit(&env); // inflow — blocked while paused
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
+        }
+        // Maturity gate (inflow): match the vault's `ensure_before_maturity` and the market's
+        // `ensure_tradeable`, which both already refuse post-maturity inflows. Safe to add here —
+        // every internal caller (the vault's `seed`/`deposit`/`harvest`) is maturity-gated upstream
+        // against this same timestamp.
+        if env.ledger().timestamp() >= storage::get_maturity(&env) {
+            panic_with_error!(&env, Error::MarketMatured);
         }
         let strategy_addr = storage::get_strategy(&env);
         let strategy = YieldStrategyClient::new(&env, &strategy_addr);
@@ -151,6 +170,14 @@ impl Wrapper {
         // strategy's pull. `authorize_as_current_contract` scopes to the *next* contract call, so
         // it must immediately precede `deposit` — any intervening call would consume the scope.
         let entry_rate = strategy.current_rate();
+        // Below `ceil(entry_rate)` stroops Blend floors the credited shares to 0 and rejects the
+        // supply inside the pool (see the doc comment). Catch it here so the caller gets Spield's
+        // own `InvalidAmount` rather than a Blend error code they can't act on. The whole tx
+        // reverts, so the USDC pulled above is returned.
+        let min_mint = math::min_mintable(entry_rate);
+        if amount < min_mint {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
         Self::approve_strategy_pull(&env, &underlying, &strategy_addr, amount);
         let shares = strategy.deposit(&env.current_contract_address(), &amount);
         if shares <= 0 {
@@ -200,6 +227,14 @@ impl Wrapper {
     /// `pos` in place (caller persists it). Does NOT re-auth / re-check active — callers do that,
     /// so it composes safely inside `combine_and_redeem` without double-authing.
     fn do_claim(env: &Env, position_id: u64, pos: &mut Position) -> i128 {
+        // A closed position holds no shares, so the yield math already returns 0 and nothing moves.
+        // Returning explicitly makes that intent legible rather than emergent: a future refactor
+        // that measures yield on `yt_amount` instead of `shares` cannot quietly turn a claim on a
+        // closed position into a payout. (`combine_and_redeem` can't reach this — it rejects on
+        // `amount > pos.pt_amount` first, since a closed position has none.)
+        if !pos.open {
+            return 0;
+        }
         let strategy = YieldStrategyClient::new(env, &storage::get_strategy(env));
         let current_rate = strategy.current_rate();
 

@@ -41,13 +41,20 @@ behavior today** — that's the point.
   but the reinvest mint panics `Paused`, reverting the whole harvest. Cross-contract pause
   coupling that no current test exercises. Decide: acceptable (harvest waits out the pause) or
   should harvest skip reinvest and hold USDC? Either way, pin the behavior.
-- [ ] **P0 [blend] `vault_redeem_budget_with_many_harvest_positions`** — `redeem_pt_for` walks the
-  **entire** tracked-positions list, and every `harvest`/`seed`/`deposit` appends to that list.
-  Months of daily harvests ⇒ hundreds of positions ⇒ a single `redeem` may exceed the tx budget —
-  the exact unbounded-loop class `harvest(max_positions)` was built to avoid, one function over.
-  Simulate ~100–300 harvest cycles, then `redeem` with the budget metered
-  (`env.cost_estimate()`); assert it stays under mainnet limits or fix (paginate / merge
-  positions).
+- [x] **P0 [blend] `vault_redeem_budget_with_many_harvest_positions`** — ~~`redeem_pt_for` walks
+  the entire tracked-positions list … a single `redeem` may exceed the tx budget~~ **MEASURED — the
+  premise was wrong, and the real breach was one function the other way.** `redeem` at 160 tracked
+  positions costs 8,152,324 instructions — **1.4%** of the 600M budget — and its write-entry and
+  ledger-entry footprints are *flat*, because the `Positions` Vec lives in a single instance entry.
+  The walk is cheap because positions past the payout target take a `Vec` push, not a cross-contract
+  call: only the positions actually needed to cover the payout incur `get_position` + `redeem_pt`.
+  Pinned by `vault::test::vault_redeem_cost_grows_with_the_number_of_tracked_positions` and
+  `vault::test::vault_redeem_with_a_long_harvest_history_fits_mainnet_limits`.
+  **The budget P0 belongs to `harvest`** — the function that was *built* to be the bounded one —
+  because each batch item is a full Blend `submit` costing ~8 MB of modelled memory against a
+  41,943,040-byte ceiling. Memory, not instructions, is binding: the old `MAX_HARVEST_BATCH = 50`
+  blew memory by 9.2× while sitting at ~52% of the instruction budget. See §9's
+  `harvest_at_max_batch_fits_budget`, promoted to P0 accordingly.
 - [ ] **P0 [fast] `vault_dust_tolerance_does_not_grow_with_receipt_churn`** — the vault's
   `assert_solvent` dust band is `peek_next_receipt_id + 2`, which is **monotonic** — the exact
   gameable pattern the wrapper just fixed (its band is now `open_positions + 4`). Churn many tiny
@@ -292,10 +299,29 @@ mutating entry point and asserts auth failure:
 
 ## 9. Resource-budget tests (Soroban limits)
 
-- [ ] **P0 [blend] `vault_redeem_budget…`** — see §0 (the unbounded `redeem_pt_for` walk).
-- [ ] **P1 [blend] `harvest_at_max_batch_fits_budget`** — 50 positions, one `harvest(50)`, metered
-  against the default network budget (the curve has such a test; the harvest loop — 50 cross-
-  contract `claim_yield` calls each doing a Blend withdraw — is far heavier and unmeasured).
+- [x] **P0 [blend] `vault_redeem_budget…`** — see §0: measured, and the premise did not hold.
+  `redeem`'s walk is cheap; the budget risk was in `harvest`, immediately below.
+- [x] **P0 [blend] `harvest_at_max_batch_fits_budget`** *(promoted from P1 — this, not `redeem`,
+  is where the budget actually broke)* — **done as
+  `vault::test::harvest_batch_size_that_fits_mainnet_limits`.** `MAX_HARVEST_BATCH` lowered 50 → 3.
+  Measure a deliberate **worst case** (equal, well-funded, all-accrued positions, so every item
+  performs a real Blend withdraw plus the reinvest `submit`) — a mixed batch under-reports, because
+  a position with no accrued yield skips the withdraw and a claim below `MIN_REINVEST` skips the
+  reinvest. Memory is the binding ceiling, not instructions:
+
+  | batch | memory / 41,943,040 | headroom |
+  |---:|---:|---:|
+  | 1 | 14,856,424 | 64% |
+  | 2 | 22,821,125 | 45% |
+  | **3** *(shipped)* | **30,789,740** | **26%** |
+  | 4 | 38,851,613 | 7% |
+  | 5 | ~46,836,638 ❌ | — |
+
+  4 is the largest value that *fits*; 3 ships instead, on a stated ≥20% headroom policy, because
+  `harvest` is permissionless upkeep that must never become un-runnable and the per-item cost is set
+  by Blend. The test pins the constant from **both** sides — a full batch keeps ≥20% memory
+  headroom, and the next size up would not — so the margin can neither erode silently nor be
+  over-paid silently.
 - [ ] **P1 [blend] `worst_case_single_ops_fit_budget`** — meter `combine_and_redeem` (2 Blend
   withdraws + 2 burns + solvency), `deposit`(vault, capacity check), and a max-size swap; record
   the numbers so regressions show up in review.
@@ -610,11 +636,23 @@ testnet with a stopwatch, then write the timing into the runbook.
 Concrete, checkable conditions. **Do not send the first seed transaction until every box is
 ticked.**
 
-- [ ] Every **P0 in §0** is resolved (fixed, or consciously accepted and written down) — especially
-      market-bought-PT redemption, the vault's unbounded `redeem_pt_for` walk, harvest-under-pause,
-      the vault's monotonic dust band, and the b_rate-decrease brick.
+> **⚠ Ordering.** The first two boxes below are listed in dependency order, not in the order they
+> were written. **The §13 issuer lockdown must be done BEFORE the market-bought-PT §0 P0s**, not
+> after. `redeem_pt` being position-gated is currently the only thing stopping counterfeit PT from
+> draining the wrapper while the PT/YT issuer remains a live signing key
+> (`wrapper::test::extra_pt_outside_a_position_breaks_conservation_but_not_the_wrapper` pins this).
+> Adding any balance-based redemption removes that shield, so shipping the §0 fix first would turn a
+> UX gap into a drainable exploit. Lock the issuer, verify on chain that it can no longer sign, then
+> work the redemption gap.
+
 - [ ] **§13 issuer lockdown** rehearsed on testnet and executed on mainnet; issuer flags verified
-      safe; PT/YT supply conservation asserted in the suite and monitored live.
+      safe; PT/YT supply conservation asserted in the suite and monitored live. **Do this first —
+      see the ordering note above.**
+- [ ] Every **P0 in §0** is resolved (fixed, or consciously accepted and written down) — especially
+      market-bought-PT redemption (blocked on the lockdown above), harvest-under-pause, the vault's
+      monotonic dust band, and the b_rate-decrease brick. (The "unbounded `redeem_pt_for` walk" is
+      no longer on this list: it was measured and the premise did not hold — see §0. The budget P0
+      it was standing in for is `harvest`'s batch ceiling, now closed.)
 - [ ] **§14 seed ratio** computed and agreed — **not** the script's 1:1 default — and the opening
       `implied_apy` matches the vault's advertised rate.
 - [ ] §12 mainnet-profile suite green: 90-day term, `b_rate ≈ 1.124` entry, all existing tests.
@@ -622,8 +660,12 @@ ticked.**
 - [ ] §17 pause + rotation + upgrade + rate-unstick drills rehearsed on testnet, with timings in the
       runbook.
 - [ ] Solvency monitor **proven to fire** (§16), running under a supervisor, alerting a human.
-- [ ] Any code change since 2026-06-08 redeployed (`FRESH=1`) and `MAINNETCONTRACTADDRESSES.md` +
-      code hashes updated. **Redeploy now while it's free; after TVL it's a 24h timelock.**
+- [ ] Any code change since 2026-06-08 redeployed and `MAINNETCONTRACTADDRESSES.md` + code hashes
+      updated. **Redeploy now while it's free; after TVL it's a 24h timelock.** Use
+      `REDEPLOY=market[,vault]` to replace a single contract in place — **not** `FRESH=1`, which
+      re-creates the PT/YT SACs and changes every address. The market's `wrapper`/`maturity`/`pt`
+      binding is asserted from chain by the deploy script itself, so a stale market fails the run
+      instead of being seeded.
 - [ ] Security audit commissioned or explicitly deferred in writing (MAINNET.md §7 — still open, and
       a sibling Blend pool lost $10.8M in Feb 2026).
 - [ ] Launch TVL cap decided and enforced operationally (start small; §16's Blend-liquidity preflight
@@ -651,8 +693,11 @@ ticked.**
 ### Suggested order of attack
 
 **Before the first seed tx (launch-blocking):**
-1. **§0 P0s** — each is a design decision, not just a test. Fix now while a redeploy is free.
-2. **§13 issuer lockdown** — the biggest single exploit surface; PoC on testnet, then lock.
+1. **§13 issuer lockdown** — the biggest single exploit surface; PoC on testnet, then lock. **This
+   comes first**: the position gate on `redeem_pt` is the only thing currently containing
+   counterfeit PT, and the §0 market-bought-PT fix removes that gate (see §18's ordering note).
+2. **§0 P0s** — each is a design decision, not just a test. Fix now while a redeploy is free. The
+   market-bought-PT and sold-PT-leg pair are one design question and are gated on step 1.
 3. **§14 seed calibration** — the scripted 1:1 seed ships a 0% APY venue.
 4. **§12 mainnet-profile suite** — 90-day + elevated `b_rate`; may surface more than any new test.
 5. **§16 live verification** + **§17 pause/rotation drills** + a **proven** solvency monitor.

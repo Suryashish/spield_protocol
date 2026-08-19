@@ -21,11 +21,16 @@ pub enum DataKey {
     Initialized,
     /// Operational admin (sets fee within ceiling, pauses; cannot touch LP funds).
     Admin,
+    /// The Spield wrapper whose PT this pool trades. Recorded at init, where `PtToken` and
+    /// `Maturity` are cross-checked against it — so the binding is verifiable on chain rather
+    /// than being a deploy-script promise.
+    Wrapper,
     /// PT Stellar Asset Contract — one of the two pool reserves.
     PtToken,
     /// Underlying / settlement SAC (USDC) — the other pool reserve.
     Underlying,
-    /// Market maturity (unix seconds); must equal the wrapper's. Trading halts at/after it.
+    /// Market maturity (unix seconds); asserted equal to the wrapper's at init. Trading halts
+    /// at/after it, which is exactly when PT starts redeeming 1:1 at the wrapper.
     Maturity,
     /// Swap fee in basis points (e.g. 30 = 0.30%).
     FeeBps,
@@ -66,6 +71,17 @@ pub fn get_admin(env: &Env) -> Address {
 
 pub fn set_admin(env: &Env, a: &Address) {
     env.storage().instance().set(&DataKey::Admin, a);
+}
+
+pub fn get_wrapper(env: &Env) -> Address {
+    env.storage()
+        .instance()
+        .get(&DataKey::Wrapper)
+        .unwrap_or_else(|| panic_not_init(env))
+}
+
+pub fn set_wrapper(env: &Env, a: &Address) {
+    env.storage().instance().set(&DataKey::Wrapper, a);
 }
 
 pub fn get_pt(env: &Env) -> Address {

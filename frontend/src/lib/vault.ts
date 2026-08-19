@@ -1,5 +1,5 @@
 import { CONTRACTS, VAULT_DEPLOYED } from './config';
-import { addr, i128, readContract, toBaseUnits, u64, writeContract } from './soroban';
+import { addr, i128, readContract, toBaseUnits, u32, u64, writeContract } from './soroban';
 
 /**
  * Typed client for the Fixed-Rate Vault — the flagship "lock X% fixed" product.
@@ -184,6 +184,19 @@ export const deposit = (wallet: string, amount: string) =>
 export const redeem = (wallet: string, receiptId: number) =>
   writeContract(wallet, CONTRACTS.vault, 'redeem', [u64(receiptId)]);
 
-/** Harvest the vault's accrued YT yield into fresh PT capacity (permissionless). */
-export const harvest = (wallet: string) =>
-  writeContract(wallet, CONTRACTS.vault, 'harvest', []);
+/**
+ * How many tracked positions one `harvest` call sweeps. Mirrors the contract's
+ * `MAX_HARVEST_BATCH`, which clamps `max_positions` to this internally — the largest batch that
+ * fits a mainnet transaction with a deliberate memory margin. Keep in sync with
+ * `contracts/vault/src/lib.rs`.
+ */
+export const MAX_HARVEST_BATCH = 3;
+
+/**
+ * Harvest the vault's accrued YT yield into fresh PT capacity (permissionless).
+ *
+ * `vault::harvest` takes a required `max_positions: u32` — calling it with no arguments cannot
+ * succeed, which is what this used to do. Sweeping N tracked positions takes ceil(N/3) calls.
+ */
+export const harvest = (wallet: string, maxPositions: number = MAX_HARVEST_BATCH) =>
+  writeContract(wallet, CONTRACTS.vault, 'harvest', [u32(maxPositions)]);

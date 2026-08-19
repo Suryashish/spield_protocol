@@ -190,7 +190,32 @@ The script (faithful mainnet twin of `deploy_testnet.sh`):
 
 Tunable env vars (all optional): `SOURCE`, `ISSUER`, `MATURITY_DAYS`, `MAX_APR_BPS`, `VAULT_RATE_BPS`,
 `VAULT_MAX_RATE_BPS`, `VAULT_SEED_AMOUNT`, `MARKET_*`, `RPC_URL`, `YES=1` (skip the confirmation),
-`STATE_FILE=<path>` (custom checkpoint file), `FRESH=1` (ignore + overwrite existing state, start over).
+`STATE_FILE=<path>` (custom checkpoint file), `FRESH=1` (ignore + overwrite existing state, start over),
+`REDEPLOY=market[,vault]` (replace one contract in place — see below).
+
+### Replacing ONE contract after a code/ABI change
+
+**Do not reach for `FRESH=1` for this.** `FRESH=1` deletes the state file, so it redeploys the
+wrapper, strategy, vault *and* market, re-creates both PT/YT SACs, re-hands SAC admin and recomputes
+the maturity — every address changes. That is only correct for a brand-new deployment.
+
+```bash
+REDEPLOY=market bash scripts/deploy_mainnet.sh
+```
+
+This keeps every existing address, the PT/YT SACs and the pinned `SAVED_MATURITY`, forgets just that
+component's checkpoints (backing the state file up first), and re-runs only its deploy + initialize.
+Only leaf contracts are accepted — `REDEPLOY=wrapper` and `REDEPLOY=strategy` are **refused**,
+because SAC admin already belongs to the current wrapper and the wrapper's one-shot `initialize()`
+pins the strategy, so neither can be swapped in isolation.
+
+The old contract stays live on chain; it just stops being the one this deployment points at.
+**Withdraw any liquidity or positions from it first.**
+
+After the market is (re)deployed the script **reads its views back from chain** and asserts
+`market.wrapper()`, `market.maturity()` and `market.pt_token()` match the wrapper — on every run, not
+only on a redeploy. A stale or mis-paired market fails the deploy with the exact remediation command
+rather than being seeded by mistake.
 
 ### Resumable — what happens if it stops midway (e.g. out of XLM)
 
@@ -211,7 +236,8 @@ The script is **checkpointed and safe to re-run**:
 - When everything is done it records `DEPLOY_COMPLETE`; a further re-run just reprints the addresses
   and exits without touching the chain.
 - To start a **brand-new** deployment, run with `FRESH=1` (or delete the state file). Keep the state
-  file after a successful deploy — it's your record of the deployed addresses.
+  file after a successful deploy — it's your record of the deployed addresses. To replace a *single*
+  contract without disturbing the rest, use `REDEPLOY=…` (above), never `FRESH=1`.
 
 > ✅ This resume logic was tested end-to-end with a simulated mid-run XLM exhaustion: the state file
 > captured exactly the completed steps, and a re-run skipped them and finished the rest cleanly.

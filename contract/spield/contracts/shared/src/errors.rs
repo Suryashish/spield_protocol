@@ -47,6 +47,11 @@ pub enum Error {
     SolvencyViolation = 24,
     /// The position has already been fully redeemed/closed.
     PositionClosed = 25,
+    /// `mint` called at/after the market's maturity. The bond term is over: the vault
+    /// (`ensure_before_maturity`) and the market (`ensure_tradeable`) already refuse post-maturity
+    /// inflows, and the wrapper now matches them. Exits (`redeem_pt`, `combine_and_redeem`,
+    /// `claim_yield`) are unaffected.
+    MarketMatured = 26,
 
     // --- Strategy / Blend adapter (40–59) ---
     /// Blend returned a `bRate` outside the configured sanity bound (defence-in-depth).
@@ -89,4 +94,11 @@ pub enum Error {
     ImbalancedLiquidity = 84,
     /// The swap fee (bps) exceeds the on-chain ceiling set at init (a guardrail).
     FeeNotAllowed = 85,
+    /// `market::initialize` was given a `maturity` that differs from the wrapper whose PT it
+    /// trades. A mismatch in either direction is a live failure — late-dated leaves the curve
+    /// quoting PT below par after it already redeems at par (a risk-free draw on the LPs);
+    /// early-dated strands PT holders with no venue and no redemption between the two dates.
+    MaturityMismatch = 86,
+    /// `market::initialize` was given a `pt` SAC that is not the one the wrapper mints.
+    PtTokenMismatch = 87,
 }

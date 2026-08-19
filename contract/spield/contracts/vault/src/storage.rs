@@ -34,8 +34,15 @@ pub enum DataKey {
     MaxRateBps,
     /// Circuit-breaker pause flag.
     Paused,
-    /// Monotonic counter for receipt ids.
+    /// Monotonic counter for receipt ids. Informational / id allocation only — deliberately NOT the
+    /// basis of the solvency dust tolerance (see `OpenReceipts`).
     NextReceiptId,
+    /// Count of currently-OPEN receipts. Incremented in `deposit`, decremented in `redeem`.
+    /// This is the correct, **bounded** basis for the solvency dust tolerance: only a live receipt
+    /// can carry mint-floor rounding dust, so a closed one must not keep widening the band. Mirrors
+    /// the wrapper's `OpenPositions` — the vault kept the old monotonic `next_receipt_id` shape,
+    /// which grew by one stroop per receipt ever issued and never shrank back.
+    OpenReceipts,
     /// Sum of `payout` across all open receipts — the vault's maturity obligation.
     TotalLiability,
     /// The list of wrapper position ids the vault owns (its PT/YT inventory lives across these).
@@ -193,12 +200,35 @@ pub fn set_harvest_cursor(env: &Env, c: u32) {
     env.storage().instance().set(&DataKey::HarvestCursor, &c);
 }
 
-/// Read the next receipt id without incrementing (= total receipts ever issued).
+/// Read the next receipt id without incrementing (= total receipts ever issued). Informational
+/// metric only — the solvency tolerance uses `open_receipts`, which is bounded by live state.
+#[allow(dead_code)]
 pub fn peek_next_receipt_id(env: &Env) -> u64 {
     env.storage()
         .instance()
         .get(&DataKey::NextReceiptId)
         .unwrap_or(0)
+}
+
+/// Count of currently-open receipts — the bounded basis for the solvency dust tolerance.
+pub fn open_receipts(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::OpenReceipts)
+        .unwrap_or(0)
+}
+
+pub fn inc_open_receipts(env: &Env) {
+    let n = open_receipts(env);
+    env.storage().instance().set(&DataKey::OpenReceipts, &(n + 1));
+}
+
+pub fn dec_open_receipts(env: &Env) {
+    let n = open_receipts(env);
+    // Saturating: never underflow (defence-in-depth; `redeem` only closes an open receipt).
+    env.storage()
+        .instance()
+        .set(&DataKey::OpenReceipts, &n.saturating_sub(1));
 }
 
 pub fn next_receipt_id(env: &Env) -> u64 {

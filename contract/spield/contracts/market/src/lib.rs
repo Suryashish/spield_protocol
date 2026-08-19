@@ -38,7 +38,7 @@ mod curve_test;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String,
 };
-use spield_shared::{governance, math, Error};
+use spield_shared::{governance, math, Error, WrapperContractClient};
 
 /// The USDC reserve token must have exactly 7 decimals (Stellar USDC, testnet + mainnet).
 const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
@@ -63,14 +63,24 @@ pub struct Market;
 
 #[contractimpl]
 impl Market {
-    /// One-shot, admin-gated init (SCF #7). The market is told its PT/USDC SACs and maturity
-    /// explicitly — they must match the wrapper market this pool trades against (the deploy script
-    /// reads them from the wrapper and passes them here, exactly like the vault's `underlying`).
+    /// One-shot, admin-gated init (SCF #7). The market is told the `wrapper` whose PT it trades and
+    /// **cross-checks its own `pt` and `maturity` against it on chain**, so the binding between pool
+    /// and bond is an invariant rather than a deploy-script promise.
+    ///
+    /// ## Why the cross-check is not cosmetic
+    /// A maturity mismatch is a live economic failure in *both* directions:
+    /// * **late-dated** (market matures after the wrapper) — past the wrapper's maturity the curve
+    ///   is still live, so the pool keeps quoting PT at a discount while every PT already redeems at
+    ///   par. That is a repeatable risk-free draw on the LPs until the pool's USDC is gone.
+    /// * **early-dated** (market matures first) — between the two dates holders have no venue
+    ///   (`MarketExpired`) and no redemption (`NotMatured`), so PT-only holders are stranded.
     ///
     /// * `admin` — operational admin (sets fee, pauses; cannot move LP funds).
-    /// * `pt` — the Principal Token SAC (a pool reserve).
+    /// * `wrapper` — the Spield wrapper this pool trades against; `pt` and `maturity` must match it.
+    /// * `pt` — the Principal Token SAC (a pool reserve). Must equal `wrapper.pt_token()`.
     /// * `usdc` — the settlement SAC (the other pool reserve, what PT trades against / redeems into).
-    /// * `maturity` — unix seconds; trading halts at/after it (PT then just redeems 1:1 via wrapper).
+    /// * `maturity` — unix seconds; must equal `wrapper.maturity()`. Trading halts at/after it,
+    ///   which is exactly when PT begins redeeming 1:1 at the wrapper — no gap, no overlap.
     /// * `fee_bps` — initial swap fee, must be ≤ `max_fee_bps`.
     /// * `max_fee_bps` — hard ceiling on any future fee (guardrail).
     /// * `scalar_root` — curve steepness root (SCALAR_12); `rateScalar = scalar_root / yearsToMat`.
@@ -79,6 +89,7 @@ impl Market {
     ///   target opening PT price so the pool opens at ~the vault's fixed rate. Must be > 0.
     pub fn initialize(
         env: Env,
+        wrapper: Address,
         pt: Address,
         usdc: Address,
         maturity: u64,
@@ -99,10 +110,21 @@ impl Market {
             panic_with_error!(&env, Error::InvalidAmount);
         }
         // The USDC reserve token must have the decimals the curve math expects (don't assume).
+        // Checked before the cross-contract wrapper reads so a malformed settlement asset fails
+        // with its own precise error rather than whatever the wrapper call happens to do.
         if token::Client::new(&env, &usdc).decimals() != EXPECTED_UNDERLYING_DECIMALS {
             panic_with_error!(&env, Error::UnexpectedDecimals);
         }
+        // The on-chain binding: this pool trades exactly the wrapper's PT, over exactly its term.
+        let w = WrapperContractClient::new(&env, &wrapper);
+        if w.pt_token() != pt {
+            panic_with_error!(&env, Error::PtTokenMismatch);
+        }
+        if w.maturity() != maturity {
+            panic_with_error!(&env, Error::MaturityMismatch);
+        }
         storage::set_initialized(&env);
+        storage::set_wrapper(&env, &wrapper);
         storage::set_pt(&env, &pt);
         storage::set_underlying(&env, &usdc);
         storage::set_maturity(&env, maturity);
@@ -118,6 +140,7 @@ impl Market {
         events::initialized(
             &env,
             &storage::get_admin(&env),
+            &wrapper,
             &pt,
             &usdc,
             maturity,
@@ -441,6 +464,12 @@ impl Market {
 
     pub fn underlying(env: Env) -> Address {
         storage::get_underlying(&env)
+    }
+
+    /// The Spield wrapper this pool is bound to. `pt_token()` and `maturity()` were asserted equal
+    /// to this wrapper's at init, so the pairing is verifiable on chain by anyone.
+    pub fn wrapper(env: Env) -> Address {
+        storage::get_wrapper(&env)
     }
 
     /// Curve params `(scalar_root, rate_anchor)` as configured at init (SCALAR_12).

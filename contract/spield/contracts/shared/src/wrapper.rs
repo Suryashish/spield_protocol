@@ -36,6 +36,13 @@ pub trait WrapperContract {
     /// The YT Stellar Asset Contract address.
     fn yt_token(env: Env) -> Address;
 
-    /// The market maturity (unix seconds) — the vault inherits this from the wrapper.
+    /// The market maturity (unix seconds) — the vault inherits this from the wrapper, and the
+    /// market cross-checks its own `maturity` against it at init (a mismatch in either direction
+    /// is a live economic failure, not a cosmetic one).
     fn maturity(env: Env) -> u64;
+
+    /// Whether the wrapper's circuit breaker is engaged. The vault reads this before the reinvest
+    /// leg of `harvest`: a wrapper pause blocks `mint`, so harvest holds the claimed USDC instead
+    /// of reverting and throwing the claim away with it.
+    fn is_paused(env: Env) -> bool;
 }
