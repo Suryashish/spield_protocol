@@ -343,3 +343,134 @@ fn implied_apy_safe_on_all_states() {
     // Balanced (at par) → 0 (no discount).
     assert_eq!(curve::implied_apy(&env, 500_000, 500_000, scalar_root, ANCHOR, maturity, now), 0);
 }
+
+// ===========================================================================
+// SEED CALIBRATION — the pool must OPEN at the advertised rate
+//
+// `rate_anchor` is pinned at par so PT converges to 1.0 at maturity (the
+// IL-minimizing property). The direct consequence is that `proportion = 0.5`
+// prices PT at exactly par => 0% implied APY. So a BALANCED SEED IS NOT NEUTRAL:
+// it ships a venue where buying PT and holding to maturity loses the swap fee.
+//
+// Positive yield comes only from a PT-heavy pool. `try_seed_pt_for_apy` derives
+// how heavy from the target rate, using the same ln/exp and the same rateScalar
+// the pricing path uses, so the opening quote cannot drift from the target.
+// ===========================================================================
+
+const DAY: u64 = 24 * 60 * 60;
+
+/// The bug, pinned so it cannot come back: equal reserves imply exactly 0% APY, at
+/// EVERY scalar_root and every term. This is structural, not a tuning accident.
+#[test]
+fn a_balanced_seed_implies_zero_apy_at_every_scalar_root() {
+    let env = unbudgeted();
+    for root_mult in [5i128, 10, 20, 40, 80] {
+        for days in [30u64, 90, 365] {
+            let amt = 1_000 * 10_000_000i128;
+            let apy = curve::implied_apy(
+                &env, amt, amt, root_mult * SCALAR_12, ANCHOR, days * DAY, 0,
+            );
+            assert_eq!(
+                apy, 0,
+                "a 1:1 seed must imply 0% APY (root={} days={}) — the pool opens at par",
+                root_mult, days
+            );
+        }
+    }
+}
+
+/// The fix: seeding at the derived ratio opens the pool at the target APY.
+#[test]
+fn seed_calibration_opens_the_pool_at_the_target_apy() {
+    let env = unbudgeted();
+    let usdc = 100_000 * 10_000_000i128;
+
+    for (days, root_mult) in [(90u64, 40i128), (30, 40), (365, 40), (90, 20), (180, 10)] {
+        let maturity = days * DAY;
+        let root = root_mult * SCALAR_12;
+        for bps in [100u32, 300, 500, 800, 1200] {
+            let target = (bps as i128) * SCALAR_12 / 10_000;
+            let pt = curve::try_seed_pt_for_apy(&env, usdc, target, root, ANCHOR, maturity, 0)
+                .unwrap_or_else(|e| std::panic!("uncalibratable {}d root={} {}bps: {:?}",
+                                                days, root_mult, bps, e));
+            let opened = curve::implied_apy(&env, pt, usdc, root, ANCHOR, maturity, 0);
+
+            // Within 1bp of target — the residual is fixed-point rounding in ln/exp, not drift.
+            let diff = (opened - target).abs();
+            assert!(
+                diff <= SCALAR_12 / 10_000,
+                "{}d root={} target {}bps: opened at {} want {} (ratio {:.3}:1)",
+                days, root_mult, bps, opened, target, pt as f64 / usdc as f64
+            );
+        }
+    }
+}
+
+/// The shipped mainnet defaults, pinned with their real numbers so a change to the
+/// term, the rate or the curve root shows up here as a diff.
+#[test]
+fn mainnet_default_seed_is_calibrated_to_the_vault_rate() {
+    let env = unbudgeted();
+    // deploy_mainnet.sh defaults: 90-day term, 5.00% vault rate, scalar_root 40, anchor par.
+    let maturity = 90 * DAY;
+    let root = 40 * SCALAR_12;
+    let usdc = 10_000 * 10_000_000i128;
+    let target = 500 * SCALAR_12 / 10_000; // 5.00%
+
+    let pt = curve::try_seed_pt_for_apy(&env, usdc, target, root, ANCHOR, maturity, 0).unwrap();
+    let ratio = pt as f64 / usdc as f64;
+    let opened = curve::implied_apy(&env, pt, usdc, root, ANCHOR, maturity, 0);
+    let params = curve::try_params(&env, root, ANCHOR, maturity, 0).unwrap();
+    let price = try_pt_price(&env, pt, usdc, &params).unwrap();
+    std::println!(
+        "mainnet default seed: PT:USDC = {:.4}:1  (proportion {:.4})  price {:.6}  APY {:.4}%",
+        ratio,
+        pt as f64 / (pt + usdc) as f64,
+        price as f64 / SCALAR_12 as f64,
+        opened as f64 / SCALAR_12 as f64 * 100.0
+    );
+    assert!((6.8..7.1).contains(&ratio), "expected ~6.96:1, got {:.4}:1", ratio);
+    assert!((opened - target).abs() <= SCALAR_12 / 10_000, "opened at {} want {}", opened, target);
+
+    // And the trade the venue exists for is now PROFITABLE, which is the whole point:
+    // buy PT, hold to maturity, redeem at par.
+    let usdc_in = 1_000 * 10_000_000i128; // 1000 USDC, 1% of the USDC side
+    let r = try_swap_usdc_for_pt(&env, usdc_in, pt, usdc, FEE_BPS, &params).unwrap();
+    assert!(
+        r.amount_out > usdc_in,
+        "buying PT must yield more than 1 PT per USDC after the {}bps fee: {} PT for {} USDC",
+        FEE_BPS, r.amount_out, usdc_in
+    );
+    std::println!(
+        "  buy 1000 USDC -> {} PT -> {} USDC at maturity (+{:.3}%)",
+        r.amount_out,
+        r.amount_out,
+        (r.amount_out - usdc_in) as f64 / usdc_in as f64 * 100.0
+    );
+}
+
+/// A target so extreme the pool would open outside the tradeable proportion band must be
+/// refused, not silently seeded into a pool nobody can swap against.
+#[test]
+fn seed_calibration_refuses_an_uncalibratable_target() {
+    let env = unbudgeted();
+    let usdc = 1_000 * 10_000_000i128;
+    let maturity = 90 * DAY;
+    let root = 40 * SCALAR_12;
+    // ~500% APY on a 90-day term drives the proportion past the 99.5% band.
+    let absurd = 50_000 * SCALAR_12 / 10_000;
+    assert!(
+        curve::try_seed_pt_for_apy(&env, usdc, absurd, root, ANCHOR, maturity, 0).is_err(),
+        "an uncalibratable target must be refused"
+    );
+    // Zero target is legitimate and means "open at par" — a 1:1 pool.
+    assert_eq!(
+        curve::try_seed_pt_for_apy(&env, usdc, 0, root, ANCHOR, maturity, 0).unwrap(),
+        usdc
+    );
+    // Nonsense inputs.
+    assert!(curve::try_seed_pt_for_apy(&env, 0, 1, root, ANCHOR, maturity, 0).is_err());
+    assert!(curve::try_seed_pt_for_apy(&env, usdc, -1, root, ANCHOR, maturity, 0).is_err());
+    // At/after maturity there is nothing to calibrate.
+    assert!(curve::try_seed_pt_for_apy(&env, usdc, 1, root, ANCHOR, maturity, maturity).is_err());
+}

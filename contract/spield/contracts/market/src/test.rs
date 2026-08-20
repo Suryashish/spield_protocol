@@ -956,6 +956,66 @@ fn warp_to(w: &World, ts: u64) {
 // issuer master weight -> 0, verified on chain before anything is seeded).
 // --------------------------------------------------------------------------
 
+/// **The seed calibration, end to end against the real contracts.**
+///
+/// The deploy scripts used to seed the pool 1:1. That is not neutral: `rate_anchor` is pinned at
+/// par so PT converges to 1.0 at maturity, which means a balanced pool prices PT at exactly par and
+/// implies **0% APY** — buying PT and holding to maturity lost the 0.30% swap fee. This asserts
+/// both halves: the balanced seed really is a losing trade, and the calibrated seed really is a
+/// winning one that opens at the advertised rate.
+#[test]
+fn a_calibrated_seed_makes_earn_fixed_profitable_and_a_balanced_one_does_not() {
+    // ── Balanced seed (the old default): a losing trade.
+    let w = setup(YEAR);
+    let (_lp, _s) = seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+    assert_eq!(w.market().implied_apy(), 0, "a 1:1 pool implies 0% APY — it opens at par");
+
+    let loser = w.new_user(100 * USDC);
+    let pt_bal = w.market().swap_exact_usdc_for_pt(&loser, &(100 * USDC), &0);
+    warp_to(&w, w.maturity + 1);
+    let got_bal = w.wrapper().redeem_pt_bearer(&loser, &pt_bal);
+    assert!(
+        got_bal < 100 * USDC,
+        "the balanced seed must LOSE money — that is the bug: paid {} got {}",
+        100 * USDC,
+        got_bal
+    );
+
+    // ── Calibrated seed: opens at the target rate and the same trade profits.
+    let w2 = setup(YEAR);
+    let usdc_side = 1_000 * USDC;
+    let target_bps: u32 = 500; // match the vault's advertised 5.00%
+    let pt_side = w2.market().seed_pt_for_apy(&usdc_side, &target_bps);
+    assert!(pt_side > usdc_side, "a calibrated pool must be PT-heavy, got {}", pt_side);
+    seed_pool(&w2, pt_side, usdc_side);
+
+    let opened = w2.market().implied_apy();
+    let target = target_bps as i128 * 1_000_000_000_000i128 / 10_000;
+    assert!(
+        (opened - target).abs() <= 1_000_000_000_000i128 / 10_000,
+        "pool must OPEN within 1bp of {}bps, implied {}",
+        target_bps,
+        opened
+    );
+
+    let winner = w2.new_user(100 * USDC);
+    let pt_cal = w2.market().swap_exact_usdc_for_pt(&winner, &(100 * USDC), &0);
+    warp_to(&w2, w2.maturity + 1);
+    let got_cal = w2.wrapper().redeem_pt_bearer(&winner, &pt_cal);
+    assert!(
+        got_cal > 100 * USDC,
+        "the calibrated seed must PROFIT: paid {} got {}",
+        100 * USDC,
+        got_cal
+    );
+
+    std::println!(
+        "Earn Fixed round trip on 100 USDC:  balanced 1:1 seed -> {}  |  calibrated seed -> {}",
+        got_bal,
+        got_cal
+    );
+}
+
 #[test]
 fn market_bought_pt_is_redeemable_by_the_buyer() {
     let w = setup(YEAR);

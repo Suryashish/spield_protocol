@@ -72,6 +72,46 @@ YT can claim stays in the wrapper as surplus backing.
 > Run `stamp_maturity_rate()` at maturity. It is cheap, permissionless, idempotent, and it is the
 > difference between an exact cap and a drifting one.
 
+### Seeding the pool: a 1:1 seed ships a losing venue
+
+`rate_anchor` is pinned at **par** so PT converges to 1.0 at maturity — the property that spares LPs
+the impermanent loss of PT's predictable march to par. The direct consequence is easy to miss:
+
+```
+exchangeRate = rateAnchor − ln(proportion/(1−proportion)) / rateScalar
+proportion = 0.5  ⇒  ln term = 0  ⇒  price = rateAnchor = par  ⇒  impliedApy = 0%
+```
+
+**A balanced seed is not neutral — it opens the pool at par and implies 0% APY.** Buying PT and
+holding to maturity then loses the 0.30% swap fee. Measured end to end on a 1-year market:
+
+| seed | 100 USDC in | at maturity |
+|---|---|---|
+| 1:1 (the old default) | 100 USDC | **99.21 USDC** ❌ |
+| calibrated | 100 USDC | **104.38 USDC** ✅ |
+
+Positive yield comes only from a **PT-heavy** pool, and `market.seed_pt_for_apy(usdc_in, bps)`
+derives exactly how heavy — on chain, using the same `ln`/`exp` and the same `rateScalar` the
+pricing path uses, so the opening quote cannot drift from the target:
+
+```text
+targetPrice = 1 / (1 + apy)^yearsToMat
+logit       = (rateAnchor − targetPrice) · rateScalar
+ptReserve   = usdcReserve · exp(logit)
+```
+
+At the mainnet defaults (90-day term, 5.00%, `scalar_root` 40) that is **6.9582 PT per 1 USDC** —
+proportion 0.8743, PT price 0.988042, implied APY 5.0000%. The deploy scripts call this view,
+**checkpoint the answer** (the calibration depends on time-to-maturity, so recomputing it on a
+resume would seed at the wrong rate), and read `implied_apy()` back afterwards, aborting if the pool
+opened more than 25bp from target.
+
+`scalar_root = 40` is deliberate. It is the flattest of the candidates, so it holds its quote under
+size — a 50k buy against a 100k USDC side moves the APY 1.27pp at root 40, versus 3.23pp at root 20
+and a full collapse to 0% at root 10. The lopsided pool is the honest price of a stable quote under
+a static par anchor; budget ≈ **8×** the USDC side, since the PT leg is minted from USDC (it is not
+spent — it redeems 1:1 at maturity).
+
 ### Redeeming PT you bought on the AMM: `redeem_pt_bearer`
 
 `redeem_pt` is **position-gated** — it loads a `Position`, auths its owner, and burns from that

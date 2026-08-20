@@ -4,11 +4,11 @@ Finished work has been removed from this document. What remains is only what sti
 **decision**, an **action**, or a **deploy step**. Each entry states what is left, not what landed.
 
 Item numbers are unchanged from the original Phase 1 round so `testcando.md` cross-references and
-git history still line up. The gaps in the numbering — **1, 2, 4–12, 14** — are defects that closed,
+git history still line up. The gaps in the numbering — **1, 2, 4–12, 14, 17** — are defects that closed,
 each with an acceptance test that goes red on regression. Item 13's code has shipped; only its
 live rehearsal is still open, so it is kept below in reduced form.
 
-Verified against the working tree on **2026-08-20**. Suite: **225 Rust tests + 216 SDK tests, all
+Verified against the working tree on **2026-08-20**. Suite: **230 Rust tests + 218 SDK tests, all
 green**; release WASM builds clean with no warnings.
 
 Severity legend — **P0** = must close before the first seed transaction; **P1** = close before
@@ -20,51 +20,15 @@ meaningful TVL; **P2** = documentation / belt-and-braces.
 
 | # | Item | Area | Sev | What is left |
 |---|---|---|---|---|
-| [17](#17-the-amm-seed-ratio-ships-a-losing-trade) | The AMM seed ratio ships a losing trade | seed / launch | **P0** | **Calibrate the seed ratio.** Measured today: 100 USDC → 99.21 USDC |
 | [3](#3-b_rate-deep-dip-freezes-exits) | `b_rate` deep dip freezes exits | strategy | **P0** | Residual accepted — **set the TVL cap, publish the disclosure** |
 | [13](#13-issuer-lockdown--rehearsal-only) | Issuer lockdown | deploy | P1 | Code shipped — **rehearse on testnet, confirm `✓ VERIFIED` before seeding** |
 | [15](#15-a-raw-yt-transfer-strands-the-recipients-claim) | A raw YT transfer strands the recipient's claim | wrapper / dApp | P1 | **dApp must route through split+transfer**; not fixable on-chain |
 | [16](#16-post-maturity-surplus-accrues-to-nobody) | Post-maturity surplus accrues to nobody | wrapper | P2 | Nothing yet — **re-measure at the first real maturity** |
 
-Items 15, 16 and 17 are new numbers for findings surfaced while closing 1, 2 and 13.
+Items 15 and 16 are new numbers for findings surfaced while closing 1, 2 and 13.
 
 **Also gating launch, and never `tofix.md`'s scope:** `testcando.md` §18 — the §12
 mainnet-parameter profile, proving the solvency monitor fires, the audit decision, and Appendix B.
-
----
-
-## 17. The AMM seed ratio ships a losing trade
-
-*`testcando.md` §14 — **surfaced concretely by the market-bought-PT fix; NOT CALIBRATED***
-
-Now that PT bought on the AMM can actually be redeemed, the flagship "Earn Fixed" flow runs end to
-end — and the measurement is bad. From
-`market::test::market_bought_pt_is_redeemable_by_the_buyer`, at the deploy scripts' default
-balanced seed:
-
-```
-Earn Fixed via AMM (1:1 seed): spent 1000000000 USDC -> 992051784 PT -> 992051784 USDC at maturity
-```
-
-**100 USDC in, 99.21 USDC out — a 0.79% loss for holding to maturity.**
-
-The redemption path is correct; the **seed ratio** is not. `MARKET_SEED_AMOUNT` supplies both sides
-equally, so the pool opens at proportion 0.5 where `rate_anchor` puts PT at **par**. A buyer
-therefore pays ~1.00 per PT for something that redeems at exactly 1.00, and the 0.30% swap fee plus
-price impact makes the round trip negative. The venue is quoting ~0% APY by construction.
-
-### What is left
-
-1. **Compute the real seed ratio** — PT must open at a discount that expresses the intended fixed
-   APY over the remaining term, not at par. This is the number `testcando.md` §14 calls for, and it
-   is *not* the script's 1:1 default.
-2. **Assert the opening `implied_apy`** matches the vault's advertised rate before seeding, rather
-   than discovering it afterwards.
-3. Consider making `MARKET_SEED_AMOUNT` refuse a balanced seed outright, so the default cannot ship
-   a 0% venue by accident.
-
-Until this is done, every user who takes the headline product loses money. It is the single most
-user-visible item left.
 
 ---
 
@@ -179,7 +143,8 @@ Scope was `testcando.md` §0 plus §13's on-chain conservation law. Still open, 
 * **Phase 2** — §1 wrapper lifecycle edges, §2 strategy/rate-bound edges, §3 vault edges, §6
   systematic auth matrix.
 * **Phase 3** — §4 AMM/curve edges, §8 pure-math properties, §9 remaining resource budgets, §12
-  mainnet-parameter profile, §14 launch-seed calibration (**now item 17 above — urgent**).
+  mainnet-parameter profile, §14 launch-seed calibration (**closed** — `seed_pt_for_apy` derives the ratio on chain
+  and the deploy scripts verify the opening rate).
 * **Phase 4** — §5 ecosystem stateful fuzz, §15 adversarial simulation, §7 event contracts, §10
   chaos drills, §11 mutation testing.
 

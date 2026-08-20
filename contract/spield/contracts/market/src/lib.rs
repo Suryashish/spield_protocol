@@ -38,7 +38,7 @@ mod curve_test;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String,
 };
-use spield_shared::{governance, math, Error, WrapperContractClient};
+use spield_shared::{governance, math, Error, WrapperContractClient, SCALAR_12};
 
 /// The USDC reserve token must have exactly 7 decimals (Stellar USDC, testnet + mainnet).
 const EXPECTED_UNDERLYING_DECIMALS: u32 = 7;
@@ -421,6 +421,33 @@ impl Market {
             storage::get_maturity(&env),
             env.ledger().timestamp(),
         )
+    }
+
+    /// **Seed calibration** — how much PT to pair with `usdc_in` so the pool *opens* at
+    /// `target_apy_bps` (e.g. `500` = 5.00%). Read-only; call it before `add_liquidity`.
+    ///
+    /// A balanced seed is **not** neutral: `rate_anchor` is pinned at par so PT converges to 1.0 at
+    /// maturity, which means `proportion = 0.5` prices PT at exactly par and implies **0% APY** —
+    /// a venue where the flagship "buy PT, hold to maturity" trade loses the swap fee. Positive
+    /// yield requires a PT-heavy pool, and this returns exactly how heavy.
+    ///
+    /// Returns `0` for any state where the answer would be meaningless (at/after maturity, a
+    /// non-positive amount, or a target so extreme the pool would open outside the tradeable
+    /// proportion band) — panic-free like the other views, so a deploy script can branch on `0`
+    /// rather than trapping.
+    pub fn seed_pt_for_apy(env: Env, usdc_in: i128, target_apy_bps: u32) -> i128 {
+        // bps -> SCALAR_12 fraction: 500 bps = 0.05 = 0.05 * 1e12
+        let target_apy = (target_apy_bps as i128) * SCALAR_12 / 10_000;
+        curve::try_seed_pt_for_apy(
+            &env,
+            usdc_in,
+            target_apy,
+            storage::get_scalar_root(&env),
+            storage::get_rate_anchor(&env),
+            storage::get_maturity(&env),
+            env.ledger().timestamp(),
+        )
+        .unwrap_or(0)
     }
 
     /// Current pool reserves `(pt, usdc)`.

@@ -79,10 +79,26 @@ MARKET_FEE_BPS="${MARKET_FEE_BPS:-30}"          # 0.30% swap fee
 MARKET_MAX_FEE_BPS="${MARKET_MAX_FEE_BPS:-100}" # ceiling admin can ever set (1%)
 MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-40000000000000}"  # 40 * 1e12 (curve steepness root)
 MARKET_RATE_ANCHOR="${MARKET_RATE_ANCHOR:-1000000000000}"   # 1.0 * 1e12 (PT anchored at par)
-# Initial liquidity per side (USDC base units). The ONLY market step that spends USDC; needs ~2x this
-# in deployer USDC (one part minted into PT, one part as the pool's USDC). Default 0 => deploy+init
-# need no USDC; add liquidity later via market.add_liquidity once funded.
+# The pool's **USDC side** at launch (USDC base units). The PT side is NOT equal to this — it is
+# CALIBRATED from the target APY (see below). The ONLY market step that spends USDC. Default 0 =>
+# deploy+init need no USDC; add liquidity later once funded.
 MARKET_SEED_AMOUNT="${MARKET_SEED_AMOUNT:-0}"
+# The implied APY the pool should OPEN at. Defaults to the vault's advertised fixed rate, so the two
+# products quote the same number on day one (testcando §18).
+#
+# ⚠️  WHY THE SEED IS NOT 1:1 — this was a real bug. `rate_anchor` is pinned at par so PT converges
+# to 1.0 at maturity (the IL-minimizing property). The direct consequence is that a BALANCED pool
+# (proportion 0.5) prices PT at exactly par and implies **0% APY** — so a 1:1 seed shipped a venue
+# where buying PT and holding to maturity LOST the 0.30% swap fee. Measured before the fix:
+# 100 USDC -> 99.21 USDC. Positive yield requires a PT-HEAVY pool.
+#
+# `market.seed_pt_for_apy(usdc, bps)` derives how heavy, on chain, from the same curve math the
+# pricing uses. At the defaults (90d, 5.00%, scalar_root 40) that is ≈ **6.96 PT per 1 USDC**.
+#
+# 💰 BUDGET: the deployer needs ≈ MARKET_SEED_AMOUNT × (1 + ratio) in USDC — about **8×** the USDC
+# side at the defaults, since the PT leg is minted from USDC. Size MARKET_SEED_AMOUNT accordingly.
+# (The PT is not spent: it redeems 1:1 at maturity or comes back via remove_liquidity.)
+MARKET_TARGET_APY_BPS="${MARKET_TARGET_APY_BPS:-$VAULT_RATE_BPS}"
 
 # ─── Checkpoint / resume state ───────────────────────────────────────────────────────────────────
 # The state file accumulates `KEY=value` lines (contract addresses + step-complete markers). It's
@@ -121,7 +137,7 @@ if [ -n "$REDEPLOY" ]; then
   IFS=',' read -r -a REDEPLOY_PARTS <<< "$REDEPLOY"
   for part in "${REDEPLOY_PARTS[@]}"; do
     case "$part" in
-      market) CLEAR_KEYS="$CLEAR_KEYS MARKET MARKET_INIT MARKET_MINTED MARKET_SEEDED" ;;
+      market) CLEAR_KEYS="$CLEAR_KEYS MARKET MARKET_INIT MARKET_MINTED MARKET_SEEDED MARKET_SEED_PT" ;;
       vault)  CLEAR_KEYS="$CLEAR_KEYS VAULT VAULT_INIT VAULT_SEEDED" ;;
       wrapper|strategy)
         echo "ERROR: REDEPLOY=$part is refused — it cannot work in isolation and would leave a"
@@ -158,6 +174,7 @@ WRAPPER=""; STRATEGY=""; VAULT=""; MARKET=""; PT_SAC=""; YT_SAC=""
 PT_ADMIN_SET=""; YT_ADMIN_SET=""; TRUSTLINES_SET=""
 STRATEGY_INIT=""; WRAPPER_INIT=""; VAULT_INIT=""; MARKET_INIT=""
 VAULT_SEEDED=""; MARKET_MINTED=""; MARKET_SEEDED=""; SAVED_MATURITY=""; DEPLOY_COMPLETE=""
+MARKET_SEED_PT=""
 ISSUER_LOCKED=""
 
 if [ -f "$STATE_FILE" ]; then
@@ -561,21 +578,63 @@ else
 fi
 
 if [ "$MARKET_SEED_AMOUNT" -gt 0 ] && [ -z "$MARKET_SEEDED" ]; then
-  echo "==> [7b] Seeding the market with $MARKET_SEED_AMOUNT USDC base units of liquidity per side (REAL USDC)..."
+  echo "==> [7b] Seeding the market — USDC side $MARKET_SEED_AMOUNT, PT side CALIBRATED (REAL USDC)..."
+
+  # Ask the contract how much PT opens the pool at the target APY. Derived on chain by the same
+  # curve math the pricing uses, so the opening quote cannot drift from the target.
+  #
+  # CHECKPOINTED, and that matters: the calibration depends on the time left to maturity, so
+  # recomputing it on a later resume would give a DIFFERENT number and seed a pool at the wrong
+  # rate. Pin the first answer and reuse it.
+  if [ -z "${MARKET_SEED_PT:-}" ]; then
+    CALIBRATED_PT=$(stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+      -- seed_pt_for_apy --usdc_in "$MARKET_SEED_AMOUNT" --target_apy_bps "$MARKET_TARGET_APY_BPS" \
+      2>/dev/null | tr -d '"' | tr -d '[:space:]')
+    if [ -z "$CALIBRATED_PT" ] || [ "$CALIBRATED_PT" = "0" ]; then
+      echo "ERROR: the market could not calibrate a seed for ${MARKET_TARGET_APY_BPS}bps."
+      echo "       It returns 0 when the target is unreachable — at/after maturity, or so extreme"
+      echo "       the pool would open outside the tradeable proportion band. Do NOT seed 1:1 as a"
+      echo "       fallback: that opens at par and implies 0% APY, making Earn Fixed a losing trade."
+      echo "       Lower MARKET_TARGET_APY_BPS or lengthen the term, then re-run."
+      exit 1
+    fi
+    save_state MARKET_SEED_PT "$CALIBRATED_PT"
+    echo "    calibrated PT side = $MARKET_SEED_PT  (target ${MARKET_TARGET_APY_BPS}bps)"
+  else
+    echo "    reusing the pinned calibration: PT side = $MARKET_SEED_PT"
+  fi
+
   # Two separate txs (mint PT, then add_liquidity) get two checkpoints so a stop between them doesn't
   # double-mint on resume. MARKET_MINTED guards the PT mint; MARKET_SEEDED guards the add_liquidity.
   if [ -z "${MARKET_MINTED:-}" ]; then
     stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-      -- mint --user "$ADMIN_ADDR" --amount "$MARKET_SEED_AMOUNT" >/dev/null
+      -- mint --user "$ADMIN_ADDR" --amount "$MARKET_SEED_PT" >/dev/null
     save_state MARKET_MINTED 1
-    echo "    minted $MARKET_SEED_AMOUNT PT for the seed"
+    echo "    minted $MARKET_SEED_PT PT for the seed"
   else
     echo "    PT for the seed already minted — skipping mint."
   fi
   stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- add_liquidity --lp "$ADMIN_ADDR" --pt_in "$MARKET_SEED_AMOUNT" --usdc_in "$MARKET_SEED_AMOUNT" >/dev/null
+    -- add_liquidity --lp "$ADMIN_ADDR" --pt_in "$MARKET_SEED_PT" --usdc_in "$MARKET_SEED_AMOUNT" >/dev/null
   save_state MARKET_SEEDED 1
-  echo "    market seeded (balanced PT/USDC pool opened at par)"
+  echo "    market seeded (PT-heavy, opened at the target rate)"
+
+  # Verify the pool really opened where intended — read the live quote back, don't assume.
+  OPENED_APY=$(read_view "$MARKET" implied_apy)
+  if [ -z "$OPENED_APY" ]; then
+    echo "    ⚠ could not read implied_apy back — CHECK BY HAND before announcing the rate."
+  else
+    # implied_apy is a SCALAR_12 fraction; bps = value * 10000 / 1e12.
+    OPENED_BPS=$(( OPENED_APY / 100000000 ))
+    echo "    opening implied APY ≈ ${OPENED_BPS}bps (target ${MARKET_TARGET_APY_BPS}bps)"
+    DRIFT=$(( OPENED_BPS - MARKET_TARGET_APY_BPS )); [ "$DRIFT" -lt 0 ] && DRIFT=$(( -DRIFT ))
+    if [ "$DRIFT" -gt 25 ]; then
+      echo "ERROR: the pool opened ${DRIFT}bps away from the target. Do not announce this rate."
+      echo "       Investigate before seeding further or publishing the APY."
+      exit 1
+    fi
+    echo "    ✓ the venue opens at the advertised rate"
+  fi
 elif [ -n "$MARKET_SEEDED" ]; then
   echo "==> [7b] market already seeded — skipping."
 else

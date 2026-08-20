@@ -165,6 +165,82 @@ pub fn try_pt_price(
     try_exchange_rate(env, prop, p)
 }
 
+/// **Seed calibration** — the PT reserve to pair with `usdc_in` so the pool *opens* at
+/// `target_apy` (SCALAR_12 fraction, e.g. `0.05e12` = 5%). The exact inverse of [`implied_apy`].
+///
+/// ## Why this exists
+/// The curve prices PT at `rateAnchor − ln(p/(1−p)) / rateScalar`, and `rateAnchor` is pinned at
+/// **par** so PT converges to 1.0 at maturity (the IL-minimizing property — see the module docs).
+/// At `proportion = 0.5` the `ln` term is zero, so **a balanced pool prices PT at exactly par and
+/// implies 0% APY**. A 1:1 seed therefore ships a venue where buying PT and holding to maturity
+/// *loses* the swap fee — the flagship "Earn Fixed" trade is negative by construction.
+///
+/// Positive yield comes only from imbalance: the pool must open **PT-heavy**. This derives how
+/// heavy, from the target rate rather than from a guess:
+///
+/// ```text
+/// targetPrice = 1 / (1 + apy)^yearsToMat          (invert the APY definition)
+/// logit       = (rateAnchor − targetPrice) · rateScalar
+/// ptReserve   = usdcReserve · exp(logit)          (since logit = ln(p/(1−p)) = ln(pt/usdc))
+/// ```
+///
+/// The last step uses `p/(1−p) == ptReserve/usdcReserve`, which falls straight out of
+/// `p = pt/(pt+usdc)`.
+///
+/// Deriving this on-chain — rather than in the deploy script — means the seed ratio is computed by
+/// the *same* `ln`/`exp` and the same `rateScalar` the pricing uses, so the opening quote cannot
+/// drift from the target through a rounding or formula mismatch elsewhere.
+///
+/// Returns `Err` at/after maturity, for a non-positive `usdc_in`, or if the target is so extreme
+/// that the implied proportion leaves the tradeable band — callers should treat that as
+/// "uncalibratable, do not seed".
+pub fn try_seed_pt_for_apy(
+    env: &Env,
+    usdc_in: i128,
+    target_apy: i128,
+    scalar_root: i128,
+    rate_anchor: i128,
+    maturity: u64,
+    now: u64,
+) -> Result<i128, Error> {
+    if usdc_in <= 0 || target_apy < 0 {
+        return Err(Error::InvalidAmount);
+    }
+    let p = try_params(env, scalar_root, rate_anchor, maturity, now)?;
+    let time_to_mat = (maturity - now) as i128;
+    let years_to_mat = mul_div_floor(env, time_to_mat, SCALAR_12, SECONDS_PER_YEAR)?;
+    if years_to_mat <= 0 {
+        return Err(Error::MarketExpired);
+    }
+
+    // targetPrice = (1 + apy)^(-yearsToMat) = exp(-yearsToMat · ln(1 + apy))
+    let one_plus = SCALAR_12.checked_add(target_apy).ok_or(Error::MathOverflow)?;
+    let ln_one_plus = ln_fixed(env, one_plus)?;
+    let growth = exp_fixed(env, fmul(env, years_to_mat, ln_one_plus)?)?; // (1+apy)^T > 1
+    let target_price = fdiv(env, SCALAR_12, growth)?;
+
+    // A target at/above the anchor needs no imbalance (and any excess is unreachable with a par
+    // anchor), so pair 1:1 — the pool opens exactly at the anchor.
+    if target_price >= rate_anchor {
+        return Ok(usdc_in);
+    }
+
+    // logit = (anchor − targetPrice) · rateScalar, then ptReserve = usdcReserve · exp(logit).
+    let logit = fmul(env, rate_anchor - target_price, p.rate_scalar)?;
+    let ratio = exp_fixed(env, logit)?;
+    let pt = fmul(env, usdc_in, ratio)?;
+    if pt <= 0 {
+        return Err(Error::InvalidAmount);
+    }
+    // Refuse a target that would open the pool outside the tradeable proportion band — such a pool
+    // could not be swapped against at all, so seeding it would strand the liquidity.
+    let prop = try_proportion(env, pt, usdc_in)?;
+    if !(MIN_PROPORTION..=MAX_PROPORTION).contains(&prop) {
+        return Err(Error::InsufficientLiquidity);
+    }
+    Ok(pt)
+}
+
 /// Implied APY (SCALAR_12 fraction) from the current PT price and the time to maturity:
 /// `impliedApy = (1 / ptPrice)^(1 / yearsToMat) - 1` (continuous-style, via pow). PT trades below
 /// par, so `1/ptPrice > 1` and the APY is positive. Returns 0 if PT is already at/above par.
