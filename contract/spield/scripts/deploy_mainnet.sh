@@ -37,6 +37,9 @@ NETWORK="${NETWORK:-mainnet}"
 # The Public network passphrase. The Stellar CLI also needs a mainnet RPC to simulate/submit.
 NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Public Global Stellar Network ; September 2015}"
 RPC_URL="${RPC_URL:-https://mainnet.sorobanrpc.com}"
+# Horizon is used ONLY to read the issuer account back after the lockdown (§13). Soroban RPC has
+# no view of classic account signers, so the verification has to come from here.
+HORIZON_URL="${HORIZON_URL:-https://horizon.stellar.org}"
 
 # How we point the CLI at mainnet. If you've run `stellar network add mainnet ...` you can instead
 # export NETWORK=mainnet and the CLI uses the saved network; otherwise we pass passphrase + rpc.
@@ -155,6 +158,7 @@ WRAPPER=""; STRATEGY=""; VAULT=""; MARKET=""; PT_SAC=""; YT_SAC=""
 PT_ADMIN_SET=""; YT_ADMIN_SET=""; TRUSTLINES_SET=""
 STRATEGY_INIT=""; WRAPPER_INIT=""; VAULT_INIT=""; MARKET_INIT=""
 VAULT_SEEDED=""; MARKET_MINTED=""; MARKET_SEEDED=""; SAVED_MATURITY=""; DEPLOY_COMPLETE=""
+ISSUER_LOCKED=""
 
 if [ -f "$STATE_FILE" ]; then
   echo "==> Resuming from existing state file: $STATE_FILE"
@@ -179,6 +183,36 @@ save_state() {  # save_state KEY VALUE
   local key="$1" val="$2"
   printf '%s=%q\n' "$key" "$val" >> "$STATE_FILE"
   printf -v "$key" '%s' "$val"
+}
+
+# Read a no-arg view from a contract, stripped of quotes/whitespace. Pure simulation, costs nothing.
+# Empty string on any failure — callers must treat empty as "could not read", never as a match.
+read_view() {  # read_view <contract-id> <no-arg view fn>
+  local out
+  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "$2" 2>/dev/null) || return 0
+  printf '%s' "$out" | tr -d '"' | tr -d '[:space:]'
+}
+
+# Signers on the PT/YT issuer that can still sign (weight > 0), as "KEY WEIGHT" lines.
+# Prints the single token `UNKNOWN` if the account could not be inspected — callers must fail
+# closed on that rather than assume a safe state.
+issuer_live_signers() {
+  local json
+  json=$(curl -s --max-time 20 "$HORIZON_URL/accounts/$ISSUER_ADDR" 2>/dev/null) || true
+  if [ -z "$json" ] || ! command -v python3 >/dev/null 2>&1; then
+    echo "UNKNOWN"; return 0
+  fi
+  ISSUER_JSON="$json" python3 -c '
+import json, os, sys
+try:
+    acct = json.loads(os.environ["ISSUER_JSON"])
+    signers = acct["signers"]
+except Exception:
+    print("UNKNOWN"); sys.exit(0)
+for s in signers:
+    if int(s.get("weight", 0)) > 0:
+        print("%s %s" % (s.get("key", "?"), s.get("weight")))
+' 2>/dev/null || echo "UNKNOWN"
 }
 
 # ─── Resolve addresses ──────────────────────────────────────────────────────────────────────────
@@ -296,6 +330,98 @@ else
   echo "==> [3b] PT/YT trustlines already set — skipping."
 fi
 
+# ─── [3c] LOCK THE PT/YT ISSUER (testcando §13) ─────────────────────────────────────────────────
+#
+# THE HOLE THIS CLOSES. Handing SAC admin to the wrapper (above) governs the *contract* path to
+# mint/burn. It does nothing to the *classic* path: the issuer account can still create PT with a
+# plain Stellar payment operation, bypassing the wrapper — and therefore bypassing the deposit that
+# is supposed to back it. That is counterfeit PT against real user backing.
+#
+# Today the wrapper survives it only because `redeem_pt` is position-gated, so PT held against no
+# position is unredeemable (`wrapper::test::extra_pt_outside_a_position_breaks_conservation_but_not_
+# the_wrapper` pins that). That is a coincidence, not a defence, and it is exactly the property a
+# balance-based redemption removes. Lock the issuer BEFORE any such redemption ships.
+#
+# WHY MASTER-WEIGHT-0 IS SUFFICIENT. Per Stellar's signature docs: "If the master key's weight is
+# set at 0, it cannot be used to sign transactions, even for operations with a threshold value of
+# 0." So the default thresholds do not need touching — but this holds ONLY if no OTHER signer can
+# sign, which is why the pre-flight below refuses to proceed when one exists.
+#
+# WHY NO AUTH FLAGS ARE SET. `--set-required` would make the issuer authorize every new trustline;
+# with a locked issuer that can never happen, so NOBODY could ever hold PT/YT again — it would brick
+# the protocol permanently. `--set-clawback-enabled` and `--set-revocable` grant powers over holder
+# balances that Spield deliberately does not want. The wrapper only ever calls `mint` and `burn` as
+# SAC admin, so none of these flags are needed. `--set-immutable` is redundant: a key that cannot
+# sign cannot change its own flags either.
+#
+# IRREVERSIBLE. After this the issuer identity is spent forever — a future FRESH=1 deployment needs
+# a BRAND-NEW issuer account (its old SACs are permanently admined by the old wrapper).
+if [ -z "${ISSUER_LOCKED:-}" ] && [ "${LOCK_ISSUER:-1}" = "1" ]; then
+  echo "==> [3c] Locking the PT/YT issuer (irreversible) ..."
+
+  # Pre-flight 1: SAC admin MUST already be the wrapper for BOTH tokens. Locking the issuer while
+  # it is still the admin would leave the asset permanently unmintable — the protocol would be
+  # bricked with no way back. Fail closed if either read is unavailable.
+  PT_ADMIN_NOW=$(read_view "$PT_SAC" admin)
+  YT_ADMIN_NOW=$(read_view "$YT_SAC" admin)
+  if [ "$PT_ADMIN_NOW" != "$WRAPPER" ] || [ "$YT_ADMIN_NOW" != "$WRAPPER" ]; then
+    echo "ERROR: refusing to lock the issuer — SAC admin is not (yet) the wrapper."
+    echo "       PT admin = ${PT_ADMIN_NOW:-<unreadable>}"
+    echo "       YT admin = ${YT_ADMIN_NOW:-<unreadable>}"
+    echo "       expected = $WRAPPER"
+    echo "       Locking now would make PT/YT permanently unmintable. Fix the handover first."
+    exit 1
+  fi
+  echo "    ✓ PT and YT SAC admin is the wrapper — the contract mint path survives the lock"
+
+  # Pre-flight 2: no OTHER signer may exist, or master-weight-0 would not actually lock anything.
+  SIGNERS_BEFORE=$(issuer_live_signers)
+  if [ "$SIGNERS_BEFORE" = "UNKNOWN" ]; then
+    echo "ERROR: could not read the issuer's signers from $HORIZON_URL (needs curl + python3)."
+    echo "       Refusing to lock blind — a second signer would leave the issuer able to mint"
+    echo "       counterfeit PT even after master-weight-0. Verify by hand, then re-run, or set"
+    echo "       LOCK_ISSUER=0 to skip and lock it manually."
+    exit 1
+  fi
+  EXTRA_SIGNERS=$(printf '%s\n' "$SIGNERS_BEFORE" | grep -v "^$ISSUER_ADDR " || true)
+  if [ -n "$EXTRA_SIGNERS" ]; then
+    echo "ERROR: the issuer has additional signers, so master-weight-0 would NOT lock it:"
+    printf '         %s\n' "$EXTRA_SIGNERS"
+    echo "       Remove them first (set their weight to 0), then re-run."
+    exit 1
+  fi
+  echo "    ✓ no extra signers — master-weight-0 will fully disable this account"
+
+  stellar tx new set-options --source-account "$ISSUER" "${NET_ARGS[@]}" --master-weight 0 >/dev/null
+  save_state ISSUER_LOCKED 1
+  echo "    issuer master weight -> 0"
+elif [ -n "${ISSUER_LOCKED:-}" ]; then
+  echo "==> [3c] issuer already locked — skipping."
+else
+  echo "==> [3c] ⚠️  SKIPPING the issuer lockdown (LOCK_ISSUER=0)."
+  echo "         The PT/YT issuer remains a LIVE SIGNING KEY: a plain classic payment from it"
+  echo "         creates PT that bypasses the wrapper entirely. DO NOT SEED with the issuer"
+  echo "         unlocked, and do not ship any balance-based redemption until it is locked."
+fi
+
+# Verify the lock ON CHAIN on every run — the property that matters is "no key can sign for this
+# account", and only the ledger can answer that. §16 live-verification step.
+if [ -n "${ISSUER_LOCKED:-}" ]; then
+  SIGNERS_AFTER=$(issuer_live_signers)
+  if [ "$SIGNERS_AFTER" = "UNKNOWN" ]; then
+    echo "    ⚠ could not verify the lock from $HORIZON_URL — CHECK BY HAND before seeding:"
+    echo "      curl -s $HORIZON_URL/accounts/$ISSUER_ADDR | grep -A3 signers"
+  elif [ -z "$SIGNERS_AFTER" ]; then
+    echo "    ✓ VERIFIED on chain: the issuer has no signer with weight > 0 — it can never sign"
+    echo "      again, so PT/YT can only ever be minted by the wrapper."
+  else
+    echo "ERROR: the issuer is NOT locked — these signers can still sign:"
+    printf '         %s\n' "$SIGNERS_AFTER"
+    echo "       Counterfeit PT is possible. Do not seed. Investigate before continuing."
+    exit 1
+  fi
+fi
+
 # Strategy: deploy and initialize are separate checkpoints (the run could die between them).
 if [ -z "$STRATEGY" ]; then
   echo "==> [4/8] Deploying the Blend strategy adapter..."
@@ -403,11 +529,6 @@ fi
 # THIS script passed were consistent. Reading the views back also proves the state file is not
 # stale: if MARKET points at an old contract deployed before the cross-check existed, or at a pool
 # built against a different wrapper, this is what catches it. Pure simulation, costs nothing.
-read_view() {  # read_view <contract-id> <no-arg view fn> -> value, or "" if unreadable
-  local out
-  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "$2" 2>/dev/null) || return 0
-  printf '%s' "$out" | tr -d '"' | tr -d '[:space:]'
-}
 echo "    verifying the market <-> wrapper binding on chain..."
 MKT_WRAPPER=$(read_view "$MARKET" wrapper)
 MKT_MATURITY=$(read_view "$MARKET" maturity)

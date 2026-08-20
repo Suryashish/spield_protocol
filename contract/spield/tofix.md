@@ -4,12 +4,12 @@ Finished work has been removed from this document. What remains is only what sti
 **decision**, an **action**, or a **deploy step**. Each entry states what is left, not what landed.
 
 Item numbers are unchanged from the original Phase 1 round so `testcando.md` cross-references and
-git history still line up. The gaps in the numbering — **4, 5, 6, 7, 8, 9, 10, 11, 12, 14** — are
-defects that closed cleanly, each with an acceptance test that goes red on regression; they are no
-longer tracked here.
+git history still line up. The gaps in the numbering — **1, 2, 4–12, 14** — are defects that closed,
+each with an acceptance test that goes red on regression. Item 13's code has shipped; only its
+live rehearsal is still open, so it is kept below in reduced form.
 
-Verified against the working tree on **2026-08-19**. Suite: **192 tests, all green**; release WASM
-builds clean with no warnings.
+Verified against the working tree on **2026-08-20**. Suite: **225 Rust tests + 216 SDK tests, all
+green**; release WASM builds clean with no warnings.
 
 Severity legend — **P0** = must close before the first seed transaction; **P1** = close before
 meaningful TVL; **P2** = documentation / belt-and-braces.
@@ -18,218 +18,157 @@ meaningful TVL; **P2** = documentation / belt-and-braces.
 
 ## What is left
 
-| # | Item | Contract / area | Sev | What is left |
+| # | Item | Area | Sev | What is left |
 |---|---|---|---|---|
-| [1](#1-market-bought-pt-has-no-redemption-path) | Market-bought PT has no redemption path | wrapper / market | P0 | **Not fixed** — design decision pending |
-| [2](#2-a-seller-who-sold-their-pt-leg-cannot-redeem-transfer-or-combine) | Seller who sold their PT leg cannot exit | wrapper | P0 | `split_position` landed — **mitigated, not closed**; an already-diverged position still needs item 1 |
-| [13](#13-the-classic-ptyt-issuer-is-never-locked) | The classic PT/YT issuer is never locked | deploy script | P0 | **Not started** — prerequisite for item 1 |
-| [3](#3-b_rate-decrease--a-deep-dip-still-blocks-exits) | `b_rate` dip: deep dips still block exits | strategy | P0 | Valve landed; **residual gap deferred by decision** |
+| [17](#17-the-amm-seed-ratio-ships-a-losing-trade) | The AMM seed ratio ships a losing trade | seed / launch | **P0** | **Calibrate the seed ratio.** Measured today: 100 USDC → 99.21 USDC |
+| [3](#3-b_rate-deep-dip-freezes-exits) | `b_rate` deep dip freezes exits | strategy | **P0** | Residual accepted — **set the TVL cap, publish the disclosure** |
+| [13](#13-issuer-lockdown--rehearsal-only) | Issuer lockdown | deploy | P1 | Code shipped — **rehearse on testnet, confirm `✓ VERIFIED` before seeding** |
+| [15](#15-a-raw-yt-transfer-strands-the-recipients-claim) | A raw YT transfer strands the recipient's claim | wrapper / dApp | P1 | **dApp must route through split+transfer**; not fixable on-chain |
+| [16](#16-post-maturity-surplus-accrues-to-nobody) | Post-maturity surplus accrues to nobody | wrapper | P2 | Nothing yet — **re-measure at the first real maturity** |
 
-Everything else from the Phase 1 round is closed. Nothing here is waiting on a deploy: the one item
-that was (item 10, the market maturity cross-check) is now handled by the deploy scripts themselves —
-see the note directly below — so it happens as part of the next deploy rather than as a checklist
-step someone has to remember.
+Items 15, 16 and 17 are new numbers for findings surfaced while closing 1, 2 and 13.
 
----
-
-## Not a task any more: the market redeploy is part of deploying
-
-Item 10's code landed earlier; only the on-chain redeploy remained, and that is no longer tracked
-here because `deploy_mainnet.sh` / `deploy_testnet.sh` now do it and check it:
-
-* **`REDEPLOY=market bash scripts/deploy_mainnet.sh`** replaces one contract in place — every other
-  address, both PT/YT SACs and the pinned `SAVED_MATURITY` are kept, the state file is backed up, and
-  only the market's deploy + initialize re-run. `REDEPLOY=wrapper|strategy` is refused outright,
-  because SAC admin already belongs to the current wrapper and the wrapper's one-shot `initialize()`
-  pins the strategy — neither can be swapped alone.
-* **`FRESH=1` is the wrong tool** and an earlier revision of this document wrongly recommended it: it
-  deletes the state file, so it re-creates the PT/YT SACs and changes *every* address.
-* **The binding is asserted from chain on every run**, not just on a redeploy. After the market's
-  init step the script reads `market.wrapper()`, `market.maturity()` and `market.pt_token()` back and
-  aborts if they don't match the wrapper. The market currently live on mainnet predates the
-  cross-check and has no `wrapper()` view, so the next run of the deploy script **fails loudly and
-  prints the exact `REDEPLOY=market` command** instead of letting it be seeded.
-* The summary block now names the off-chain files that pin the ids
-  (`MAINNETCONTRACTADDRESSES.md`, and **both** the hardcoded profile and the `VITE_*` override in
-  `website/frontend/src/lib/config.ts`), plus a `grep` to prove nothing stale is left.
-
-Rehearse it on testnet first — `REDEPLOY=market bash scripts/deploy_testnet.sh` runs the identical
-code path.
+**Also gating launch, and never `tofix.md`'s scope:** `testcando.md` §18 — the §12
+mainnet-parameter profile, proving the solvency monitor fires, the audit decision, and Appendix B.
 
 ---
 
-## 1. Market-bought PT has no redemption path
+## 17. The AMM seed ratio ships a losing trade
 
-*`testcando.md` §0 P0 `market_bought_pt_is_redeemable_by_buyer` — **confirmed, NOT FIXED***
+*`testcando.md` §14 — **surfaced concretely by the market-bought-PT fix; NOT CALIBRATED***
 
-**Tests** — `market::test::market_bought_pt_has_no_wrapper_redemption_path`,
-`market::test::transfer_position_is_the_only_exit_for_market_bought_pt`
+Now that PT bought on the AMM can actually be redeemed, the flagship "Earn Fixed" flow runs end to
+end — and the measurement is bad. From
+`market::test::market_bought_pt_is_redeemable_by_the_buyer`, at the deploy scripts' default
+balanced seed:
 
-These two are **deliberately left asserting the broken behavior**, so the gap stays visible in CI
-until it is closed. Do not "fix" them; invert them as part of the real fix.
+```
+Earn Fixed via AMM (1:1 seed): spent 1000000000 USDC -> 992051784 PT -> 992051784 USDC at maturity
+```
 
-### The issue
+**100 USDC in, 99.21 USDC out — a 0.79% loss for holding to maturity.**
 
-`wrapper::redeem_pt(position_id, amount)` and `combine_and_redeem` are **position-gated**: they load
-a `Position`, `require_auth` its `owner`, and burn from `pos.owner`'s SAC balance. A trader who buys
-PT on the AMM holds a real PT SAC balance but owns **no position**, so there is no id to redeem
-against — `try_redeem_pt` returns `PositionNotFound`. The wrapper exposes no balance-based
-redemption entry point at all.
-
-The test walks the headline "Earn Fixed via the AMM" flow end to end: the trader spends 100 USDC on
-PT, holds to maturity, and finishes holding redeemable PT and **0 USDC**, with no call available to
-convert one into the other.
-
-The only exit that exists today is `transfer_position` from the seller — and the second test shows
-that path is *also* broken in the common case: `transfer_position` moves `pos.pt_amount`, but once
-an LP has put its PT into the pool and a trader has bought some out, the LP holds strictly less PT
-than its position records, so the transfer reverts on the SAC leg.
-
-### ⚠ Fix ordering — gated on item 13
-
-`redeem_pt` being position-gated is currently **the only thing preventing counterfeit PT from
-draining the wrapper**, because the classic PT/YT issuer is still an unlocked signing key (item 13).
-`wrapper::test::extra_pt_outside_a_position_breaks_conservation_but_not_the_wrapper` pins this: PT
-held against no position is unredeemable, so the wrapper survives. **Adding any balance-based
-redemption removes that shield.** Lock the issuer first.
-
-`testcando.md` §18 and its suggested order of attack have both been amended to put the §13 lockdown
-ahead of these §0 P0s.
-
-### Candidate fixes (needs a decision)
-
-| Option | Change | Trade-off |
-|---|---|---|
-| **A. Defer** *(current state)* | Document the gap; do item 13 first, then revisit | Safest ordering; the flagship flow stays broken until then |
-| **B. Post-maturity swaps at par** | Let the market keep quoting at par after maturity so buyers exit via the pool | No wrapper change, no counterfeit exposure; changes the maturity-halt semantics and needs LP-side thought. **Cheaper than it was:** the market↔wrapper cross-check makes the market's maturity provably equal to the wrapper's, so "after maturity" is now a single well-defined instant for both |
-| **C. Balance-based `redeem_pt`** | Burn loose PT 1:1 against a global shares pool | Requires item 13 **first**, plus a wrapper accounting redesign — there is no position to decrement `principal`/`shares` against |
-| **D. `split_position`** ✅ *(landed)* | Let a seller hand over a right-sized position with the PT | **Shipped.** `split_position(id, amount)` + `transfer_position` is now the supported partial-sale path, and it settles first so the yield split is clean. It does **not** close this item: an AMM buyer still holds loose PT with no position, so the exit remains a manual off-protocol handoff. It gives the *forward* flow a correct answer, not the market-bought case |
-
----
-
-## 2. A seller who sold their PT leg cannot redeem, transfer, or combine
-
-*`testcando.md` §0 P0 `seller_with_sold_pt_cannot_redeem_or_transfer` — **confirmed, NOT FIXED,
-degrades gracefully***
-
-**Tests** — `market::test::seller_with_sold_pt_can_still_claim_yield`,
-`market::test::seller_with_sold_pt_cannot_redeem_pt`,
-`market::test::seller_with_sold_pt_cannot_combine_or_transfer`
-
-Also left asserting the broken behavior on purpose.
-
-### The issue
-
-The mirror image of item 1. A user mints, sells the PT leg on the AMM, and keeps the position + YT.
-The position still records `pt_amount = 100 USDC` while the SAC balance is 0, so:
-
-* `claim_yield` — **works** (touches neither SAC). Yield accrues and pays correctly.
-* `redeem_pt` — **reverts** on the SAC burn shortfall.
-* `combine_and_redeem` — **reverts** (needs the PT leg).
-* `transfer_position` — **reverts** (moves `pos.pt_amount`).
-
-The good news, and the reason this is a design gap rather than a bug: every failure is **atomic**.
-The test asserts `pos.pt_amount` and ownership are unchanged after each failed attempt, and that the
-wrapper stays solvent. Position accounting and SAC balances diverge without corrupting state.
+The redemption path is correct; the **seed ratio** is not. `MARKET_SEED_AMOUNT` supplies both sides
+equally, so the pool opens at proportion 0.5 where `rate_anchor` puts PT at **par**. A buyer
+therefore pays ~1.00 per PT for something that redeems at exactly 1.00, and the 0.30% swap fee plus
+price impact makes the round trip negative. The venue is quoting ~0% APY by construction.
 
 ### What is left
 
-**`split_position` has landed** (option D), which gives the *forward* flow a clean answer: split off
-exactly the slice you intend to sell **before** selling it, then `transfer_position` it. Both halves
-stay whole, exitable positions, and the split settles first so the seller keeps the yield earned up
-to that point. That is the supported way to sell part of a holding, and it is what the dApp should
-route users through.
+1. **Compute the real seed ratio** — PT must open at a discount that expresses the intended fixed
+   APY over the remaining term, not at par. This is the number `testcando.md` §14 calls for, and it
+   is *not* the script's 1:1 default.
+2. **Assert the opening `implied_apy`** matches the vault's advertised rate before seeding, rather
+   than discovering it afterwards.
+3. Consider making `MARKET_SEED_AMOUNT` refuse a balanced seed outright, so the default cannot ship
+   a 0% venue by accident.
 
-What it does **not** do is rescue a position that has *already* diverged. Once the PT has been sold
-onto the AMM, the position still records `pt_amount = 100` against a zero balance, and
-`transfer_position` still reverts on the SAC leg — `split_position` splits the *record*, not the
-tokens, so a slice of a diverged position is equally unsellable. Recovering those needs item 1's
-decision (a balance-based redemption, gated on item 13).
-
-So: this is **mitigated, not closed**. The good path exists; the bad state is still reachable by
-selling PT on the AMM first, and is still only survivable because every failure is atomic (the tests
-assert `pos.pt_amount` and ownership are unchanged after each failed attempt, and that the wrapper
-stays solvent).
-
-**Keep the graceful-degradation assertions** when item 1 lands — they are worth having regardless of
-which exit path is added.
+Until this is done, every user who takes the headline product loses money. It is the single most
+user-visible item left.
 
 ---
 
-## 13. The classic PT/YT issuer is never locked
+## 3. `b_rate` deep dip freezes exits
 
-*`testcando.md` §13 — **confirmed by reading the script, NOT STARTED***
+*`testcando.md` §0 P0 `brate_decrease_bricks_everything_including_exits` — **residual ACCEPTED
+2026-08-20; the mitigation is operational, not code***
 
-Promoted out of Appendix B because it directly blocks item 1.
+`reset_rate_floor()` restores reads unconditionally and exits for shallow dips. In a **deep** dip
+(backing genuinely below principal — tested at a 12% haircut) reads come back, so the dashboard and
+monitor work and the shortfall is visible, but **every mutation still refuses** with
+`SolvencyViolation`. Pinned for full, half and 1-USDC exits, so it is not a size threshold a small
+enough withdrawal slips under.
 
-### The issue
+Accepted because the three cheap options (accept / bounded tolerance / split the guard) all leave
+deep dips blocked — they fix the *freeze*, not the *shortfall*. Only loss allocation restores exits,
+and it means PT stops being a strict 1:1 claim and touches the vault's solvency model too. That is
+not a pre-launch change.
 
-`scripts/deploy_mainnet.sh` hands SAC admin to the wrapper (lines ~210–222) but contains **no
-`set-options`, no master-weight-0, and no flag lockdown anywhere**. The PT/YT issuer
-(`GA4R5M7ZWOQZWIYCW246YC5WJ4QHT3H74CAUSTCEUUWIELCWI7IP3MKB`) therefore remains a live signing key: a
-plain classic payment from it creates PT that bypasses the wrapper entirely.
+### What is left — two actions, neither of them code
 
-Today the damage is contained only because `redeem_pt` is position-gated (item 1's gap acting as an
-accidental shield). That is not a security design — it is a coincidence that items 1 and 2 are
-scheduled to remove.
+1. **Set and enforce a launch TVL cap.** This is the actual mitigation: it bounds the worst case to
+   an amount that can be absorbed or made whole off-protocol. Decide the number, write it down,
+   enforce it operationally.
+2. **Publish the disclosure** in user-facing docs, not only here: a deep Blend bad-debt event
+   freezes withdrawals until backing recovers, with no bounded recovery time. Users cannot consent
+   to a risk that is only recorded in an internal tracker.
 
-### What is left
-
-1. Add the issuer lockdown to `deploy_mainnet.sh` — `set-options --master-weight 0` plus the auth
-   flags — after SAC admin has been transferred to the wrapper and verified.
-2. Verify on chain that the issuer can no longer sign, before any balance-based redemption ships.
-3. Only then work items 1 and 2.
-
-Not reachable from the test suite (needs network access and keys), so this lands as a script change
-plus a §16 live-verification step, not as a unit test.
+Revisit loss allocation before scaling past the cap.
 
 ---
 
-## 3. `b_rate` decrease — a deep dip still blocks exits
+## 13. Issuer lockdown — rehearsal only
 
-*`testcando.md` §0 P0 `brate_decrease_bricks_everything_including_exits` — **option A landed; the
-residual is deliberately deferred, not resolved***
+*`testcando.md` §13 — **code shipped; the live steps are outstanding***
 
-Already landed (not to be re-done): `strategy::reset_rate_floor()`, an admin-gated, immediate
-valve that lowers the stored `last_rate` high-water mark to the pool's raw `b_rate`. It only ever
-lowers, refuses a non-positive rate, and is covered by seven tests including one against real Blend.
-`set_max_apr_bps` is not a substitute — it widens the *upper* ceiling; this is the *lower*
-monotonicity guard.
-
-### ⚠ The residual gap — deferred by decision (2026-08-19)
-
-`reset_rate_floor` restores **reads unconditionally** and **exits for shallow dips**. It cannot
-conjure backing, and it must not: the wrapper still asserts `backing >= principal` against Blend's
-real position after every mutation (`wrapper::lib.rs::assert_solvent`).
-
-* **Shallow dip** (backing still covers principal — e.g. a one-stroop dip, absorbed by the
-  tolerance): the valve fully restores `claim_yield`, `combine_and_redeem`, `redeem_pt` and `mint`.
-  Verified end to end, including that the user is really paid.
-* **Deep dip** (backing genuinely below principal — tested at a 12% haircut with two positions
-  outstanding): reads come back, so the dashboard and the off-chain monitor work and the size of the
-  shortfall is visible — but **every mutation still refuses**, now with `SolvencyViolation` instead
-  of `RateOutOfBounds`. Pinned for full, half and 1-USDC exits, so this is not a size threshold a
-  small enough withdrawal slips under.
-
-So for a real bad-debt event, option A converts *"frozen, cause unknown, dashboard dark"* into
-*"visibly under-backed, and the shortfall is the thing blocking exits."* That is a genuine
-operational improvement and it is **not** a general unfreeze. Funds stay inaccessible until the
-backing recovers or a deliberate loss-allocation mechanism ships.
+The lockdown is scripted and self-verifying (`deploy_*.sh` step [3c]): master weight → 0 after the
+SAC-admin handover, two fail-closed pre-flights, and an on-chain re-verification on every later run
+that aborts the deploy if any key can still sign. Nothing more to build.
 
 ### What is left
 
-**This was consciously deferred rather than decided** — it is still a live P0 for the §18 gate, and
-none of the four options has been implemented:
+1. **Rehearse it once on testnet** — end to end, including that minting still works afterwards
+   (`LOCK_ISSUER=0` is the escape hatch while iterating; it must never be used on mainnet).
+2. **Confirm the mainnet run prints `✓ VERIFIED on chain`** before anything is seeded. This is now
+   load-bearing: `redeem_pt_bearer` pays out on PT balance alone, so an unlocked issuer would mean
+   counterfeit PT redeemable for real USDC.
+3. **Monitor PT/YT supply conservation live** (§13 / §19) — `Σ pos.pt_amount == PT_supply +
+   bearer_redeemed`. The `bearer_redeemed` view exists for exactly this.
 
-| Option | Change | Trade-off |
-|---|---|---|
-| **Accept** | State plainly that a deep Blend bad-debt event freezes exits until backing recovers | Zero code. Leaves user funds inaccessible for an unbounded period in the worst case |
-| **B. Tolerate a bounded decrease** | Allow `current >= last × (1 − max_drawdown_bps)` in `check_rate_bound_timed` | Self-healing, no admin action needed. Needs `max_drawdown_bps` calibrated against a realistic bad-debt event. **Does not clear the solvency assertion**, so a deep dip still blocks exits — this fixes the freeze, not the shortfall |
-| **Split the guard** | Let **exit paths** tolerate a decrease (yield is already clamped at 0 in `math::yield_amount`) while **inflows** keep the strict check | Removes the human-in-the-loop for shallow dips. Same caveat: does not clear the solvency assertion |
-| **Loss allocation** | Let a deep dip socialise the shortfall pro-rata across positions instead of refusing | The only option that actually restores exits in a deep dip. Much larger change: it means PT stops being a strict 1:1 claim, which touches the vault's solvency model too |
+Remember the lockdown **burns the issuer identity**: a future `FRESH=1` deployment needs a
+brand-new issuer account.
 
-Note that the first three all leave the deep-dip case blocked. If restoring exits under real
-bad debt is a launch requirement, only the fourth achieves it.
+---
+
+## 15. A raw YT transfer strands the recipient's claim
+
+*Not in `testcando.md` — **found while implementing `split_position`; not enforceable on-chain***
+
+The **position** is the authoritative claim, not the token balance: `claim_yield` pays `pos.owner`
+and never reads a YT SAC balance. `split_position` + `transfer_position` gives a *correct* path for
+partial sales, but nothing *prevents* the wrong one. Send YT peer-to-peer and the recipient holds YT
+that can claim **nothing**, while the sender **keeps earning** on tokens they no longer hold.
+
+**There is no contract-level fix.** Pendle prevents this with a `_beforeTokenTransfer` hook that
+checkpoints both parties. A Stellar Asset Contract cannot: it is built into the protocol
+(`CONTRACT_EXECUTABLE_STELLAR_ASSET`, not a Wasm hash), with a fixed interface and no callbacks. We
+are SAC *admin*, which grants mint and burn — admin is not a hook. **No code of ours can run on a YT
+transfer.** Enforcement would mean replacing the YT SAC with a custom SEP-41 token holding a
+per-holder interest index, costing YT its classic-asset nature (trustlines, path payments, classic
+DEX and wallets) and adding a new audited surface exactly where yield bugs live (SCF #4 and #5 were
+both interest-index bugs).
+
+### What is left
+
+* **Short term (do this):** the dApp must route every partial sale through `split_position` +
+  `transfer_position`, so the bad state is unreachable through the UI, and the docs must warn that
+  sending YT directly forfeits the yield claim.
+* **Long term:** only revisit if a fungible YT market becomes a product goal.
+
+**Exposure today is latent, not live.** There is no YT pool (`FEATUREPLAN_BUY_YT.md`: "YT is always
+derived — mint a PT+YT pair, then sell the PT you don't want"), so every YT holder is also the
+position owner and the two cannot drift apart. It goes live the first time anyone sends YT
+peer-to-peer.
+
+---
+
+## 16. Post-maturity surplus accrues to nobody
+
+*Not in `testcando.md` — **side effect of the YT maturity cap; no action needed yet***
+
+YT stops earning at maturity (Pendle parity), but the wrapper's Blend position keeps growing. That
+growth accrues to no YT holder and no PT holder, so it sits as **surplus backing**. Measured by
+`post_maturity_growth_becomes_wrapper_surplus_not_yt_yield`.
+
+Benign: it can only ever make the protocol *more* solvent — `backing >= principal` holds with more
+room, never less. Nothing is at risk; it is value with no owner.
+
+### What is left
+
+Nothing, for now. **Re-measure at the first real maturity**, since the amount grows with
+time-since-maturity and TVL. If it becomes material, add an admin sweep gated on
+`total_liability == 0` **and** at/after maturity, so it can never touch funds anyone is owed. Adding
+it sooner means a new fund-moving admin function for an amount that is currently rounding error.
 
 ---
 
@@ -240,10 +179,9 @@ Scope was `testcando.md` §0 plus §13's on-chain conservation law. Still open, 
 * **Phase 2** — §1 wrapper lifecycle edges, §2 strategy/rate-bound edges, §3 vault edges, §6
   systematic auth matrix.
 * **Phase 3** — §4 AMM/curve edges, §8 pure-math properties, §9 remaining resource budgets, §12
-  mainnet-parameter profile, §14 launch-seed calibration.
+  mainnet-parameter profile, §14 launch-seed calibration (**now item 17 above — urgent**).
 * **Phase 4** — §5 ecosystem stateful fuzz, §15 adversarial simulation, §7 event contracts, §10
   chaos drills, §11 mutation testing.
 
 **Not reachable from the test suite** — §16 (live mainnet read-only verification) and §17 (testnet
-operational drills) need network access and keys. They will be delivered as a written gap-report in
-Phase 4 rather than as tests. Item 13's lockdown verification belongs here too.
+operational drills) need network access and keys. Item 13's testnet rehearsal belongs here too.

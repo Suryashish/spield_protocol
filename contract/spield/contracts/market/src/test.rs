@@ -944,15 +944,20 @@ fn warp_to(w: &World, ts: u64) {
 }
 
 // --------------------------------------------------------------------------
-// §0 P0 — `market_bought_pt_is_redeemable_by_buyer`
+// §0 P0 — `market_bought_pt_is_redeemable_by_buyer`  ✅ FIXED
 //
 // A trader buys PT on the AMM and holds it to maturity. `wrapper::redeem_pt` is
-// position-gated, and the buyer has no position — so the core "Earn Fixed via
-// AMM" flow has no exit. This test documents that.
+// position-gated and the buyer has no position, so this flow used to dead-end —
+// the trader finished holding redeemable PT and 0 USDC, with no call available to
+// convert one into the other. This test asserted that gap; it now asserts the exit.
+//
+// `wrapper::redeem_pt_bearer` makes the TOKEN the claim. Its safety rests on PT
+// supply being honest, which the §13 issuer lockdown enforces (deploy step 3c:
+// issuer master weight -> 0, verified on chain before anything is seeded).
 // --------------------------------------------------------------------------
 
 #[test]
-fn market_bought_pt_has_no_wrapper_redemption_path() {
+fn market_bought_pt_is_redeemable_by_the_buyer() {
     let w = setup(YEAR);
     // LP mints position #0 (1_000 PT + 1_000 YT) and puts ALL the PT in the pool.
     let (lp, _shares) = seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
@@ -967,26 +972,46 @@ fn market_bought_pt_has_no_wrapper_redemption_path() {
     warp_to(&w, w.maturity + 1);
     assert_eq!(w.pt().balance(&trader), pt_bought, "trader holds redeemable PT");
 
-    // GAP 1: the trader owns no position, so there is nothing to redeem against.
-    // The only position that exists is the LP's #0.
+    // The buyer STILL owns no position — nothing about that changed.
     assert_eq!(w.wrapper().get_position(&0u64).owner, lp, "only the LP has a position");
     assert!(
         w.wrapper().try_get_position(&1u64).is_err(),
         "no second position exists — the buyer never minted one"
     );
-    // Any id the buyer might invent is simply not found.
     assert_eq!(
         w.wrapper().try_redeem_pt(&1u64, &pt_bought),
         Err(Ok(spield_shared::Error::PositionNotFound.into())),
-        "a market buyer has no position id to redeem against"
+        "the POSITION path still (correctly) has nothing to redeem against"
     );
 
-    // GAP 2: and there is no un-gated, balance-based redemption entry point either
-    // — the trader ends maturity holding PT worth 1 USDC each and 0 USDC.
+    // …but the BEARER path pays them, which is the whole point of the fix.
+    let paid = w.wrapper().redeem_pt_bearer(&trader, &pt_bought);
+    assert_eq!(paid, pt_bought, "PT redeems 1:1 at maturity");
+    assert_eq!(w.usdc().balance(&trader), pt_bought, "the trader is really paid in USDC");
+    assert_eq!(w.pt().balance(&trader), 0, "the PT is burned");
+
+    // The redemption returns exactly the PT held — whether that beats the 100 USDC paid is a
+    // property of the curve, the 0.30% fee and the price impact of this particular trade size,
+    // not of the redemption path, so it is reported rather than asserted here.
     assert_eq!(
         w.usdc().balance(&trader),
-        0,
-        "market-bought PT could not be converted to USDC at maturity"
+        pt_bought,
+        "every PT bought must convert to exactly 1 USDC"
+    );
+    // And the protocol is still solvent afterwards.
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 8 >= principal, "backing {} principal {}", backing, principal);
+    // NOTE the economics this prints, which are about the SEED and not the redemption path:
+    // seeded 1:1 the curve opens at par, so a buyer pays ~par and the 0.30% fee leaves them
+    // *behind* at maturity (100 USDC in -> ~99.2 USDC out). The redemption works perfectly; the
+    // venue is quoting ~0% APY because of the balanced seed. That is exactly the calibration
+    // `testcando.md` §14 flags ("the scripted 1:1 seed ships a 0% APY venue") — the seed ratio has
+    // to put PT at a real discount before launch, or Earn Fixed is a losing trade by construction.
+    std::println!(
+        "Earn Fixed via AMM (1:1 seed): spent {} USDC -> {} PT -> {} USDC at maturity",
+        100 * USDC,
+        pt_bought,
+        w.usdc().balance(&trader)
     );
 }
 

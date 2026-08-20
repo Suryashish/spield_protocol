@@ -429,6 +429,18 @@ profile, so every existing test also runs at the real numbers.
 
 ## 13. Issuer & token-supply integrity — **the largest untested attack surface**
 
+> **✅ THE LOCKDOWN HAS SHIPPED (2026-08-20).** `deploy_mainnet.sh` / `deploy_testnet.sh` step [3c]
+> now set the issuer's master weight to 0 after the SAC-admin handover, with two fail-closed
+> pre-flights (SAC admin must already be the wrapper; no other signer may exist) and an on-chain
+> re-verification on every subsequent run that aborts the deploy if any key can still sign.
+> `LOCK_ISSUER=0` skips it for testnet iteration only.
+>
+> **The incidental shield described below is now deliberately gone.** `redeem_pt_bearer` redeems PT
+> by token balance, so counterfeit PT *would* be redeemable — the lockdown is what makes that safe,
+> and it is why the lockdown had to ship first. See tofix.md.
+>
+> Still outstanding here: rehearse on testnet, and the live supply-conservation monitoring below.
+
 **P0 finding from reading `deploy_mainnet.sh`.** PT and YT are **classic Stellar assets**
 (`SPLDPT`/`SPLDYT`, issuer `GA4R5M7ZWOQZWIYCW246YC5WJ4QHT3H74CAUSTCEUUWIELCWI7IP3MKB`) wrapped as
 SACs. The script hands **SAC admin** to the wrapper (script lines ~210–222), so only the wrapper
@@ -636,23 +648,26 @@ testnet with a stopwatch, then write the timing into the runbook.
 Concrete, checkable conditions. **Do not send the first seed transaction until every box is
 ticked.**
 
-> **⚠ Ordering.** The first two boxes below are listed in dependency order, not in the order they
-> were written. **The §13 issuer lockdown must be done BEFORE the market-bought-PT §0 P0s**, not
-> after. `redeem_pt` being position-gated is currently the only thing stopping counterfeit PT from
-> draining the wrapper while the PT/YT issuer remains a live signing key
-> (`wrapper::test::extra_pt_outside_a_position_breaks_conservation_but_not_the_wrapper` pins this).
-> Adding any balance-based redemption removes that shield, so shipping the §0 fix first would turn a
-> UX gap into a drainable exploit. Lock the issuer, verify on chain that it can no longer sign, then
-> work the redemption gap.
+> **⚠ Ordering — now enforced by the deploy script.** The §13 issuer lockdown had to come BEFORE the
+> market-bought-PT §0 P0s: `redeem_pt` being position-gated was the only thing stopping counterfeit
+> PT from draining the wrapper while the issuer remained a live signing key, and a balance-based
+> redemption removes that shield. Both have now shipped **in that order**. The lockdown is step
+> [3c] of `deploy_mainnet.sh`, runs before anything can be seeded, and aborts the deploy if the
+> issuer is still able to sign — so the ordering can no longer be got wrong by hand.
 
-- [ ] **§13 issuer lockdown** rehearsed on testnet and executed on mainnet; issuer flags verified
-      safe; PT/YT supply conservation asserted in the suite and monitored live. **Do this first —
-      see the ordering note above.**
-- [ ] Every **P0 in §0** is resolved (fixed, or consciously accepted and written down) — especially
-      market-bought-PT redemption (blocked on the lockdown above), harvest-under-pause, the vault's
-      monotonic dust band, and the b_rate-decrease brick. (The "unbounded `redeem_pt_for` walk" is
-      no longer on this list: it was measured and the premise did not hold — see §0. The budget P0
-      it was standing in for is `harvest`'s batch ceiling, now closed.)
+- [x] **§13 issuer lockdown** — **scripted and self-verifying.** `deploy_mainnet.sh` step [3c] sets
+      the issuer's master weight to 0 after the SAC-admin handover, with two fail-closed pre-flights
+      (SAC admin must already be the wrapper; no other signer may exist) and an on-chain
+      re-verification on every subsequent run. No auth flags are set — `--set-required` would make a
+      locked issuer authorize every trustline, which would permanently brick PT/YT.
+      **Still to do:** rehearse it once on testnet, and confirm the mainnet run's `✓ VERIFIED`
+      line before seeding.
+- [x] Every **P0 in §0** resolved — market-bought-PT redemption (`redeem_pt_bearer`, gated on the
+      lockdown above), harvest-under-pause, the vault's monotonic dust band. The b_rate-decrease
+      brick is **consciously accepted and written down** (tofix.md item 3) — its mitigation is the
+      launch TVL cap below plus a user-facing disclosure, both still outstanding. (The "unbounded
+      `redeem_pt_for` walk" is no longer on this list: it was measured and the premise did not hold
+      — see §0. The budget P0 it stood in for is `harvest`'s batch ceiling, now closed.)
 - [ ] **§14 seed ratio** computed and agreed — **not** the script's 1:1 default — and the opening
       `implied_apy` matches the vault's advertised rate.
 - [ ] §12 mainnet-profile suite green: 90-day term, `b_rate ≈ 1.124` entry, all existing tests.
@@ -669,7 +684,12 @@ ticked.**
 - [ ] Security audit commissioned or explicitly deferred in writing (MAINNET.md §7 — still open, and
       a sibling Blend pool lost $10.8M in Feb 2026).
 - [ ] Launch TVL cap decided and enforced operationally (start small; §16's Blend-liquidity preflight
-      bounds how much can exit at once).
+      bounds how much can exit at once). **This is now load-bearing, not just prudence:** it is the
+      accepted mitigation for the deep-`b_rate`-dip freeze (tofix.md item 3), which can make
+      withdrawals unavailable for an unbounded period. The cap is what bounds that exposure.
+- [ ] **Deep-dip disclosure published** to users (not only in the internal tracker): a deep Blend
+      bad-debt event freezes withdrawals until backing recovers, with no bounded recovery time.
+      Users cannot consent to a risk that is only written down internally.
 
 ## 19. Post-launch continuous testing
 

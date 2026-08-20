@@ -1152,6 +1152,220 @@ fn claim_on_closed_position_is_a_noop() {
 
 /// Sum `pt_amount` / `yt_amount` over every position id ever opened.
 // ===========================================================================
+// REDEEM_PT_BEARER — the exit for PT bought on the AMM (testcando §0 P0)
+//
+// `redeem_pt` is position-gated: it loads a Position, auths its owner, and burns
+// from that owner. A trader who bought PT on the pool holds a real balance and owns
+// no position, so there was NO call that could turn it into USDC — the headline
+// "Earn Fixed via the AMM" flow dead-ended at maturity.
+//
+// `redeem_pt_bearer` makes the TOKEN the claim. The safety of that rests on PT
+// supply being honest, which is what the §13 issuer lockdown guarantees; before it,
+// the position gate was the only thing containing counterfeit PT.
+// ===========================================================================
+
+/// The flagship flow, end to end: acquire PT without ever owning a position, hold to
+/// maturity, redeem it for USDC. This is the inversion of the old
+/// `market_bought_pt_has_no_wrapper_redemption_path`.
+#[test]
+fn pt_held_without_a_position_redeems_at_maturity() {
+    let w = setup(YEAR);
+    let (seller, id) = w.deposit_new_user(100 * USDC);
+    let trader = Address::generate(w.env());
+
+    // The trader acquires PT the way an AMM buyer does — tokens only, no position.
+    w.pt().transfer(&seller, &trader, &(40 * USDC));
+    assert!(
+        w.wrapper().try_get_position(&1u64).is_err(),
+        "the trader owns no position — that is the whole point"
+    );
+
+    warp_to(&w, w.maturity + 1);
+    let before = w.usdc().balance(&trader);
+    let paid = w.wrapper().redeem_pt_bearer(&trader, &(40 * USDC));
+
+    assert_eq!(paid, 40 * USDC, "PT must redeem 1:1 at maturity");
+    assert_eq!(w.usdc().balance(&trader) - before, 40 * USDC, "the trader is really paid");
+    assert_eq!(w.pt().balance(&trader), 0, "the PT is burned");
+    assert_eq!(w.wrapper().bearer_redeemed(), 40 * USDC);
+
+    // The seller keeps their own PT and their own exit.
+    let sb = w.usdc().balance(&seller);
+    w.wrapper().redeem_pt(&id, &(60 * USDC));
+    assert_eq!(w.usdc().balance(&seller) - sb, 60 * USDC);
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
+}
+
+/// **The load-bearing property.** A bearer redeem touches no position record, so it must not
+/// disturb the YT yield the seller is still owed. The seller keeps their YT; the buyer takes the
+/// principal; both get exactly what they should.
+#[test]
+fn bearer_redeem_leaves_the_sellers_yt_yield_exactly_intact() {
+    let w = setup(YEAR);
+    let (seller, id) = w.deposit_new_user(100 * USDC);
+    let (control_user, control_id) = w.deposit_new_user(100 * USDC);
+    let trader = Address::generate(w.env());
+
+    // Seller sells their whole PT leg and keeps the YT. Control keeps both.
+    w.pt().transfer(&seller, &trader, &(100 * USDC));
+
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().stamp_maturity_rate();
+
+    // The buyer redeems the principal out from under the seller's position.
+    w.wrapper().redeem_pt_bearer(&trader, &(100 * USDC));
+
+    // The seller's YT yield must be untouched — identical to the control that sold nothing.
+    let seller_yield = w.wrapper().claim_yield(&id);
+    let control_yield = w.wrapper().claim_yield(&control_id);
+    assert!(seller_yield > 0, "the seller still owns the YT and is owed its yield");
+    assert!(
+        (seller_yield - control_yield).abs() <= 2,
+        "selling the PT leg must not change the YT yield: seller {} vs control {}",
+        seller_yield,
+        control_yield
+    );
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
+    std::println!("seller YT yield {} vs untouched control {}", seller_yield, control_yield);
+}
+
+/// The same PT cannot be redeemed twice — once through the bearer path and again through the
+/// position that minted it.
+#[test]
+fn bearer_redeem_cannot_be_double_spent_through_the_position() {
+    let w = setup(YEAR);
+    let (seller, id) = w.deposit_new_user(100 * USDC);
+    let trader = Address::generate(w.env());
+    w.pt().transfer(&seller, &trader, &(100 * USDC));
+
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().redeem_pt_bearer(&trader, &(100 * USDC));
+
+    // The position still RECORDS 100 PT, but the tokens are gone, so its own redeem cannot burn.
+    assert_eq!(w.wrapper().get_position(&id).pt_amount, 100 * USDC, "record is now historical");
+    assert!(
+        w.wrapper().try_redeem_pt(&id, &(100 * USDC)).is_err(),
+        "the position cannot redeem PT its owner no longer holds"
+    );
+    // And nobody can bearer-redeem beyond what is outstanding.
+    assert_eq!(
+        w.wrapper().try_redeem_pt_bearer(&trader, &1i128),
+        Err(Ok(spield_shared::Error::InsufficientBalance.into())),
+        "no principal remains outstanding"
+    );
+}
+
+/// PT conservation restated: a bearer redeem burns supply without touching position records, so
+/// the books balance only with the `bearer_redeemed` term.
+#[test]
+fn bearer_redeem_conservation_holds_with_the_counter() {
+    let w = setup(YEAR);
+    let (a, _id_a) = w.deposit_new_user(100 * USDC);
+    let (b, _id_b) = w.deposit_new_user(60 * USDC);
+    let trader = Address::generate(w.env());
+    w.pt().transfer(&a, &trader, &(30 * USDC));
+    w.pt().transfer(&b, &trader, &(20 * USDC));
+
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().redeem_pt_bearer(&trader, &(50 * USDC));
+
+    let (pt_sum, _) = sum_position_legs(&w, 2);
+    let supply = w.pt().balance(&a) + w.pt().balance(&b) + w.pt().balance(&trader);
+    assert_eq!(
+        pt_sum,
+        supply + w.wrapper().bearer_redeemed(),
+        "Σ pos.pt_amount must equal PT supply + bearer_redeemed"
+    );
+    assert_eq!(w.wrapper().bearer_redeemed(), 50 * USDC);
+}
+
+#[test]
+fn bearer_redeem_is_refused_before_maturity() {
+    let w = setup(YEAR);
+    let (seller, _id) = w.deposit_new_user(100 * USDC);
+    let trader = Address::generate(w.env());
+    w.pt().transfer(&seller, &trader, &(40 * USDC));
+    w.advance(YEAR / 2);
+    assert_eq!(
+        w.wrapper().try_redeem_pt_bearer(&trader, &(40 * USDC)),
+        Err(Ok(spield_shared::Error::NotMatured.into())),
+        "PT only redeems at par once the term is over"
+    );
+}
+
+#[test]
+fn bearer_redeem_refuses_nonsense_and_unheld_pt() {
+    let w = setup(YEAR);
+    let (_seller, _id) = w.deposit_new_user(100 * USDC);
+    let nobody = Address::generate(w.env());
+    warp_to(&w, w.maturity + 1);
+
+    for bad in [0i128, -1] {
+        assert_eq!(
+            w.wrapper().try_redeem_pt_bearer(&nobody, &bad),
+            Err(Ok(spield_shared::Error::InvalidAmount.into()))
+        );
+    }
+    // More than the whole protocol's outstanding principal.
+    assert_eq!(
+        w.wrapper().try_redeem_pt_bearer(&nobody, &(101 * USDC)),
+        Err(Ok(spield_shared::Error::InsufficientBalance.into()))
+    );
+    // Holds no PT at all — the SAC burn must fail.
+    assert!(
+        w.wrapper().try_redeem_pt_bearer(&nobody, &(10 * USDC)).is_err(),
+        "cannot redeem PT you do not hold"
+    );
+}
+
+#[test]
+fn bearer_redeem_requires_the_holders_authorization() {
+    let w = setup(YEAR);
+    let (seller, _id) = w.deposit_new_user(100 * USDC);
+    let trader = Address::generate(w.env());
+    w.pt().transfer(&seller, &trader, &(40 * USDC));
+    warp_to(&w, w.maturity + 1);
+
+    w.env().set_auths(&[]);
+    assert!(
+        w.wrapper().try_redeem_pt_bearer(&trader, &(40 * USDC)).is_err(),
+        "bearer redemption must require the holder's auth"
+    );
+    w.env().mock_all_auths();
+    assert_eq!(w.wrapper().redeem_pt_bearer(&trader, &(40 * USDC)), 40 * USDC);
+}
+
+/// Many holders redeeming partial amounts must stay solvent at every step and drain to exactly zero.
+#[test]
+fn many_bearer_redeems_stay_solvent_and_drain_to_zero() {
+    let w = setup(YEAR);
+    let (seller, _id) = w.deposit_new_user(100 * USDC);
+    let mut traders = std::vec::Vec::new();
+    for _ in 0..5 {
+        let t = Address::generate(w.env());
+        w.pt().transfer(&seller, &t, &(20 * USDC));
+        traders.push(t);
+    }
+    warp_to(&w, w.maturity + 1);
+    w.wrapper().stamp_maturity_rate();
+
+    for (i, t) in traders.iter().enumerate() {
+        let before = w.usdc().balance(t);
+        w.wrapper().redeem_pt_bearer(t, &(20 * USDC));
+        assert_eq!(w.usdc().balance(t) - before, 20 * USDC, "trader {} underpaid", i);
+        let (backing, principal, _) = w.wrapper().solvency();
+        assert!(backing + 5 >= principal, "insolvent after trader {}", i);
+    }
+    assert_eq!(w.wrapper().bearer_redeemed(), 100 * USDC);
+    // All principal is gone; only the YT yield remains as backing.
+    let (_, principal, _) = w.wrapper().solvency();
+    assert_eq!(principal, 0, "every stroop of principal redeemed");
+    assert!(w.wrapper().claim_yield(&_id) > 0, "the YT holder is still owed their yield");
+}
+
+// ===========================================================================
 // SPLIT_POSITION — selling PART of a holding
 //
 // Before this, a position was all-or-nothing: `transfer_position` moved the whole
@@ -1690,22 +1904,39 @@ fn extra_pt_outside_a_position_breaks_conservation_but_not_the_wrapper() {
     assert_eq!(w.pt().balance(&attacker), 40 * USDC);
     assert_eq!(w.pt().balance(&victim), 60 * USDC);
 
-    // The wrapper is unharmed: the attacker cannot redeem — there is no position
-    // of theirs to redeem against (the §0.1 gap acting as an accidental shield).
     warp_to(&w, w.maturity + 1);
+    // The POSITION path still refuses — there is no position of theirs to redeem against.
     assert_eq!(
         w.wrapper().try_redeem_pt(&1u64, &(40 * USDC)),
         Err(Ok(spield_shared::Error::PositionNotFound.into())),
-        "loose PT has no redemption path at the wrapper"
+        "loose PT has no POSITION to redeem against"
     );
-    // And the legitimate owner can only redeem what they still hold.
-    assert!(
-        w.wrapper().try_redeem_pt(&id, &(100 * USDC)).is_err(),
-        "the position's own redeem now fails — its PT left the owner's balance"
+
+    // ⚠️ BUT the bearer path pays it, and that is intentional: `redeem_pt_bearer` exists precisely
+    // so PT bought on the AMM can be redeemed, and it cannot tell a legitimate buyer from a
+    // counterfeit holder — fungible tokens carry no provenance.
+    //
+    // So the position gate is NO LONGER what contains counterfeit PT. **The §13 issuer lockdown
+    // is** (`deploy_mainnet.sh` step 3c: issuer master weight → 0, verified on chain before
+    // anything is seeded). This assertion documents that the accidental shield is gone on purpose,
+    // so that if the lockdown were ever skipped the consequence is written down here rather than
+    // discovered in production.
+    let before = w.usdc().balance(&attacker);
+    assert_eq!(
+        w.wrapper().redeem_pt_bearer(&attacker, &(40 * USDC)),
+        40 * USDC,
+        "the bearer path pays ANY holder — honest PT supply is enforced by the issuer lockdown"
     );
+    assert_eq!(w.usdc().balance(&attacker) - before, 40 * USDC);
+
+    // The wrapper still cannot be drained beyond the principal that really exists: the transferred
+    // PT was real (minted against a real deposit), so redeeming it is legitimate here, and the
+    // legitimate owner can still redeem exactly what they still hold.
     let before = w.usdc().balance(&victim);
     w.wrapper().redeem_pt(&id, &(60 * USDC));
     assert_eq!(w.usdc().balance(&victim) - before, 60 * USDC);
+    let (backing, principal, _) = w.wrapper().solvency();
+    assert!(backing + 5 >= principal, "backing {} principal {}", backing, principal);
 }
 
 // --------------------------------------------------------------------------

@@ -72,6 +72,32 @@ YT can claim stays in the wrapper as surplus backing.
 > Run `stamp_maturity_rate()` at maturity. It is cheap, permissionless, idempotent, and it is the
 > difference between an exact cap and a drifting one.
 
+### Redeeming PT you bought on the AMM: `redeem_pt_bearer`
+
+`redeem_pt` is **position-gated** — it loads a `Position`, auths its owner, and burns from that
+owner. A trader who bought PT on the pool holds a real balance and owns no position, so that path
+returns `PositionNotFound`. `redeem_pt_bearer(holder, amount)` makes the **token** the claim: at or
+after maturity it burns `amount` PT from the holder and pays `amount` USDC 1:1.
+
+This is what makes "Earn Fixed via the AMM" complete. Its safety rests on PT supply being honest,
+which is exactly what the **issuer lockdown** (deploy step 3c — issuer master weight → 0, verified
+on chain before anything is seeded) guarantees. Before that lockdown, `redeem_pt` being
+position-gated was the *only* thing containing counterfeit PT; the bearer path deliberately removes
+that accidental shield, which is why the lockdown had to ship first.
+
+Because fungible PT carries no provenance, a bearer redeem cannot know which position minted the
+units it burns — so it touches **no** position record. Two consequences:
+
+* A position's `pt_amount` becomes a historical record, not a live claim. PT conservation is
+  restated as `Σ pos.pt_amount == PT_supply + bearer_redeemed` (the counter is a public view).
+  Double-spending is still impossible — the position's own `redeem_pt` burns from its owner's
+  balance, and a seller who sold their PT no longer has it.
+* `claim_yield` clamps to `backing − total_principal` once `bearer_redeemed > 0`. Each Blend
+  withdraw burns `ceil(amount/rate)` shares — ~1 stroop beyond what it pays — and the bearer path
+  has no position to charge that to, so it lands on the shared yield pool. The clamp stops the last
+  claimant reverting over a few stroops, and can never pay a claim out of principal. It is gated on
+  the counter so it costs nothing pre-maturity, where `harvest` and its resource budget live.
+
 ### Selling part of a holding: `split_position` + `transfer_position`
 
 The **position** is the authoritative claim, not the PT/YT token balance — `claim_yield` pays

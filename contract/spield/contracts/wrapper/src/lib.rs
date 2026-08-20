@@ -284,8 +284,37 @@ impl Wrapper {
         // Yield is measured on the position's bToken *shares* (the exact ERC-4626 growth), not on
         // the YT face amount — see `math::yield_amount`. This keeps the vault solvent for
         // positions minted at entry_rate > 1.0.
-        let payout = math::yield_amount(env, pos.shares, pos.settled_rate, current_rate)
+        let mut payout = math::yield_amount(env, pos.shares, pos.settled_rate, current_rate)
             .unwrap_or_else(|e| panic_with_error!(env, e));
+
+        // Clamp to the yield actually available, but ONLY once bearer redemptions have occurred.
+        //
+        // Every Blend withdraw burns `ceil(amount / rate)` shares — up to ~1 stroop of backing
+        // beyond the amount paid out. `redeem_pt` absorbs that by deducting the *actual* shares
+        // Blend burned from the position it redeemed against. `redeem_pt_bearer` cannot: fungible
+        // PT carries no provenance, so it touches no position, and that per-withdraw dust lands on
+        // the shared yield pool instead. After enough bearer redeems the pool ends up a few stroops
+        // short of the last claimant's arithmetic entitlement, and `redeem_underlying` would revert
+        // `WithdrawShortfall` — stranding a claim over dust.
+        //
+        // `backing - total_principal` is precisely the yield pool, so clamping here can never pay a
+        // claim out of anyone's principal. The ordering effect (whoever claims last absorbs the
+        // dust) is inherent to sharing a rounding remainder and is bounded by the number of bearer
+        // redeems, not by time or by position count.
+        //
+        // Gated on `bearer_redeemed > 0` to keep it off the hot path: it is a cheap instance read,
+        // and it is zero for the whole pre-maturity life of the market — which is where `harvest`
+        // (the batch caller, and the binding resource budget) lives. Bearer redemption is
+        // maturity-gated, so harvest never pays for these two cross-contract calls.
+        if storage::bearer_redeemed(env) > 0 && payout > 0 {
+            let total_shares = strategy.total_shares();
+            let backing = strategy.position_value(&total_shares);
+            let principal = storage::total_principal(env);
+            let yield_pool = if backing > principal { backing - principal } else { 0 };
+            if payout > yield_pool {
+                payout = yield_pool;
+            }
+        }
 
         let mut paid = 0i128;
         if payout > 0 {
@@ -349,6 +378,81 @@ impl Wrapper {
         storage::bump_instance(&env);
 
         events::redeemed_pt(&env, &pos.owner, position_id, amount);
+        Self::assert_solvent(&env);
+        amount
+    }
+
+    /// Redeem PT **by token balance**, with no position required — the exit for anyone who bought
+    /// PT on the AMM. At/after maturity, burns `amount` PT from `holder` and pays them `amount`
+    /// USDC 1:1. Returns the USDC paid.
+    ///
+    /// This is what makes the headline "Earn Fixed via the AMM" flow work. [`Self::redeem_pt`] is
+    /// position-gated: it loads a `Position`, auths its owner, and burns from that owner. A trader
+    /// who bought PT on the pool holds a real balance and owns no position, so there is no id to
+    /// redeem against. Here the **token is the claim**.
+    ///
+    /// ## Why this is safe, and what it depends on
+    /// At maturity every PT is worth exactly 1 USDC, and the wrapper holds `backing >= principal`.
+    /// PT total supply equals the principal outstanding, so burning `N` PT and paying `N` USDC
+    /// moves both sides of the invariant by the same amount and leaves it intact —
+    /// `assert_solvent` re-checks it against Blend's real position afterwards regardless.
+    ///
+    /// **This depends on PT supply being honest**, which is exactly what the §13 issuer lockdown
+    /// guarantees. While the classic PT/YT issuer could still sign, it could mint PT outside the
+    /// wrapper, and a balance-based redemption would pay real USDC for it. Before the lockdown the
+    /// only thing preventing that was `redeem_pt` being position-gated — an accidental shield that
+    /// this function deliberately removes. `scripts/deploy_mainnet.sh` locks the issuer
+    /// (master weight → 0) and verifies it on chain before anything can be seeded.
+    ///
+    /// ## Why no position is touched
+    /// PT is fungible: once it has traded, there is no way to know which position minted the units
+    /// being burned, and walking positions to find out would be an unbounded loop. So this adjusts
+    /// only the global `total_principal`, and leaves position records alone.
+    ///
+    /// That is sound because a position's yield is measured as `shares × (rate − settled_rate)`,
+    /// which is **independent of whether its principal has been redeemed**. Withdrawing `N` USDC
+    /// burns `N / rate` Blend shares, so the backing that remains is exactly the yield the YT side
+    /// is owed — the seller who kept their YT still claims in full, and is not affected by the
+    /// buyer redeeming the PT leg. Pinned by
+    /// `bearer_redeem_leaves_the_sellers_yt_yield_exactly_intact`.
+    ///
+    /// The consequence is that a position's `pt_amount` becomes a historical record rather than a
+    /// live claim, so PT conservation is restated as
+    /// `Σ pos.pt_amount == PT_supply + bearer_redeemed` — see [`Self::bearer_redeemed`]. The
+    /// position's own `redeem_pt` cannot double-spend: it burns from the owner's balance, and the
+    /// owner sold those tokens, so the burn fails.
+    ///
+    /// Allowed while paused (an exit). Panics `NotMatured` before maturity, `InvalidAmount` for a
+    /// non-positive amount, and `InsufficientBalance` if `amount` exceeds the principal still
+    /// outstanding protocol-wide.
+    pub fn redeem_pt_bearer(env: Env, holder: Address, amount: i128) -> i128 {
+        Self::ensure_initialized(&env); // outflow — allowed even while paused
+        holder.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if env.ledger().timestamp() < storage::get_maturity(&env) {
+            panic_with_error!(&env, Error::NotMatured);
+        }
+        // Never redeem more principal than the protocol has outstanding. Honest PT supply equals
+        // `total_principal`, so this can only bind on counterfeit supply — which the §13 lockdown
+        // is what actually prevents. Belt and braces: refuse rather than eat into YT backing.
+        let outstanding = storage::total_principal(&env);
+        if amount > outstanding {
+            panic_with_error!(&env, Error::InsufficientBalance);
+        }
+
+        // Burn first (proves the caller really holds the claim), then pay 1:1 from Blend.
+        Self::pt_admin(&env).burn(&holder, &amount);
+        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
+        strategy.redeem_underlying(&holder, &amount);
+
+        storage::set_total_principal(&env, outstanding - amount);
+        storage::add_bearer_redeemed(&env, amount);
+        storage::bump_withdraw_ops(&env);
+        storage::bump_instance(&env);
+
+        events::redeemed_pt_bearer(&env, &holder, amount);
         Self::assert_solvent(&env);
         amount
     }
@@ -597,6 +701,13 @@ impl Wrapper {
             0
         };
         (backing, principal, unclaimed)
+    }
+
+    /// Cumulative PT burned through [`Self::redeem_pt_bearer`]. Off-chain PT conservation is
+    /// `Σ pos.pt_amount == PT_total_supply + bearer_redeemed`: a bearer redeem burns supply without
+    /// touching any position record, so the monitor needs this term to balance the books.
+    pub fn bearer_redeemed(env: Env) -> i128 {
+        storage::bearer_redeemed(&env)
     }
 
     /// How many positions are currently **open**. This is the basis of the solvency dust

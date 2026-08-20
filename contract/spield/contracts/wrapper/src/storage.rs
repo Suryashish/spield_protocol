@@ -53,6 +53,20 @@ pub enum DataKey {
     /// can carry at most ~1 stroop of mint-floor rounding, and closed positions carry none, so the
     /// tolerance tracks only live dust and can't be inflated by historical churn (mainnet-readiness).
     OpenPositions,
+    /// Cumulative PT burned through the **bearer** redemption path (`redeem_pt_bearer`), which
+    /// redeems by token balance rather than against a position.
+    ///
+    /// Exists so PT conservation stays checkable off-chain. Before bearer redemption the invariant
+    /// was `Σ open positions' pt_amount == PT total supply`. A bearer redeem burns supply without
+    /// touching any position record — that is the point, since fungible PT cannot be traced back to
+    /// the position that minted it — so the invariant becomes:
+    ///
+    /// ```text
+    /// Σ pos.pt_amount == PT_total_supply + bearer_redeemed
+    /// ```
+    ///
+    /// Monotonic and informational: nothing in the contract branches on it.
+    BearerRedeemed,
     /// A single position record, keyed by id.
     Position(u64),
 }
@@ -131,6 +145,21 @@ pub fn get_maturity(env: &Env) -> u64 {
 
 pub fn set_maturity(env: &Env, m: u64) {
     env.storage().instance().set(&DataKey::Maturity, &m);
+}
+
+/// Cumulative PT burned through the bearer redemption path. See [`DataKey::BearerRedeemed`].
+pub fn bearer_redeemed(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::BearerRedeemed)
+        .unwrap_or(0)
+}
+
+pub fn add_bearer_redeemed(env: &Env, amount: i128) {
+    let total = bearer_redeemed(env) + amount;
+    env.storage()
+        .instance()
+        .set(&DataKey::BearerRedeemed, &total);
 }
 
 /// The stamped maturity `b_rate`, or `None` if maturity has not been observed on-chain yet.

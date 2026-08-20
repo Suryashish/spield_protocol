@@ -145,6 +145,25 @@ pub fn paused(env: &Env, paused: bool) {
     PausedEvent { paused }.publish(env);
 }
 
+/// PT redeemed by token balance with no position involved (`redeem_pt_bearer`). Indexers should
+/// NOT decrement any position's `pt_amount` on this — the burn is deliberately untraceable to a
+/// position; reconcile with the `bearer_redeemed` total instead.
+#[contractevent]
+#[derive(Clone)]
+pub struct RedeemPtBearer {
+    #[topic]
+    pub holder: Address,
+    pub amount: i128,
+}
+
+pub fn redeemed_pt_bearer(env: &Env, holder: &Address, amount: i128) {
+    RedeemPtBearer {
+        holder: holder.clone(),
+        amount,
+    }
+    .publish(env);
+}
+
 pub fn split(
     env: &Env,
     owner: &Address,

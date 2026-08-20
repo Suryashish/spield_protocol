@@ -193,6 +193,41 @@ Tunable env vars (all optional): `SOURCE`, `ISSUER`, `MATURITY_DAYS`, `MAX_APR_B
 `STATE_FILE=<path>` (custom checkpoint file), `FRESH=1` (ignore + overwrite existing state, start over),
 `REDEPLOY=market[,vault]` (replace one contract in place — see below).
 
+### The issuer lockdown (step 3c) — read before your first mainnet run
+
+Handing SAC admin to the wrapper governs the **contract** path to mint/burn. It does nothing to the
+**classic** path: the PT/YT issuer account could still create PT with an ordinary Stellar payment,
+bypassing the wrapper and the deposit that is supposed to back it. Step **[3c]** closes that by
+setting the issuer's master key weight to 0 — after which, per Stellar's docs, it *"cannot be used
+to sign transactions, even for operations with a threshold value of 0."*
+
+This matters more now than it used to: `redeem_pt_bearer` redeems PT **by token balance**, so
+counterfeit PT would be paid out in real USDC. The lockdown is the only thing preventing that.
+
+The script will not lock blind. It refuses unless:
+
+* `pt.admin()` and `yt.admin()` both read back as the wrapper — locking while the issuer is still
+  admin would make PT/YT **permanently unmintable** and brick the deployment; and
+* the issuer has **no other signer** (read from Horizon) — one would leave it able to sign anyway.
+  If Horizon cannot be reached, it refuses rather than assuming a safe state.
+
+Afterwards, and on every later run, it re-reads the account and aborts the deploy if any signer has
+weight > 0. Look for the line:
+
+```
+    ✓ VERIFIED on chain: the issuer has no signer with weight > 0 — it can never sign
+```
+
+**No auth flags are set, and that is deliberate.** `--set-required` would make the issuer authorize
+every new trustline — impossible once locked, so nobody could ever hold PT/YT again.
+`--set-clawback-enabled` / `--set-revocable` grant powers over holder balances Spield does not want.
+`--set-immutable` is redundant: a key that cannot sign cannot change its own flags.
+
+⚠️ **Irreversible, and it burns the issuer identity.** A future `FRESH=1` deployment needs a
+brand-new issuer account: the old one can no longer sign `asset deploy` or `set_admin`, and its SAC
+addresses are deterministic and permanently admined by the old wrapper. Rehearse on testnet first
+(`LOCK_ISSUER=0` skips it while iterating; never use that on mainnet).
+
 ### Replacing ONE contract after a code/ABI change
 
 **Do not reach for `FRESH=1` for this.** `FRESH=1` deletes the state file, so it redeploys the
