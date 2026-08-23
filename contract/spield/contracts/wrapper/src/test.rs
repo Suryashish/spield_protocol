@@ -29,6 +29,8 @@ struct World {
     env: Env,
     pool: Address,
     usdc: Address,
+    /// The pool's other reserve (collateral asset), needed by tests that drive utilization.
+    xlm: Address,
     oracle_id: Address,
     wrapper: Address,
     strategy: Address,
@@ -166,7 +168,7 @@ fn setup(maturity_secs_from_now: u64) -> World {
         &strategy, &pt, &yt, &maturity,
     );
 
-    World { env, pool, usdc, oracle_id, wrapper, strategy, pt, yt, maturity }
+    World { env, pool, usdc, xlm, oracle_id, wrapper, strategy, pt, yt, maturity }
 }
 
 // ===========================================================================
@@ -2002,4 +2004,331 @@ fn min_mintable_tracks_the_rate() {
     assert_eq!(min_mintable(SCALAR_12 * 1124 / 1000), 2, "mainnet's b_rate ≈ 1.124 ⇒ 2");
     assert_eq!(min_mintable(SCALAR_12 * 2), 2, "exactly 2.0 ⇒ 2");
     assert_eq!(min_mintable(SCALAR_12 * 2 + 1), 3, "just over 2.0 ⇒ 3");
+}
+
+// ==========================================================================
+// AUDIT ROUND (2026-08-23) — workflow probes for `tofix.md`
+// ==========================================================================
+
+/// **A-10 — the wrapper's "read-only views" write to chain state.**
+///
+/// `position_value` and `solvency` are documented as views, and `yield_rate(stamp = false)` is
+/// careful not to write *the wrapper's* maturity stamp. But both reach `strategy::current_rate`,
+/// which advances the `RateBound` high-water mark and re-stamps `last_ts`, and bumps the
+/// strategy's instance TTL. So every "view" call is a state-changing invocation.
+#[test]
+fn wrapper_views_mutate_the_strategys_rate_bound() {
+    let w = setup(YEAR);
+    let (_user, id) = w.deposit_new_user(100 * USDC);
+    let strategy = BlendStrategyClient::new(w.env(), &w.strategy);
+
+    w.advance(30 * 24 * 60 * 60);
+    let (rate_before, ts_before, _) = strategy.rate_bound();
+
+    // A pure read, as far as any caller can tell from the ABI or the doc comments.
+    let _ = w.wrapper().position_value(&id);
+    let (rate_after_pv, ts_after_pv, _) = strategy.rate_bound();
+    std::println!(
+        "A-10: position_value moved the bound from ({}, {}) to ({}, {})",
+        rate_before, ts_before, rate_after_pv, ts_after_pv
+    );
+    assert!(
+        ts_after_pv != ts_before || rate_after_pv != rate_before,
+        "position_value must have written to the strategy for this finding to hold"
+    );
+
+    // …and so does the solvency dashboard read.
+    w.advance(24 * 60 * 60);
+    let (r2, t2, _) = strategy.rate_bound();
+    let _ = w.wrapper().solvency();
+    let (r3, t3, _) = strategy.rate_bound();
+    std::println!("A-10: solvency moved the bound from ({}, {}) to ({}, {})", r2, t2, r3, t3);
+    assert!(t3 != t2 || r3 != r2, "solvency() is not read-only either");
+
+    // The consequence that bites: because `last_ts` is re-stamped by anyone reading, the
+    // rate-bound's allowed rise is measured from the last *observation*, not the last rate change.
+    // A read in the same ledger therefore leaves only `RATE_BOUND_DUST` of headroom.
+    let (_, ts_now, _) = strategy.rate_bound();
+    assert_eq!(ts_now, w.env().ledger().timestamp(), "a view pinned the observation to now");
+}
+
+/// **A-11 — the strategy tolerates a short Blend withdraw, and the wrapper reports the full
+/// amount anyway.**
+///
+/// `redeem_underlying` accepts `got + 1 >= amount` and forwards only what Blend actually paid,
+/// while `redeem_pt` returns `amount`, emits `amount`, and decrements `principal`/`total_principal`
+/// by `amount`. The two can differ by a stroop. This pins the exact contract as it stands so a
+/// change is visible; the finding is that the accounting is defined against the *requested*
+/// figure, not the *paid* one.
+#[test]
+fn exit_paths_account_the_requested_amount_not_the_amount_blend_paid() {
+    let w = setup(YEAR);
+    let (user, id) = w.deposit_new_user(100 * USDC);
+    w.advance(YEAR / 2);
+    warp_to(&w, w.maturity + 1);
+
+    let before = w.usdc().balance(&user);
+    let returned = w.wrapper().redeem_pt(&id, &(100 * USDC));
+    let actually_received = w.usdc().balance(&user) - before;
+    std::println!(
+        "A-11: redeem_pt returned {} and the holder received {} (delta {})",
+        returned,
+        actually_received,
+        returned - actually_received
+    );
+    // Today they agree; the point is that nothing in the code *makes* them agree.
+    assert_eq!(returned, 100 * USDC, "the return value is the requested amount by construction");
+    assert!(
+        (returned - actually_received).abs() <= 1,
+        "any divergence is silently absorbed, not surfaced"
+    );
+}
+
+/// **A-12 — `combine_and_redeem` is the only exit before maturity, and it needs BOTH legs.**
+///
+/// A holder who sold their PT (the "Earn Yield" flow: mint a pair, sell the PT, keep the YT) has
+/// no way out before maturity at all — `redeem_pt` is maturity-gated, `combine_and_redeem` needs
+/// the PT back, and `claim_yield` returns yield but never principal. Their principal is locked
+/// for the full term with no venue, because the AMM trades PT and there is no YT pool.
+#[test]
+fn a_yt_only_holder_has_no_principal_exit_before_maturity() {
+    let w = setup(YEAR);
+    let (seller, id) = w.deposit_new_user(100 * USDC);
+
+    // Sell the PT leg (modelled as a direct transfer — the AMM route ends in the same state).
+    let buyer = Address::generate(w.env());
+    w.pt().transfer(&seller, &buyer, &(100 * USDC));
+    w.advance(YEAR / 4);
+
+    // Yield still flows…
+    let claimed = w.wrapper().claim_yield(&id);
+    assert!(claimed > 0);
+
+    // …but principal does not.
+    assert!(
+        w.wrapper().try_redeem_pt(&id, &(100 * USDC)).is_err(),
+        "redeem_pt is maturity-gated"
+    );
+    assert!(
+        w.wrapper().try_combine_and_redeem(&id, &(100 * USDC)).is_err(),
+        "combine needs the PT leg back"
+    );
+    // Splitting does not help either — it re-partitions, it does not release anything.
+    let half = w.wrapper().split_position(&id, &(50 * USDC));
+    assert!(
+        w.wrapper().try_combine_and_redeem(&half, &(50 * USDC)).is_err(),
+        "neither half can be combined without PT"
+    );
+    std::println!(
+        "A-12: seller holds {} YT and {} PT; principal {} is locked until maturity",
+        w.yt().balance(&seller),
+        w.pt().balance(&seller),
+        100 * USDC
+    );
+}
+
+/// **A-13 — Spield's solvency invariant says nothing about Blend's *liquidity*.**
+///
+/// `assert_solvent` compares `shares × b_rate` against principal. That is a claim about *value*,
+/// not about withdrawability: if the pool's USDC is lent out, `strategy::withdraw_underlying`
+/// gets less than it asked for and `redeem_underlying` panics `WithdrawShortfall`. Every Spield
+/// exit — `claim_yield`, `redeem_pt`, `redeem_pt_bearer`, `combine_and_redeem`, and therefore
+/// every vault `redeem` — runs through that call, so a fully-drawn Blend pool halts all of them
+/// with no admin override, no partial-withdraw path and no bounded recovery time.
+#[test]
+fn blend_utilization_gates_every_spield_exit() {
+    let w = setup(YEAR);
+    // A position large enough that it cannot fit inside the 5% of supply Blend keeps liquid.
+    let (user, id) = w.deposit_new_user(200_000 * USDC);
+    w.advance(30 * 24 * 60 * 60);
+
+    // A whale with deep XLM collateral drives USDC utilization to Blend's `max_util`.
+    let hog = Address::generate(w.env());
+    StellarAssetClient::new(w.env(), &w.xlm).mint(&hog, &(20_000_000 * SCALAR_7));
+    w.pool_client().submit(
+        &hog,
+        &hog,
+        &hog,
+        &Vec::from_array(
+            w.env(),
+            [pool::Request {
+                request_type: REQ_SUPPLY_COLLATERAL,
+                address: w.xlm.clone(),
+                amount: 20_000_000 * SCALAR_7,
+            }],
+        ),
+    );
+    let mut borrowed = 0i128;
+    for step in [100_000i128, 10_000, 1_000, 100] {
+        loop {
+            let reqs = Vec::from_array(
+                w.env(),
+                [pool::Request {
+                    request_type: REQ_BORROW,
+                    address: w.usdc.clone(),
+                    amount: step * USDC,
+                }],
+            );
+            if w.pool_client().try_submit(&hog, &hog, &hog, &reqs).is_err() {
+                break;
+            }
+            borrowed += step * USDC;
+        }
+    }
+    let liquid = w.usdc().balance(&w.pool);
+    std::println!(
+        "A-13: borrowed a further {} USDC; pool free liquidity is now {} USDC against Spield's \
+         200000 USDC of principal",
+        borrowed / USDC,
+        liquid / USDC
+    );
+    assert!(borrowed > 0, "the scenario must really drain the pool");
+
+    // Spield still reports itself perfectly solvent: the VALUE is there.
+    let (backing, principal, _unclaimed) = w.wrapper().solvency();
+    assert!(backing >= principal, "the invariant holds — backing {} >= principal {}", backing, principal);
+    std::println!("A-13: solvency() reports backing {} >= principal {}", backing, principal);
+
+    warp_to(&w, w.maturity + 1);
+
+    // …and the holder still cannot get their principal out.
+    let before = w.usdc().balance(&user);
+    let full = w.wrapper().try_redeem_pt(&id, &(200_000 * USDC));
+    std::println!("A-13: full redeem_pt of 200000 USDC -> {:?}", full);
+    assert!(
+        full.is_err(),
+        "a redemption larger than the pool's free liquidity must revert, not half-pay"
+    );
+    assert_eq!(w.usdc().balance(&user), before, "the failed exit moved nothing");
+    assert_eq!(w.wrapper().get_position(&id).pt_amount, 200_000 * USDC, "the claim is intact");
+
+    // Small enough operations still work — so the exit is rationed by Blend's borrowers, not by
+    // Spield, and there is no on-chain signal that tells a holder which of the two they are in.
+    let yield_paid = w.wrapper().claim_yield(&id);
+    std::println!("A-13: claim_yield still paid {} USDC (it fits in the free liquidity)", yield_paid / USDC);
+    let partial = w.wrapper().try_redeem_pt(&id, &(liquid / 2));
+    std::println!(
+        "A-13: a partial redeem of {} USDC (half the free liquidity) -> ok = {}",
+        (liquid / 2) / USDC,
+        partial.is_ok()
+    );
+    assert!(partial.is_ok(), "an exit that fits the free liquidity goes through");
+    std::println!(
+        "A-13: net — the holder can extract at most Blend's free liquidity per transaction, with \
+         no bound on how long the remaining {} USDC stays locked",
+        (200_000 * USDC - liquid / 2) / USDC
+    );
+}
+
+/// **A-18 — the auth tests prove auth is *present*, not that it is the *right party*.**
+///
+/// Every suite runs under `mock_all_auths()`, and the three negative auth tests use
+/// `set_auths(&[])`, which removes *all* authorization. That distinguishes "requires auth" from
+/// "requires none" — it cannot distinguish "requires the owner" from "requires the caller". A
+/// regression that authorized `env.invoker()` instead of `pos.owner` would pass the whole suite.
+/// This is `testcando.md` §6's systematic auth matrix, reduced to its single load-bearing case.
+#[test]
+fn a_stranger_cannot_act_on_someone_elses_position() {
+    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+    use soroban_sdk::IntoVal;
+
+    let w = setup(YEAR);
+    let (alice, id) = w.deposit_new_user(100 * USDC);
+    let mallory = Address::generate(w.env());
+    w.advance(YEAR / 4);
+
+    // Only Mallory has signed. Alice has not.
+    let env = w.env();
+    let mallory_only = |fn_name: &'static str, args: soroban_sdk::Vec<soroban_sdk::Val>| {
+        env.mock_auths(&[MockAuth {
+            address: &mallory,
+            invoke: &MockAuthInvoke {
+                contract: &w.wrapper,
+                fn_name,
+                args,
+                sub_invokes: &[],
+            },
+        }]);
+    };
+
+    mallory_only("claim_yield", (id,).into_val(env));
+    assert!(
+        w.wrapper().try_claim_yield(&id).is_err(),
+        "a stranger must not be able to trigger a claim on someone else's position"
+    );
+
+    mallory_only("split_position", (id, 25 * USDC).into_val(env));
+    assert!(
+        w.wrapper().try_split_position(&id, &(25 * USDC)).is_err(),
+        "a stranger must not be able to split someone else's position"
+    );
+
+    mallory_only("transfer_position", (id, mallory.clone()).into_val(env));
+    assert!(
+        w.wrapper().try_transfer_position(&id, &mallory).is_err(),
+        "a stranger must not be able to steal a position"
+    );
+
+    mallory_only("combine_and_redeem", (id, 10 * USDC).into_val(env));
+    assert!(
+        w.wrapper().try_combine_and_redeem(&id, &(10 * USDC)).is_err(),
+        "a stranger must not be able to force an exit"
+    );
+
+    // And the control: with Alice's own auth, the same call works — so the failures above are the
+    // ownership check firing, not the mock harness being unusable.
+    env.mock_all_auths();
+    assert!(w.wrapper().claim_yield(&id) > 0);
+    assert_eq!(w.wrapper().get_position(&id).owner, alice, "…and Alice still owns it");
+}
+
+/// **A-19 — the ordinary maturity exit never closes a position, so the solvency band ratchets.**
+///
+/// `close_if_empty` requires `pt_amount == 0 && yt_amount == 0`. The mainstream "buy PT, hold to
+/// maturity" exit is `redeem_pt`, which burns only the PT leg — the YT record stays. So a fully
+/// redeemed position remains **open**, `open_positions` never decrements, and the solvency dust
+/// band `open_positions + WITHDRAW_SLACK` grows by one stroop per lifetime user and never shrinks.
+///
+/// `dust_tolerance_does_not_grow_with_churn` proves the band is flat under `combine_and_redeem`,
+/// which burns both legs. It does not exercise this path. The band is bounded by *lifetime users*,
+/// not by live dust — which is the claim the code comment makes.
+#[test]
+fn the_solvency_dust_band_never_shrinks_after_the_ordinary_maturity_exit() {
+    let w = setup(YEAR);
+    let baseline = w.wrapper().open_positions();
+
+    let mut ids = std::vec::Vec::new();
+    for _ in 0..10 {
+        let (_u, id) = w.deposit_new_user(10 * USDC);
+        ids.push(id);
+    }
+    assert_eq!(w.wrapper().open_positions(), baseline + 10);
+
+    warp_to(&w, w.maturity + 1);
+    for id in &ids {
+        // The normal exit: redeem every last unit of PT at par. Nothing is left to claim.
+        w.wrapper().redeem_pt(id, &(10 * USDC));
+        let pos = w.wrapper().get_position(id);
+        assert_eq!(pos.pt_amount, 0);
+        assert_eq!(pos.principal, 0);
+        assert!(pos.open, "…yet the position is still counted as open");
+    }
+
+    let after = w.wrapper().open_positions();
+    std::println!(
+        "A-19: open_positions {} -> {} after every position was fully redeemed; \
+         solvency band is now {} stroops",
+        baseline + 10,
+        after,
+        after as i128 + 4
+    );
+    assert_eq!(
+        after,
+        baseline + 10,
+        "the band does not return to baseline after the ordinary exit"
+    );
+    // Only a holder who also burns their (now worthless) YT closes the record — and after
+    // maturity they have no reason to, since combining returns principal they already took.
+    let (_backing, principal, _unclaimed) = w.wrapper().solvency();
+    assert_eq!(principal, 0, "all principal is gone, yet the band stays wide");
 }

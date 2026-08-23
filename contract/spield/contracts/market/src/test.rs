@@ -1354,3 +1354,275 @@ fn no_window_exists_with_neither_a_venue_nor_a_redemption() {
         );
     }
 }
+
+// ==========================================================================
+// AUDIT ROUND (2026-08-23) — workflow probes for `tofix.md`
+//
+// These are not regressions of anything that was ever fixed; they are the
+// acceptance tests for defects found while walking the *whole* PT/YT workflow
+// end to end. Each one is named for the claim it establishes and prints the
+// numbers the tracker quotes, so a fix flips it rather than deleting it.
+// ==========================================================================
+
+/// **A-1 — `market::initialize` never cross-checks the settlement asset.**
+///
+/// Init asserts `pt == wrapper.pt_token()` and `maturity == wrapper.maturity()`, and asserts the
+/// settlement token has 7 decimals — but never that it is **the asset PT actually redeems into**
+/// (`wrapper.underlying()`). Any 7-decimal SAC is accepted, and the resulting pool is a one-way
+/// valve: traders pay in the foreign token, and redeem the PT they bought for *real* USDC.
+#[test]
+fn market_init_does_not_cross_check_the_settlement_asset() {
+    let w = setup(YEAR);
+    let admin = w.wrapper().admin();
+
+    // An ordinary, well-formed, 7-decimal SAC that is simply not the wrapper's underlying.
+    let foreign = register_sac(w.env(), &admin);
+    assert_ne!(foreign, w.usdc);
+    assert_eq!(w.wrapper().underlying(), w.usdc, "the wrapper knows its own settlement asset");
+
+    // …and the market accepts it without complaint.
+    let market = MarketClient::new(w.env(), &w.env().register(Market, (admin.clone(),)));
+    market.initialize(
+        &w.wrapper, &w.pt, &foreign, &w.maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT,
+        &RATE_ANCHOR,
+    );
+    assert_eq!(market.underlying(), foreign, "a mis-wired pool initializes cleanly");
+    assert_eq!(market.wrapper(), w.wrapper, "…while still claiming the right wrapper");
+
+    // Now the economic consequence, end to end. An LP seeds the pool with REAL PT.
+    let lp = w.new_user(1_000 * USDC);
+    w.mint_position(&lp, 1_000 * USDC); // 1000 real PT + 1000 YT
+    StellarAssetClient::new(w.env(), &foreign).mint(&lp, &(1_000 * USDC));
+    market.add_liquidity(&lp, &(1_000 * USDC), &(1_000 * USDC));
+
+    // A trader shows up holding only the foreign token and buys PT with it.
+    let trader = Address::generate(w.env());
+    StellarAssetClient::new(w.env(), &foreign).mint(&trader, &(500 * USDC));
+    let pt_bought = market.swap_exact_usdc_for_pt(&trader, &(500 * USDC), &0);
+    assert!(pt_bought > 0);
+
+    // At maturity that PT redeems 1:1 for REAL USDC out of the wrapper's Blend position.
+    warp_to(&w, w.maturity + 1);
+    let usdc_before = w.usdc().balance(&trader);
+    w.wrapper().redeem_pt_bearer(&trader, &pt_bought);
+    let real_usdc_gained = w.usdc().balance(&trader) - usdc_before;
+    assert_eq!(real_usdc_gained, pt_bought, "PT paid out in real USDC");
+
+    // The LP is left holding the foreign token where they expected USDC.
+    let (_, lp_pt, lp_settle) = market.lp_position(&lp);
+    std::println!(
+        "A-1: trader paid {} FOREIGN, received {} real USDC; LP left with {} PT + {} FOREIGN",
+        500 * USDC,
+        real_usdc_gained,
+        lp_pt,
+        lp_settle
+    );
+    assert!(real_usdc_gained > 0, "real value left the protocol against a foreign token");
+    assert_eq!(TokenClient::new(w.env(), &foreign).balance(&trader), 0);
+}
+
+/// **A-2 — `add_liquidity` has no maturity gate.**
+///
+/// Swaps stop at maturity (`ensure_tradeable`), and the wrapper and vault both refuse
+/// post-maturity inflows. `add_liquidity` only calls `ensure_can_trade` (initialized + not
+/// paused), so new liquidity can still enter a pool that can never quote again — a venue whose
+/// only remaining operation is `remove_liquidity`.
+#[test]
+fn add_liquidity_is_not_gated_on_maturity() {
+    let w = setup(YEAR);
+    seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+
+    // A second LP pre-buys their PT while the market is still alive.
+    let lp2 = w.new_user(300 * USDC);
+    w.mint_position(&lp2, 100 * USDC);
+
+    warp_to(&w, w.maturity + 1);
+
+    // Trading is dead…
+    assert!(
+        w.market().try_swap_exact_pt_for_usdc(&lp2, &(1 * USDC), &0).is_err(),
+        "swaps must be halted at maturity"
+    );
+    assert_eq!(w.market().pt_price(), 0, "there is no price past maturity");
+    assert_eq!(w.market().quote_usdc_for_pt(&(1 * USDC)), 0, "and no quote");
+
+    // …but liquidity still flows in.
+    let (pt_res, usdc_res) = w.market().reserves();
+    let shares = w.market().add_liquidity(&lp2, &(100 * USDC), &(100 * USDC));
+    assert!(shares > 0, "post-maturity add_liquidity succeeds");
+    let (pt_after, usdc_after) = w.market().reserves();
+    std::println!(
+        "A-2: post-maturity add minted {} shares; reserves {}/{} -> {}/{}",
+        shares, pt_res, usdc_res, pt_after, usdc_after
+    );
+    assert_eq!(pt_after, pt_res + 100 * USDC);
+    assert_eq!(usdc_after, usdc_res + 100 * USDC);
+}
+
+/// **A-3 — the follow-on `add_liquidity` path has no `shares > 0` guard.**
+///
+/// Shares are `min(by_pt, by_usdc)` and the ratio guard only compares the two against each other.
+/// Once *any* swap fee has grown the reserves past `total_shares` (i.e. immediately, after the
+/// first round trips), a smallest-possible add floors **both** legs to zero, agrees with itself,
+/// passes the ratio check, and mints nothing — while the tokens are still transferred into the
+/// pool. There is no `min_shares_out` parameter for the depositor to defend with either.
+#[test]
+fn a_dust_liquidity_add_mints_zero_shares_and_keeps_the_deposit() {
+    let w = setup(YEAR);
+    seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+
+    // Two ordinary round trips. Their fees stay in the pool, so BOTH reserves end above
+    // `total_shares` (which only ever moves on a liquidity event).
+    let trader = w.new_user(300 * USDC);
+    w.mint_position(&trader, 100 * USDC);
+    let got = w.market().swap_exact_pt_for_usdc(&trader, &(100 * USDC), &0);
+    w.market().swap_exact_usdc_for_pt(&trader, &got, &0); // PT-side fee retained
+    let pt_got = w.market().swap_exact_usdc_for_pt(&trader, &(50 * USDC), &0);
+    w.market().swap_exact_pt_for_usdc(&trader, &pt_got, &0); // USDC-side fee retained
+
+    let (pt_res, usdc_res) = w.market().reserves();
+    let total = w.market().total_shares();
+    std::println!("A-3: reserves {}/{} vs total_shares {}", pt_res, usdc_res, total);
+    assert!(total < pt_res && total < usdc_res, "fees put both reserves above total_shares");
+
+    // The smallest legal add: 1 stroop of each.
+    let victim = w.new_user(10 * USDC);
+    w.mint_position(&victim, 1 * USDC);
+    let pt_before = w.pt().balance(&victim);
+    let usdc_before = w.usdc().balance(&victim);
+
+    let shares = w.market().add_liquidity(&victim, &1, &1);
+
+    std::println!("A-3: add(1,1) minted {} shares", shares);
+    assert_eq!(shares, 0, "the deposit mints no shares at all");
+    assert_eq!(w.market().lp_position(&victim).0, 0, "the depositor is not an LP");
+    // …and the tokens are gone regardless.
+    assert_eq!(w.pt().balance(&victim), pt_before - 1, "PT still left the depositor");
+    assert_eq!(w.usdc().balance(&victim), usdc_before - 1, "USDC still left the depositor");
+    assert_eq!(w.market().reserves(), (pt_res + 1, usdc_res + 1), "…and landed in the reserves");
+    assert_eq!(w.market().total_shares(), total, "no shares were issued against it");
+}
+
+/// **A-16 — probed and found SOUND: the fixed par anchor holds the implied rate over the term.**
+///
+/// The concern was that `rate_anchor` is pinned at par at init and never re-anchored (Pendle's
+/// `_updateMarketState` is the deferred Stage C.1 refinement), while `rateScalar =
+/// scalar_root / yearsToMaturity` grows without bound as `t → maturity` — so the
+/// `ln(p/(1-p)) / rateScalar` term collapses and the price is dragged onto the anchor. If the
+/// *price* converges to par while the *rate* is read off the price, the quoted APY would decay to
+/// zero on the calendar alone and the venue would quietly stop being worth trading.
+///
+/// Measured: it does not. The price rises toward par at exactly the pace that keeps the implied
+/// APY flat — 5.000% at seed, 4.887% eleven months later, on a pool that never traded. The two
+/// effects cancel, which is the property the curve is supposed to have. This test pins that.
+///
+/// What it does **not** cover, and what Stage C.1 is still for: re-anchoring after a *trade*.
+/// The second half measures how far one swap moves the quoted rate and whether it ever comes back.
+#[test]
+fn the_pools_implied_apy_holds_its_rate_over_the_term_without_re_anchoring() {
+    let w = setup(YEAR);
+    // Seed exactly the way the deploy script does: calibrated to a 5% opening APY.
+    let usdc_side = 10_000 * USDC;
+    let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500);
+    assert!(pt_side > 0, "the calibration must resolve");
+    let lp = w.new_user(pt_side + usdc_side);
+    w.mint_position(&lp, pt_side);
+    w.market().add_liquidity(&lp, &pt_side, &usdc_side);
+
+    let opening = w.market().implied_apy();
+    std::println!(
+        "A-16: seeded {} PT / {} USDC -> opening implied APY {:.3}%",
+        pt_side, usdc_side,
+        (opening as f64) / (SCALAR_12 as f64) * 100.0
+    );
+
+    // Nothing happens. No swaps, no liquidity events. Only the clock moves.
+    let start = w.env().ledger().timestamp();
+    let mut last = opening;
+    for (label, elapsed) in [
+        ("1 month", 30 * 24 * 60 * 60u64),
+        ("3 months", 90 * 24 * 60 * 60),
+        ("6 months", 182 * 24 * 60 * 60),
+        ("11 months", 334 * 24 * 60 * 60),
+    ] {
+        warp_to(&w, start + elapsed);
+        let apy = w.market().implied_apy();
+        let price = w.market().pt_price();
+        std::println!(
+            "A-16: +{:<9} implied APY {:>7.3}%   PT price {:.6}",
+            label,
+            (apy as f64) / (SCALAR_12 as f64) * 100.0,
+            (price as f64) / (SCALAR_12 as f64)
+        );
+        assert!(apy <= last, "the quoted rate never rises on the calendar alone");
+        last = apy;
+    }
+    // The acceptance bar: the drift over eleven idle months is under 25 bps, not a collapse.
+    let drift = opening - last;
+    std::println!(
+        "A-16: total idle drift over 11 months = {:.3} bps",
+        (drift as f64) / (SCALAR_12 as f64) * 10_000.0
+    );
+    assert!(
+        drift * 10_000 / SCALAR_12 < 25,
+        "the par anchor must hold the rate: drifted {} of SCALAR_12",
+        drift
+    );
+    assert_eq!(w.market().reserves(), (pt_side, usdc_side), "…and the pool never moved");
+
+    // Now the part Stage C.1 is actually for: a trade re-prices the pool, and with a fixed anchor
+    // nothing pulls the quoted rate back toward the market's view of it.
+    warp_to(&w, start + 30 * 24 * 60 * 60);
+    let before = w.market().implied_apy();
+    let buyer = w.new_user(2_000 * USDC);
+    w.market().swap_exact_usdc_for_pt(&buyer, &(2_000 * USDC), &0);
+    let after = w.market().implied_apy();
+    std::println!(
+        "A-16: one 2000-USDC buy (2% of the USDC side) moved the quote {:.3}% -> {:.3}%",
+        (before as f64) / (SCALAR_12 as f64) * 100.0,
+        (after as f64) / (SCALAR_12 as f64) * 100.0
+    );
+    warp_to(&w, start + 200 * 24 * 60 * 60);
+    let later = w.market().implied_apy();
+    std::println!(
+        "A-16: 6 months later, still {:.3}% — the shift is permanent until someone trades back",
+        (later as f64) / (SCALAR_12 as f64) * 100.0
+    );
+    assert!(after < before, "buying PT lowers the quoted rate, as it should");
+}
+
+/// **A-17 — an LP add races the pool and has no tolerance parameter of its own.**
+///
+/// `add_liquidity` insists the deposit match the live reserve ratio to within ~0.1%. Any swap
+/// landing between the LP's quote and their transaction shifts that ratio, and the add reverts
+/// `ImbalancedLiquidity`. There is no `min_shares` / slippage argument the LP can widen, and no
+/// "add what fits and refund the rest" path — so an LP on a busy pool simply cannot land a
+/// deposit, and the failure mode is a wasted fee rather than a bad price.
+#[test]
+fn an_lp_deposit_is_dossed_by_any_swap_that_lands_first() {
+    let w = setup(YEAR);
+    seed_pool(&w, 1_000 * USDC, 1_000 * USDC);
+
+    // The LP reads the pool and prepares a matching 100/100 deposit.
+    let (pt_res, usdc_res) = w.market().reserves();
+    assert_eq!(pt_res, usdc_res);
+    let lp = w.new_user(300 * USDC);
+    w.mint_position(&lp, 100 * USDC);
+
+    // A single ordinary swap lands first — 1% of the pool, nothing exotic.
+    let trader = w.new_user(20 * USDC);
+    w.mint_position(&trader, 10 * USDC);
+    w.market().swap_exact_pt_for_usdc(&trader, &(10 * USDC), &0);
+
+    let res = w.market().try_add_liquidity(&lp, &(100 * USDC), &(100 * USDC));
+    std::println!(
+        "A-17: reserves moved to {:?}; the prepared 100/100 add -> {:?}",
+        w.market().reserves(),
+        res
+    );
+    assert_eq!(
+        res,
+        Err(Ok(spield_shared::Error::ImbalancedLiquidity.into())),
+        "the LP's deposit is refused outright, with no parameter to widen"
+    );
+}

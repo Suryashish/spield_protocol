@@ -32,6 +32,8 @@ struct World {
     env: Env,
     pool: Address,
     usdc: Address,
+    /// The pool's collateral reserve, needed by tests that drive Blend utilization.
+    xlm: Address,
     oracle_id: Address,
     wrapper: Address,
     vault: Address,
@@ -167,7 +169,7 @@ fn setup(maturity_secs_from_now: u64) -> World {
     let vault = env.register(Vault, (admin.clone(),));
     VaultClient::new(&env, &vault).initialize(&wrapper, &usdc, &RATE_BPS, &MAX_RATE_BPS);
 
-    World { env, pool, usdc, oracle_id, wrapper, vault, pt, yt, maturity }
+    World { env, pool, usdc, xlm, oracle_id, wrapper, vault, pt, yt, maturity }
 }
 
 // ===========================================================================
@@ -863,6 +865,13 @@ fn vault_redeem_works_while_wrapper_is_paused() {
 
 /// How many wrapper positions the vault currently tracks (read from its own storage — the
 /// `Positions` Vec has no public view).
+/// The vault's tracked wrapper-position ids, read straight from its storage.
+fn tracked_position_ids(w: &World) -> std::vec::Vec<u64> {
+    w.env().as_contract(&w.vault, || {
+        crate::storage::positions(w.env()).iter().collect::<std::vec::Vec<u64>>()
+    })
+}
+
 fn tracked_positions(w: &World) -> u32 {
     w.env()
         .as_contract(&w.vault, || crate::storage::positions(w.env()).len())
@@ -1464,4 +1473,466 @@ fn resting_usdc_is_swept_by_the_next_successful_harvest() {
     // The event/return still reports the newly-claimed figure, so the indexer's yield
     // series stays a yield series and doesn't double-count the swept residue.
     assert!(claimed < pt_added, "yield_claimed ({}) must exclude the residue", claimed);
+}
+
+// ==========================================================================
+// AUDIT ROUND (2026-08-23) — workflow probes for `tofix.md`
+// ==========================================================================
+
+/// **A-4 — a receipt can become permanently un-redeemable.**
+///
+/// `harvest` is paginated to [`MAX_HARVEST_BATCH`] = 3 precisely because each batch item is a full
+/// vault→wrapper→strategy→Blend withdraw costing ~8 MB of modelled memory against mainnet's
+/// 41,943,040-byte per-transaction ceiling. `redeem` performs the *same* per-item work in
+/// `redeem_pt_for` — one `wrapper::redeem_pt` (hence one Blend `submit`) per position it draws
+/// from — and is **not** paginated, has no partial-redeem path, and has no cap at all.
+///
+/// The existing `vault_redeem_with_a_long_harvest_history_fits_mainnet_limits` measures the case
+/// where the payout is satisfied from the *first* position it touches, so cost is dominated by the
+/// cheap `get_position` walk. This measures the shape the vault actually converges to: inventory
+/// spread across many small positions, which is exactly what a long harvest history builds and
+/// what remains once earlier receipts have drained the large ones.
+#[test]
+fn a_receipt_whose_payout_spans_many_positions_exceeds_the_mainnet_memory_limit() {
+    let w = setup(YEAR);
+
+    // Inventory built as many small positions — the steady state after a term of harvesting.
+    let n_small = 12;
+    for _ in 0..n_small {
+        let seeder = w.new_user(10 * USDC);
+        w.vault().seed(&seeder, &(10 * USDC));
+    }
+    assert_eq!(tracked_positions(&w), n_small);
+
+    let user = w.new_user(100 * USDC);
+    let id = w.vault().deposit(&user, &(100 * USDC));
+    let payout = w.vault().get_receipt(&id).payout;
+    assert!(payout > 100 * USDC);
+
+    warp_to(&w, w.maturity + 1);
+    w.env().cost_estimate().disable_resource_limits();
+    w.env().cost_estimate().budget().reset_unlimited();
+    let paid = w.vault().redeem(&id);
+    assert_eq!(paid, payout, "the payout itself is correct — the cost is the problem");
+
+    let r = last_resources(&w);
+    report("redeem across 11 dust positions", r);
+    std::println!(
+        "A-4: redeem used {} bytes of memory = {}x the mainnet ceiling of {}",
+        r.1,
+        r.1 / MAINNET_MEM_BYTES,
+        MAINNET_MEM_BYTES
+    );
+    // The finding: on a real network this transaction is rejected, and because `redeem` is
+    // all-or-nothing the receipt can never be paid.
+    assert!(
+        r.1 > MAINNET_MEM_BYTES,
+        "expected the unpaginated redeem walk to breach the memory ceiling, got {}",
+        r.1
+    );
+}
+
+/// **A-4b — the counter-case, recorded so the tracker states the trigger honestly.**
+///
+/// One big seed, a long daily-harvest history, several receipts. Here every redeem is satisfied
+/// out of the *first* position it touches, so all four cost ~20% of the ceiling however long the
+/// history is. The conclusion that matters: `redeem`'s cost is set by **inventory shape** — how
+/// many positions a payout must be assembled from — and not by the length of the position list.
+/// A long list is harmless; a *fragmented head* of the list is fatal (A-8).
+#[test]
+fn redeem_cost_is_set_by_inventory_shape_not_by_history_length() {
+    let w = setup(YEAR);
+    let seeder = w.new_user(1_000 * USDC);
+    w.vault().seed(&seeder, &(1_000 * USDC));
+
+    // Several receipts, then a realistic harvest history.
+    let mut ids = std::vec::Vec::new();
+    for _ in 0..4 {
+        let u = w.new_user(200 * USDC);
+        ids.push(w.vault().deposit(&u, &(200 * USDC)));
+    }
+    let tracked = build_harvest_positions(&w, 120, 24 * 60 * 60);
+    std::println!("A-4b: {} tracked positions after 120 daily harvests", tracked);
+
+    warp_to(&w, w.maturity + 1);
+    let mut worst = 0i64;
+    for (n, id) in ids.iter().enumerate() {
+        w.env().cost_estimate().disable_resource_limits();
+        w.env().cost_estimate().budget().reset_unlimited();
+        w.vault().redeem(id);
+        let r = last_resources(&w);
+        report(&std::format!("redeem #{}", n + 1), r);
+        worst = worst.max(r.1);
+    }
+    std::println!(
+        "A-4b: worst redeem memory {} vs mainnet ceiling {} ({}%)",
+        worst,
+        MAINNET_MEM_BYTES,
+        worst * 100 / MAINNET_MEM_BYTES
+    );
+    // Recorded as a measurement, not an assertion of failure: the point is that nothing in the
+    // contract bounds this number, so it is set by inventory shape rather than by design.
+    assert!(worst > 0);
+}
+
+/// **A-5 — yield accrued but not harvested by maturity is stranded forever.**
+///
+/// `harvest` is the vault's *only* route to `wrapper::claim_yield` (the wrapper auths
+/// `pos.owner`, which is the vault), and it is gated `ensure_before_maturity`. So every stroop of
+/// YT yield sitting unclaimed at maturity becomes permanently unreachable — not by anyone at the
+/// vault, and not by anyone at the wrapper either.
+#[test]
+fn vault_yield_unclaimed_at_maturity_can_never_be_claimed_by_anyone() {
+    let w = setup(YEAR);
+    let seeder = w.new_user(2_000 * USDC);
+    w.vault().seed(&seeder, &(2_000 * USDC));
+    let user = w.new_user(500 * USDC);
+    let id = w.vault().deposit(&user, &(500 * USDC));
+
+    // A full term with nobody running upkeep (or, equivalently, upkeep that stopped early).
+    w.advance(YEAR - 10);
+
+    // Real, claimable yield is sitting in the vault's positions.
+    let positions = tracked_position_ids(&w);
+    let mut claimable = 0i128;
+    for id in positions.iter() {
+        claimable += w.wrapper().position_value(&id).claimable_yield;
+    }
+    assert!(claimable > 0, "the scenario must actually have accrued yield");
+    std::println!("A-5: {} stroops of YT yield unclaimed at maturity", claimable);
+
+    warp_to(&w, w.maturity + 1);
+
+    // The only door is bolted.
+    assert_eq!(
+        w.vault().try_harvest(&3),
+        Err(Ok(spield_shared::Error::VaultExpired.into())),
+        "harvest is maturity-gated, so post-maturity upkeep is impossible"
+    );
+
+    // And it is still there, visible and unreachable, after the receipt is paid in full.
+    let paid = w.vault().redeem(&id);
+    assert_eq!(paid, w.vault().get_receipt(&id).payout);
+    let mut still_claimable = 0i128;
+    for id in positions.iter() {
+        still_claimable += w.wrapper().position_value(&id).claimable_yield;
+    }
+    std::println!("A-5: {} stroops still claimable, by nobody, after redemption", still_claimable);
+    assert!(still_claimable > 0, "the yield outlives every path that could reach it");
+}
+
+/// **A-6 — seed capital and surplus inventory are one-way.**
+///
+/// `seed` pulls USDC in and mints PT+YT into the vault. Nothing ever sends PT, YT or USDC back
+/// out except `redeem`, which pays exactly a receipt's `payout` to that receipt's owner. Once
+/// every receipt is closed the remaining coupon capacity, the entire YT leg, and any resting USDC
+/// are locked in the contract permanently.
+#[test]
+fn the_vault_has_no_path_to_recover_seed_capital_or_surplus_inventory() {
+    let w = setup(YEAR);
+    w.env().cost_estimate().disable_resource_limits();
+    let seeder = w.new_user(2_000 * USDC);
+    w.vault().seed(&seeder, &(2_000 * USDC));
+    assert_eq!(w.usdc().balance(&seeder), 0);
+
+    let user = w.new_user(100 * USDC);
+    let id = w.vault().deposit(&user, &(100 * USDC));
+    w.advance(YEAR / 2);
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.vault().harvest(&3);
+
+    warp_to(&w, w.maturity + 1);
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.vault().redeem(&id);
+
+    let stats = w.vault().stats();
+    assert_eq!(stats.total_liability, 0, "every obligation is settled");
+    std::println!(
+        "A-6: with zero liabilities the vault still holds {} PT, {} YT, {} USDC — all unrecoverable",
+        stats.pt_inventory,
+        stats.yt_inventory,
+        w.usdc().balance(&w.vault)
+    );
+    assert!(stats.pt_inventory > 1_500 * USDC, "the seed is still in there");
+    assert!(stats.coupon_capacity > 0);
+    assert!(stats.yt_inventory > 0, "and so is the whole YT leg");
+    // The seeder is never made whole; there is no entry point that could do it.
+    assert_eq!(w.usdc().balance(&seeder), 0);
+}
+
+/// **A-7 — `redeem_pt_for` drops positions that still hold YT.**
+///
+/// A position emptied of PT is pruned from `Positions` outright. Its `yt_amount` is untouched by
+/// `redeem_pt`, so the vault silently stops tracking a YT leg it still owns — which is what makes
+/// A-5 irreversible even if `harvest`'s maturity gate were relaxed.
+#[test]
+fn redeeming_prunes_positions_that_still_hold_the_vaults_yt() {
+    let w = setup(YEAR);
+    w.env().cost_estimate().disable_resource_limits();
+    // Inventory in two equal parcels, so a payout larger than one of them must fully drain it.
+    for _ in 0..2 {
+        let seeder = w.new_user(100 * USDC);
+        w.vault().seed(&seeder, &(100 * USDC));
+    }
+    let user = w.new_user(150 * USDC);
+    let id = w.vault().deposit(&user, &(150 * USDC));
+
+    let before = tracked_position_ids(&w);
+    assert_eq!(before.len(), 3);
+
+    w.advance(YEAR / 2);
+    warp_to(&w, w.maturity + 1);
+    w.vault().redeem(&id);
+
+    let after = tracked_position_ids(&w);
+    std::println!("A-7: tracked positions {} -> {}", before.len(), after.len());
+    assert!(after.len() < before.len(), "at least one position was pruned");
+
+    // The pruned position still holds YT the vault owns.
+    for id in before.iter() {
+        if !after.contains(&id) {
+            let pos = w.wrapper().get_position(&id);
+            std::println!(
+                "A-7: pruned position {} still holds {} YT (pt_amount {})",
+                id, pos.yt_amount, pos.pt_amount
+            );
+            assert_eq!(pos.pt_amount, 0);
+            assert!(pos.yt_amount > 0, "a live YT leg was dropped from tracking");
+        }
+    }
+}
+
+/// **A-4c — where the cliff actually is.** Sweeps the number of inventory positions a single
+/// `redeem` must draw from and reports the memory cost of each, so the tracker can quote the real
+/// bound (and a fix can be calibrated against it rather than guessed).
+#[test]
+fn how_many_positions_a_single_redeem_can_span_before_it_breaches_mainnet() {
+    let mut last_ok = 0u32;
+    let mut first_bad = 0u32;
+    for parcels in 1..=8u32 {
+        let w = setup(YEAR);
+        w.env().cost_estimate().disable_resource_limits();
+        // `parcels` equal inventory parcels of 20 USDC each…
+        for _ in 0..parcels {
+            let seeder = w.new_user(20 * USDC);
+            w.vault().seed(&seeder, &(20 * USDC));
+        }
+        // …and a receipt whose payout consumes all of them.
+        let principal = 20 * USDC * (parcels as i128);
+        let user = w.new_user(principal);
+        w.env().cost_estimate().budget().reset_unlimited();
+        let id = w.vault().deposit(&user, &principal);
+
+        warp_to(&w, w.maturity + 1);
+        w.env().cost_estimate().budget().reset_unlimited();
+        w.vault().redeem(&id);
+        let r = last_resources(&w);
+        let pct = r.1 * 100 / MAINNET_MEM_BYTES;
+        std::println!(
+            "A-4c: payout spanning {:>2} inventory parcels -> mem {:>9} ({:>3}% of mainnet)",
+            parcels, r.1, pct
+        );
+        if r.1 <= MAINNET_MEM_BYTES {
+            last_ok = parcels;
+        } else if first_bad == 0 {
+            first_bad = parcels;
+        }
+    }
+    std::println!(
+        "A-4c: largest safe span = {} positions; first breaching span = {}",
+        last_ok, first_bad
+    );
+    assert!(first_bad > 0, "the sweep must find the cliff");
+    assert!(first_bad <= 8, "the cliff is well inside a realistic inventory shape");
+}
+
+/// **A-8 — `seed` is permissionless, and every seed appends a tracked position.**
+///
+/// `redeem_pt_for` walks `Positions` from index 0 and performs one `wrapper::redeem_pt` — one
+/// Blend `submit`, ~7 MB of modelled memory — per position it draws from. A-4c puts the cliff at
+/// **6**. So anyone can prepend dust positions to the walk for the price of a few stroops and a
+/// transaction fee, and every receipt behind them becomes unpayable: `redeem` is all-or-nothing,
+/// with no pagination, no partial path, and no way to skip or prune a position.
+///
+/// The seeds are real deposits that genuinely increase backing — the docstring's argument that
+/// seeding "only donates PT to the vault" is true about *value* and false about *cost*.
+#[test]
+fn anyone_can_make_every_receipt_unpayable_by_prepending_dust_seeds() {
+    let w = setup(YEAR);
+    w.env().cost_estimate().disable_resource_limits();
+
+    // The vault is live but not yet seeded — the window between `initialize` and the operator's
+    // first `seed`. An attacker fills the position list with dust.
+    let attacker = w.new_user(1 * USDC);
+    for _ in 0..10 {
+        w.env().cost_estimate().budget().reset_unlimited();
+        w.vault().seed(&attacker, &1_000); // 0.0001 USDC each
+    }
+    assert_eq!(tracked_positions(&w), 10);
+    std::println!(
+        "A-8: attacker spent {} stroops total to append 10 tracked positions",
+        10 * 1_000
+    );
+
+    // The operator seeds for real, and a user takes out a receipt. Everything looks healthy.
+    let op = w.new_user(500 * USDC);
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.vault().seed(&op, &(500 * USDC));
+    let user = w.new_user(100 * USDC);
+    w.env().cost_estimate().budget().reset_unlimited();
+    let id = w.vault().deposit(&user, &(100 * USDC));
+    let stats = w.vault().stats();
+    assert!(stats.coupon_capacity > 0, "the vault reports itself solvent and well-capitalised");
+
+    // At maturity the receipt is owed, backed, and unpayable.
+    warp_to(&w, w.maturity + 1);
+    let payout = w.vault().get_receipt(&id).payout;
+    w.env().cost_estimate().disable_resource_limits();
+    w.env().cost_estimate().budget().reset_unlimited();
+    let paid = w.vault().redeem(&id);
+    let r = last_resources(&w); // capture BEFORE any further call overwrites it
+    assert_eq!(paid, payout);
+    report("redeem behind 10 dust seeds", r);
+    std::println!(
+        "A-8: {} bytes = {}% of the mainnet ceiling — this transaction cannot be submitted",
+        r.1,
+        r.1 * 100 / MAINNET_MEM_BYTES
+    );
+    assert!(
+        r.1 > MAINNET_MEM_BYTES,
+        "the griefed redeem must breach the ceiling, got {}",
+        r.1
+    );
+}
+
+/// **A-9 — the same permissionless append also has a hard ceiling that bricks the vault.**
+///
+/// `Positions` is a `Vec<u64>` in the vault's **instance** entry, which every mutating call
+/// rewrites. Soroban caps a single ledger entry at 64 KiB. The existing suite asserts the entry
+/// fits *today*; nothing stops it from being grown on purpose. This measures the marginal cost of
+/// one tracked position and projects the point at which no vault operation can be written at all.
+#[test]
+fn the_positions_vec_grows_without_bound_and_has_a_hard_brick_point() {
+    let w = setup(YEAR);
+    w.env().cost_estimate().disable_resource_limits();
+    let attacker = w.new_user(10 * USDC);
+
+    let measure = |n: u32| -> u32 {
+        for _ in 0..n {
+            w.env().cost_estimate().budget().reset_unlimited();
+            w.vault().seed(&attacker, &1_000);
+        }
+        last_resources(&w).4
+    };
+    let at_10 = measure(10);
+    let at_60 = measure(50);
+    let per_position = (at_60 - at_10) / 50;
+    std::println!(
+        "A-9: instance write bytes {} @10 positions -> {} @60; ~{} bytes per position",
+        at_10, at_60, per_position
+    );
+    let brick_at = (MAINNET_MAX_ENTRY_BYTES - at_60) / per_position.max(1) + 60;
+    std::println!(
+        "A-9: the 64 KiB per-entry cap is reached at ~{} tracked positions; past that NO vault \
+         operation can write its instance entry",
+        brick_at
+    );
+    assert!(per_position > 0, "each seed permanently enlarges a shared, rewritten entry");
+    assert!(tracked_positions(&w) == 60);
+}
+
+/// **A-14 — a Blend liquidity crunch turns a vault receipt from "delayed" into "unpayable".**
+///
+/// The wrapper at least degrades gracefully: a holder who cannot withdraw 200k can withdraw
+/// whatever fits (A-13). `Vault::redeem` cannot. It demands the receipt's whole `payout` in one
+/// `redeem_pt_for` walk, and `settle_redeem` reverts anything short of it by more than
+/// [`REDEEM_DUST`] — so there is no "take what you can now" path at all, and the failure surfaces
+/// as an opaque Blend error code rather than a Spield one.
+#[test]
+fn a_drained_blend_pool_makes_a_vault_receipt_unpayable_with_no_partial_path() {
+    let w = setup(YEAR);
+    w.env().cost_estimate().disable_resource_limits();
+    let seeder = w.new_user(300_000 * USDC);
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.vault().seed(&seeder, &(300_000 * USDC));
+    let user = w.new_user(100_000 * USDC);
+    w.env().cost_estimate().budget().reset_unlimited();
+    let id = w.vault().deposit(&user, &(100_000 * USDC));
+    let payout = w.vault().get_receipt(&id).payout;
+
+    w.advance(30 * 24 * 60 * 60);
+
+    // Drive USDC utilization to Blend's `max_util`.
+    let hog = Address::generate(w.env());
+    StellarAssetClient::new(w.env(), &w.xlm).mint(&hog, &(50_000_000 * SCALAR_7));
+    w.env().cost_estimate().budget().reset_unlimited();
+    w.pool_client().submit(
+        &hog, &hog, &hog,
+        &Vec::from_array(w.env(), [pool::Request {
+            request_type: REQ_SUPPLY_COLLATERAL,
+            address: w.xlm.clone(),
+            amount: 50_000_000 * SCALAR_7,
+        }]),
+    );
+    for step in [100_000i128, 10_000, 1_000, 100] {
+        loop {
+            w.env().cost_estimate().budget().reset_unlimited();
+            let reqs = Vec::from_array(w.env(), [pool::Request {
+                request_type: REQ_BORROW, address: w.usdc.clone(), amount: step * USDC,
+            }]);
+            if w.pool_client().try_submit(&hog, &hog, &hog, &reqs).is_err() { break; }
+        }
+    }
+    let liquid = w.usdc().balance(&w.pool);
+    std::println!(
+        "A-14: pool free liquidity {} USDC vs a receipt payout of {} USDC",
+        liquid / USDC, payout / USDC
+    );
+    assert!(liquid < payout, "the scenario must make the payout unreachable in one go");
+
+    // The vault still reports itself solvent…
+    let stats = w.vault().stats();
+    assert!(stats.pt_inventory >= stats.total_liability, "PT inventory covers every receipt");
+    std::println!(
+        "A-14: stats say inventory {} >= liability {} — the vault believes it is fine",
+        stats.pt_inventory, stats.total_liability
+    );
+
+    warp_to(&w, w.maturity + 1);
+    w.env().cost_estimate().disable_resource_limits();
+    w.env().cost_estimate().budget().reset_unlimited();
+    let res = w.vault().try_redeem(&id);
+    std::println!("A-14: vault redeem -> {:?}", res);
+    assert!(res.is_err(), "the receipt cannot be paid");
+    assert_eq!(w.usdc().balance(&user), 0, "and there is no partial payout to fall back on");
+    assert!(w.vault().get_receipt(&id).open, "the receipt stays open, which is at least correct");
+}
+
+/// **A-15 — `Vault::initialize` does not cross-check its `underlying` against the wrapper's.**
+///
+/// The same omission as the market's (A-1), one contract over. Init reads `pt`, `yt` and
+/// `maturity` from the wrapper but takes `underlying` on trust, checking only that it has 7
+/// decimals. The doc comment justifies this by saying older wrappers may not expose
+/// `underlying()` — they do now. This records which way a mis-wired vault fails.
+#[test]
+fn vault_init_does_not_cross_check_its_underlying_against_the_wrapper() {
+    let w = setup(YEAR);
+    let admin = w.wrapper().admin();
+    let foreign = register_sac(w.env(), &admin);
+    assert_ne!(foreign, w.usdc);
+    assert_eq!(w.wrapper().underlying(), w.usdc);
+
+    // A vault wired to the wrong settlement asset initializes without complaint.
+    let bad = VaultClient::new(w.env(), &w.env().register(Vault, (admin.clone(),)));
+    bad.initialize(&w.wrapper, &foreign, &RATE_BPS, &MAX_RATE_BPS);
+    std::println!("A-15: a vault on the wrong underlying initialized cleanly");
+    assert_eq!(bad.stats().maturity, w.maturity, "…and inherits the right market");
+
+    // It fails only later, at the first seed, with an error that names neither the vault nor the
+    // misconfiguration — the operator finds out after deploying, not at init.
+    let seeder = Address::generate(w.env());
+    StellarAssetClient::new(w.env(), &foreign).mint(&seeder, &(100 * USDC));
+    let res = bad.try_seed(&seeder, &(100 * USDC));
+    std::println!("A-15: first seed on the mis-wired vault -> {:?}", res);
+    assert!(res.is_err(), "it does at least fail closed rather than drain");
 }
