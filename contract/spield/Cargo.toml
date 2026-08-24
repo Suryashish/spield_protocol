@@ -6,6 +6,9 @@ members = [
   "contracts/wrapper",
   "contracts/vault",
   "contracts/market",
+  "contracts/sr",
+  "contracts/yield",
+  "contracts/srmarket",
   "contracts/upgrade-fixture",
 ]
 

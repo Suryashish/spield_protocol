@@ -20,6 +20,7 @@ pub mod governance;
 pub mod math;
 pub mod ttl;
 pub mod strategy;
+pub mod token;
 pub mod types;
 pub mod wrapper;
 

@@ -109,4 +109,25 @@ pub enum Error {
     MaturityMismatch = 86,
     /// `market::initialize` was given a `pt` SAC that is not the one the wrapper mints.
     PtTokenMismatch = 87,
+    /// A market/vault was wired to a settlement asset that is not the one PT redeems into
+    /// (`tofix.md` #19). Distinct from the two above so the operator is told *which* argument
+    /// is wrong.
+    UnderlyingMismatch = 88,
+
+    // --- SR / PY layer (Pendle-shaped stack, 100–119) ---
+    /// SEP-41: the spender's allowance over `from` is smaller than the amount being moved.
+    InsufficientAllowance = 100,
+    /// The operation is only valid BEFORE the series expiry (e.g. `mint_py`, any swap).
+    SeriesExpired = 101,
+    /// The operation is only valid AT/AFTER the series expiry (e.g. post-expiry index stamping).
+    SeriesNotExpired = 102,
+    /// The caller is not the one contract permitted to drive this entrypoint (e.g. only the
+    /// registered market may fund a split; only the yield contract may mint PT).
+    NotRegistered = 103,
+    /// A protocol fee share was set above its on-chain ceiling.
+    FeeShareTooHigh = 104,
+    /// SR `deposit`/`redeem` produced fewer shares/underlying than the caller's floor.
+    MinOutNotMet = 105,
+    /// An SR/PY amount rounded to zero — refuse rather than mint or burn nothing for something.
+    DustAmount = 106,
 }

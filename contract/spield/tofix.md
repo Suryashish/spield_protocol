@@ -21,6 +21,39 @@ meaningful TVL; **P2** = documentation / belt-and-braces.
 
 ---
 
+## Re-verified 2026-08-24 — nothing has been removed, and here is why
+
+The SR/yield/srmarket stack (`srstack.md`) landed on 2026-08-24. It does **not** close any item
+below, because it does not touch v1: `contracts/{wrapper,vault,market,strategy}` are byte-for-byte
+unchanged, `Error::UnderlyingMismatch` is declared but referenced nowhere in v1, and
+`WrapperContract` still does not declare `underlying()`.
+
+**Every acceptance test in this document was re-run and still passes — i.e. still asserts the
+broken behaviour.** All 20 were checked individually. So every item stays open.
+
+What the new stack does is make some of these **structurally unreachable in v2**, which matters only
+for the migration decision. Recorded so they are not re-litigated as "already fixed":
+
+| Item | Status in v1 | Structurally absent in the SR stack? |
+|---|---|---|
+| [15](#15-p1--a-raw-yt-transfer-strands-the-recipients-claim) raw YT transfer strands the claim | **open** | **Yes** — YT is a hook-bearing contract; `the_v1_stranding_bug_is_gone` |
+| [19](#19-p0--marketinitialize-never-cross-checks-the-settlement-asset) market init cross-check | **open** | **Yes** — `srmarket` reads pt/sr/expiry from the engine; `the_market_is_wired_to_the_yield_contracts_own_tokens` |
+| [25](#25-p1--the-solvency-dust-band-ratchets-with-lifetime-users-not-live-dust) dust band ratchets | **open** | **Yes** — fixed `SOLVENCY_SLACK`, not a per-position band |
+| [26](#26-p2--market-lifecycle-and-lp-path-gaps) market lifecycle + LP gaps | **open** | **Yes** — all three: maturity-gated `add_liquidity`, `shares > 0`, `min_pt_out`/`min_sr_out` |
+| [27](#27-p2--the-wrappers-read-only-views-write-to-chain-state) views write to state | **open** | **Yes** — `index_view` (pure) is split from `index_current` (stamping) |
+| [28](#28-p2--exits-account-the-requested-amount-not-the-amount-blend-paid) exits account the requested amount | **open** | **Yes** — `Sr::redeem` returns what the strategy actually paid |
+| [29](#29-p2--a-yt-only-holder-has-no-principal-exit-before-maturity) YT-only holder has no exit | **open** | **Yes** — YT is independent of PT; sell it on the market |
+| [3](#3-p0--b_rate-deep-dip-freezes-exits) `b_rate` deep dip | **open** | **Partially.** Measured: reads and deposits still brick identically (`a_guarded_strategy_still_bricks_sr_on_a_rate_dip`) because the *adapter* panics before SR can clamp. Only the **exit** survives, since `Sr::redeem` never reads the rate. The adapter-level `reset_rate_floor` is still the real fix. |
+| [16](#16-p2--post-maturity-surplus-accrues-to-nobody) post-maturity surplus | **open** | **No — and the premise is wrong.** In a share-based design every stroop above PT cover is owed to a YT holder (conservation identity in `srstack.md` §5). There is no pot to capture; only *abandoned* claims are recoverable. A first attempt to sweep it paid the treasury out of holders' unsettled interest and was caught in testing. |
+| [18](#18-p0--vault-redeem-is-unpaginated-and-seed-is-permissionless-so-anyone-can-strand-every-receipt), [20](#20-p1--a-blend-liquidity-crunch-halts-exits-and-the-vault-has-no-partial-path), [21](#21-p1--vault-yt-yield-is-unclaimable-after-maturity-and-live-yt-legs-are-pruned), [22](#22-p1--vault-seed-capital-and-surplus-inventory-are-one-way), [24](#24-p1--vaultinitialize-does-not-cross-check-its-underlying-either) vault items | **open** | **N/A** — the SR stack has no vault. Porting the fixed-rate product forward re-opens all of them. |
+| [13](#13-p1--issuer-lockdown--rehearsal-only) issuer lockdown | **open** | **No** — the new PT SAC needs the same rehearsal. |
+| [23](#23-p1--the-solvency-monitor-does-not-enforce-the-invariant-the-contract-enforces) monitor | **open** | **No** — and it now has a second stack to cover. |
+| [30](#30-p2--sdk-surface-gaps) SDK gaps | **open** | **No — worse.** The SR stack has no SDK surface at all. |
+
+**Bottom line: this list shortens when v1 is fixed or retired, not when v2 is built.**
+
+---
+
 ## What is left
 
 | # | Item | Area | Sev | What is left |
