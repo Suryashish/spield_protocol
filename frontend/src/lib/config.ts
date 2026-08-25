@@ -263,42 +263,11 @@ export const ASSETS = {
 export const BACKEND_URL = env('VITE_BACKEND_URL', 'http://api.spield.live');
 
 /**
- * Cross-chain bridge (Allbridge Core) configuration.
- *
- * IMPORTANT: Allbridge Core has NO testnet — the SDK ships only a mainnet config
- * (see `@allbridge/bridge-core-sdk/dist/src/configs` → only `mainnet`). So we let
- * the bridge UI *quote* against real mainnet liquidity on every build, but only
- * permit actual execution when this app is itself targeting mainnet. On testnet
- * builds the UI shows prices and disables the bridge with a "mainnet only" note.
- */
-export const BRIDGE_ENABLED = NETWORK_KEY === 'mainnet';
-
-/**
- * WalletConnect / Reown Cloud project id, required to initialise the EVM + Solana
- * wallet modal used to sign bridge transfers FROM non-Stellar chains. Get a free
- * id at https://cloud.reown.com. When unset, Stellar-source bridging still works
- * (it uses the app's existing Stellar wallet); only EVM/Solana sources are gated.
+ * WalletConnect / Reown Cloud project id for the optional EVM wallet modal used by
+ * the CCTP bridge. When unset, the bridge falls back to an injected EVM wallet
+ * (MetaMask, Rabby, Coinbase Wallet, etc.).
  */
 export const REOWN_PROJECT_ID = env('VITE_REOWN_PROJECT_ID', '');
-
-/**
- * RPC endpoints the Allbridge SDK uses to read balances and build/simulate txs on
- * each non-Stellar chain it can bridge from.
- *
- * IMPORTANT: the SDK's bundled `nodeRpcUrlsDefault` ships RPCs for SOL/TRX/etc. but
- * NOT for any EVM chain — so an EVM-source transfer fails with "Node RPC URL not
- * initialized" unless we supply one. We therefore ship public defaults for the EVM
- * chains we support. These public endpoints can rate-limit; for production set your
- * own (Infura/Alchemy/QuickNode…) via the `VITE_BRIDGE_RPC_*` env vars.
- */
-export const BRIDGE_RPC = {
-  SOL: env('VITE_BRIDGE_RPC_SOL', 'https://api.mainnet-beta.solana.com'),
-  ETH: env('VITE_BRIDGE_RPC_ETH', 'https://eth.llamarpc.com'),
-  BSC: env('VITE_BRIDGE_RPC_BSC', 'https://binance.llamarpc.com'),
-  POL: env('VITE_BRIDGE_RPC_POL', 'https://polygon.llamarpc.com'),
-  ARB: env('VITE_BRIDGE_RPC_ARB', 'https://arbitrum.llamarpc.com'),
-  TRX: env('VITE_BRIDGE_RPC_TRX', 'https://api.trongrid.io'),
-} as const;
 
 /** Token display metadata, keyed by contract address. */
 export const TOKEN_META: Record<string, { symbol: string; label: string }> = {
