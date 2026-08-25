@@ -62,7 +62,12 @@ try {
   const cctp = await import(`${pathToFileURL(join(outputDirectory, 'cctp.mjs')).href}?test=${Date.now()}`);
   const mainnet = cctp.getCctpConfig('mainnet');
   const testnet = cctp.getCctpConfig('testnet');
+  const appEnvironment = process.env.VITE_NETWORK?.toLowerCase() === 'mainnet'
+    ? 'mainnet'
+    : 'testnet';
 
+  assert.equal(cctp.DEFAULT_CCTP_ENVIRONMENT, appEnvironment);
+  assert.equal(cctp.CCTP_CONFIG.environment, appEnvironment);
   assert.equal(mainnet.environment, 'mainnet');
   assert.equal(testnet.environment, 'testnet');
   assert.equal(mainnet.stellarNetwork, 'PUBLIC');
