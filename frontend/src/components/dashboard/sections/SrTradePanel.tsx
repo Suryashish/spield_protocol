@@ -43,13 +43,35 @@ import {
 } from '@/lib/srstack';
 
 type Mode = 'buyPt' | 'sellPt' | 'buyYt' | 'sellYt';
+type Side = 'buy' | 'sell';
+type Asset = 'pt' | 'yt';
 
-const MODES: { id: Mode; label: string; hint: string }[] = [
-  { id: 'buyPt', label: 'Earn fixed', hint: 'USDC → PT' },
-  { id: 'buyYt', label: 'Long yield', hint: 'USDC → YT' },
-  { id: 'sellPt', label: 'Sell PT', hint: 'PT → USDC' },
-  { id: 'sellYt', label: 'Sell YT', hint: 'YT → USDC' },
+/**
+ * The picker is two questions, not four buttons.
+ *
+ * It used to be a flat list — "Earn fixed", "Long yield", "Sell PT", "Sell YT" — in a three-column
+ * grid holding four items, so it wrapped 3+1 and looked broken. Worse, the naming was inconsistent:
+ * two entries described a *strategy* and two described a *transaction*, which left no way to see at
+ * a glance that they were the same two assets in opposite directions.
+ *
+ * Splitting it into **side** then **asset** matches how the decision is actually made — am I
+ * entering or exiting, and on which leg — and every row is now even.
+ *
+ * The strategy language is not lost, it moves to the sub-label where it belongs: the reason to buy
+ * PT rather than YT is what "Fixed return" vs "Leveraged yield" was carrying all along.
+ */
+const SIDES: { id: Side; label: string }[] = [
+  { id: 'buy', label: 'Buy' },
+  { id: 'sell', label: 'Sell' },
 ];
+
+const ASSETS: { id: Asset; label: string; hint: Record<Side, string> }[] = [
+  { id: 'pt', label: 'PT', hint: { buy: 'Lock a fixed return', sell: 'Exit before maturity' } },
+  { id: 'yt', label: 'YT', hint: { buy: 'Leveraged on yield', sell: 'Take yield off the table' } },
+];
+
+const modeOf = (side: Side, asset: Asset): Mode =>
+  `${side}${asset === 'pt' ? 'Pt' : 'Yt'}` as Mode;
 
 const fmtTok = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
 
@@ -89,7 +111,8 @@ const SrTradePanel = () => {
   const { navigate } = useNav();
   const { run, busy } = useTxAction();
 
-  const [rawMode, setMode] = useState<Mode>('buyPt');
+  const [side, setSide] = useState<Side>('buy');
+  const [asset, setAsset] = useState<Asset>('pt');
   const [amount, setAmount] = useState('');
   const [stats, setStats] = useState<SrMarketStats | null>(null);
   const [portfolio, setPortfolio] = useState<SrPortfolio | null>(null);
@@ -120,7 +143,15 @@ const SrTradePanel = () => {
 
   const matured = isMatured(stats);
 
-  const mode: Mode = rawMode;
+  const mode: Mode = modeOf(side, asset);
+
+  // Switching either dimension invalidates the amount and its quote — they are denominated in
+  // whatever the previous selection was.
+  const resetEntry = () => {
+    setAmount('');
+    setQuote(null);
+    setYtFace(0n);
+  };
 
   const parsed = Number(amount);
   const amountValid = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
@@ -288,38 +319,94 @@ const SrTradePanel = () => {
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-4">
+        {/* Signature count, per mode.
+            This used to promise "one signature" unconditionally, which is true for the PT legs and
+            false for both YT legs — a Blend call plus a mint_py-bearing curve trade does not fit in
+            one Soroban transaction (see `budget.md`). Promising one and prompting twice is the
+            moment a user assumes something went wrong and cancels, so the banner tracks the mode. */}
         <div className="flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-1.5 text-xs">
           <Zap className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
           <span className="text-muted-foreground">
-            One signature, straight from USDC. The SR wrap happens inside the transaction.
+            {asset === 'pt'
+              ? 'One signature, straight from USDC — the SR wrap happens inside the transaction.'
+              : side === 'buy'
+                ? 'Two signatures: wrap, then buy. A Blend deposit and a curve trade do not fit in one transaction — if you already hold SR, it is just one.'
+                : 'Two signatures: sell, then unwrap. A curve trade and a Blend withdrawal do not fit in one transaction.'}
           </span>
         </div>
 
-        {/* Mode picker */}
-        <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/50 p-1">
-          {MODES.map((m) => {
-            const disabled = matured;
+        {/* ── Side ──────────────────────────────────────────────────────────────────────────
+            The primary question, so it gets the primary control: full width, two even halves, and
+            a coloured active state so the direction of the trade is readable without focusing. */}
+        <div
+          className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1"
+          role="tablist"
+          aria-label="Trade side"
+        >
+          {SIDES.map((sd) => {
+            const active = side === sd.id;
             return (
               <button
-                key={m.id}
+                key={sd.id}
                 type="button"
-                disabled={disabled}
+                role="tab"
+                aria-selected={active}
+                disabled={matured}
                 onClick={() => {
-                  setMode(m.id);
-                  setAmount('');
-                  setQuote(null);
-                  setYtFace(0n);
+                  setSide(sd.id);
+                  resetEntry();
                 }}
                 className={cn(
-                  'rounded-md px-2 py-1.5 text-xs font-medium transition',
-                  mode === m.id
-                    ? 'bg-background text-foreground shadow-sm'
+                  'rounded-md px-3 py-2 text-sm font-semibold transition',
+                  active
+                    ? sd.id === 'buy'
+                      ? 'bg-background text-emerald-500 shadow-sm'
+                      : 'bg-background text-amber-500 shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
-                  disabled && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
+                  matured && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
                 )}
               >
-                <span className="block">{m.label}</span>
-                <span className="block text-[10px] opacity-70">{m.hint}</span>
+                {sd.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Asset ─────────────────────────────────────────────────────────────────────────
+            The secondary question. Same two options either way — which is the point: PT and YT are
+            one pair traded in two directions, and the old flat list made that impossible to see.
+            The sub-label carries the *reason* to pick one over the other, and it changes with the
+            side, because the reason to buy PT is not the reason to sell it. */}
+        <div
+          className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1"
+          role="tablist"
+          aria-label="Asset"
+        >
+          {ASSETS.map((a) => {
+            const active = asset === a.id;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                disabled={matured}
+                onClick={() => {
+                  setAsset(a.id);
+                  resetEntry();
+                }}
+                className={cn(
+                  'rounded-md px-2 py-1.5 text-left transition',
+                  active
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                  matured && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
+                )}
+              >
+                <span className="block text-xs font-medium">
+                  {side === 'buy' ? 'Buy' : 'Sell'} {a.label}
+                </span>
+                <span className="block text-[10px] opacity-70">{a.hint[side]}</span>
               </button>
             );
           })}
@@ -385,18 +472,10 @@ const SrTradePanel = () => {
           )}
 
 
-          {mode === 'buyYt' && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Buying YT takes two signatures — wrap, then buy. A Blend deposit and a curve trade do
-              not fit in one Stellar transaction. If you already hold enough SR, it is just one.
-            </p>
-          )}
-
           {mode === 'sellYt' && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Two signatures — sell, then unwrap; a market sale and a Blend withdrawal do not fit in
-              one Stellar transaction. Selling credits the yield you have already earned rather than
-              paying it out: it stays claimable in the Yield card, and the sale cannot strand it.
+              Selling credits the yield you have already earned rather than paying it out — it stays
+              claimable in the Yield card, and the sale cannot strand it.
             </p>
           )}
 
@@ -444,7 +523,7 @@ const SrTradePanel = () => {
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
               {busy && ytStep
                 ? `Signature ${ytStep}…`
-                : MODES.find((m) => m.id === mode)?.label}
+                : `${side === 'buy' ? 'Buy' : 'Sell'} ${asset.toUpperCase()}`}
             </Button>
           )}
         </div>
