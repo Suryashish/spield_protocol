@@ -193,18 +193,26 @@ fn a_guarded_strategy_still_bricks_sr_on_a_rate_dip() {
     // Blend socialises bad debt: b_rate dips by one stroop.
     w.st().set_rate(&(SCALAR_12 - 1));
 
-    // Every path that reads the rate is dead — including the EXIT.
-    assert!(w.sr().try_exchange_rate().is_err(), "reads brick");
+    // READS now survive: `exchange_rate` is a pure read of SR's own stored high-water mark and
+    // never touches the strategy (see its doc comment — this was forced by a testnet footprint
+    // failure, and closing tofix #27 at this layer bought #3 partial relief for free).
+    assert_eq!(
+        w.sr().exchange_rate(),
+        SCALAR_12,
+        "the rate read must survive a strategy that refuses to report"
+    );
+    // Anything that must REFRESH from the strategy still bricks — that is #3, unchanged.
+    assert!(w.sr().try_sync_rate().is_err(), "sync still bricks");
     assert!(
         w.sr().try_deposit(&u, &u, &(1 * USDC), &0i128).is_err(),
-        "deposits brick"
+        "deposits still brick"
     );
     // `redeem` does not read `current_rate`, so the exit survives — that is the one thing SR
     // improves over the v1 wrapper, whose `combine_and_redeem` auto-claims and therefore reads it.
     let out = w.sr().redeem(&u, &u, &shares, &0i128);
     assert!(out > 0, "SR redemption must survive a dip");
     std::println!(
-        "guarded dip: reads and deposits brick (tofix #3 unchanged), but SR redeem still paid {out}"
+        "guarded dip: sync + deposits brick (tofix #3 unchanged), but reads AND redeem survive — redeem paid {out}"
     );
 }
 
@@ -219,6 +227,7 @@ fn the_high_water_clamp_holds_the_rate_when_the_strategy_reports_a_dip() {
     let before = w.sr().exchange_rate();
 
     w.st().set_rate(&(SCALAR_12 / 2)); // a 50% collapse
+    w.sr().sync_rate();                // pull the dip in explicitly
     let after = w.sr().exchange_rate();
 
     assert_eq!(after, before, "SR must not reprice downward");
@@ -236,6 +245,8 @@ fn the_clamp_never_holds_back_a_genuine_rise() {
     w.sr().deposit(&u, &u, &(1_000 * USDC), &0i128);
     for mult in [11i128, 12, 15, 20] {
         w.st().set_rate(&(SCALAR_12 * mult / 10));
+        // `exchange_rate` is now a pure read of stored state, so a rise lands only once synced.
+        assert_eq!(w.sr().sync_rate(), SCALAR_12 * mult / 10);
         assert_eq!(w.sr().exchange_rate(), SCALAR_12 * mult / 10);
     }
 }
@@ -249,6 +260,7 @@ fn a_clamped_rate_never_promises_more_than_the_strategy_pays() {
     let u = w.user(1_000 * USDC);
     let shares = w.sr().deposit(&u, &u, &(1_000 * USDC), &0i128);
     w.st().set_rate(&(SCALAR_12 / 2));
+    w.sr().sync_rate();
 
     let previewed = w.sr().preview_redeem(&shares); // uses the clamped (optimistic) rate
     let actual = w.sr().redeem(&u, &u, &shares, &0i128); // pays what the strategy really gives

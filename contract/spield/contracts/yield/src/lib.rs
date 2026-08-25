@@ -278,7 +278,7 @@ impl Yield {
         if let Some(i) = storage::post_expiry_index(&env) {
             return i;
         }
-        let live = Self::live_index(&env);
+        let live = Self::live_index_synced(&env);
         storage::set_post_expiry_index(&env, live);
         storage::set_index_stored(&env, live);
         storage::bump_instance(&env);
@@ -375,13 +375,13 @@ impl Yield {
                 return i;
             }
             // First touch after expiry pins the ceiling on the way past.
-            let live = Self::live_index(env);
+            let live = Self::live_index_synced(env);
             storage::set_post_expiry_index(env, live);
             storage::set_index_stored(env, live);
             events::expiry_stamped(env, live);
             return live;
         }
-        let live = Self::live_index(env);
+        let live = Self::live_index_synced(env);
         if live > storage::index_stored(env) {
             storage::set_index_stored(env, live);
         }
@@ -395,7 +395,7 @@ impl Yield {
                 return i;
             }
         }
-        Self::live_index(env)
+        Self::live_index_view(env)
     }
 
     /// Public read of the index (no writes) — the number every quote above should use.
@@ -403,14 +403,20 @@ impl Yield {
         Self::index_view(&env)
     }
 
-    fn live_index(env: &Env) -> i128 {
+    /// Mutating: refresh SR from the strategy first, then take the max with our stored index.
+    /// Used by every value-moving path, so none of them can run on a stale rate.
+    fn live_index_synced(env: &Env) -> i128 {
+        let live = SrClient::new(env, &storage::get_sr(env)).sync_rate();
+        let stored = storage::index_stored(env);
+        if live > stored { live } else { stored }
+    }
+
+    /// Pure: read SR's stored rate. May lag by at most one sync, which under-states yield —
+    /// the safe direction for a view.
+    fn live_index_view(env: &Env) -> i128 {
         let live = SrClient::new(env, &storage::get_sr(env)).exchange_rate();
         let stored = storage::index_stored(env);
-        if live > stored {
-            live
-        } else {
-            stored
-        }
+        if live > stored { live } else { stored }
     }
 
     // ================= YT as SEP-41 =================
@@ -657,7 +663,11 @@ impl Yield {
 /// SR's *interface*, not its implementation — the same seam Pendle keeps between YT and SY.
 #[soroban_sdk::contractclient(name = "SrClient")]
 pub trait SrToken {
+    /// PURE read of SR's stored rate. Never calls the strategy.
     fn exchange_rate(env: Env) -> i128;
+    /// Refresh SR's stored rate from the strategy. ALWAYS writes, so the footprint is
+    /// deterministic — see `Sr::exchange_rate` for why that matters.
+    fn sync_rate(env: Env) -> i128;
     fn balance(env: Env, id: Address) -> i128;
     fn transfer(env: Env, from: Address, to: Address, amount: i128);
     fn underlying(env: Env) -> Address;

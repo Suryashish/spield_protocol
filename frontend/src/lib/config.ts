@@ -56,8 +56,39 @@ type ContractSet = {
   usdc: string;
 };
 
+/**
+ * The **SR stack** — Spield v2's Pendle-shaped contracts (`srstack.md`).
+ *
+ * Deployed alongside v1, not replacing it, so both can be pointed at from one build. The shape
+ * differs from `ContractSet` in ways the UI has to respect:
+ *
+ * * `sr` is a **share token** over the Blend strategy — users wrap USDC into SR first, and the
+ *   PT/YT engine and the AMM speak only SR. It is NOT 1:1 with USDC.
+ * * `yieldEngine` **is the YT token**. There is no YT SAC and no YT trustline. Its address is what
+ *   you call for `balance`, `transfer`, `claimable_interest` and `redeem_due_interest`.
+ * * `pt` is still a classic-asset SAC, so a holder **does** need a PT trustline before they can
+ *   receive PT. `ptAsset` carries the exact `CODE:ISSUER` pair to trust — never reconstruct it.
+ */
+type SrContractSet = {
+  /** SR token (Standardized Return) — the share token users wrap USDC into. */
+  sr: string;
+  /** Blend strategy adapter behind SR. */
+  strategy: string;
+  /** PT/YT engine. **This address is also the YT token.** */
+  yieldEngine: string;
+  /** PT/SR AMM. */
+  market: string;
+  /** PT Stellar Asset Contract. */
+  pt: string;
+  /** PT classic asset as `CODE:ISSUER` — required verbatim to open a trustline. */
+  ptAsset: string;
+  usdc: string;
+};
+
 type NetworkProfile = NetworkMeta & {
   contracts: ContractSet;
+  /** The v2 SR stack. `null` where it is not deployed yet (mainnet). */
+  sr: SrContractSet | null;
   /** PT/YT classic-asset issuer (G-address) for this network's trustlines. */
   ptYtIssuer: string;
 };
@@ -91,6 +122,18 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
       yt: 'CA2QLQDSJUR6H5QNZSYURGGMZPGJI7D4WEYPXBSXWDLX7FCFZF7FD2OU',
       usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
     },
+    // ── SR stack (v2), deployed + seeded on testnet 2026-08-24 against the real Blend TestnetV2
+    // pool. Pool opened at exactly 5.0000% implied APY, PT price 0.988042.
+    // See contract/spield/scripts/deploy_sr_testnet.state and TESTNET_SR.md.
+    sr: {
+      sr: 'CCVGEIAYGO3FIANVJVM4HBIFMPIQWMLN2IP3KMNGES5Y2NEGHAMEY2LU',
+      strategy: 'CATOFZHFURHGBNTN3UATN4BICJK6URC25Z5XCU7QMU3NXL7Z3HYBYEIJ',
+      yieldEngine: 'CBYJSMCDDZGRVFRV3YOYYGSXO6PO5OG6MDH2DXYX6UER4KTXL6BPJVNI',
+      market: 'CDWNTHQAFFPXUEQWSZYEY4S6JYHXWMA7UUMZCBY2FC2UZUQ23UZXKQ2W',
+      pt: 'CAF4KHXRV4MOERZBD6ABVTDTG4QSHBXIZ73HNZ2FKUS442D3YSWVX3QF',
+      ptAsset: 'SPLDPT4:GB5Q4MKMWT3RMCJ2YCCXVUITH2M44NTFSC4ROJ7U5IPW4ZSS2GZMDL43',
+      usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
+    },
   },
   mainnet: {
     key: 'mainnet',
@@ -111,6 +154,9 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
       yt: 'CDGQLIJVMKRFTYUXOMQAG4YFUN22OKXMOT2K4JA33KDM6P2FCBZTV6CU',
       usdc: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
     },
+    // The SR stack is NOT on mainnet. `SR_DEPLOYED` is false there and every SR entry point
+    // no-ops, so the UI renders an unavailable state rather than throwing.
+    sr: null,
   },
 };
 
@@ -128,6 +174,30 @@ export const NETWORK = {
   horizonUrl: env('VITE_HORIZON_URL', profile.horizonUrl),
   explorer: env('VITE_EXPLORER_URL', profile.explorer),
 } as const;
+
+/**
+ * The v2 **SR stack** addresses for the active network, or `null` where it is not deployed.
+ *
+ * Guard every use with {@link SR_DEPLOYED}. On mainnet this is `null`, and the SR client
+ * (`lib/srstack.ts`) turns every call into a safe no-op so the UI can render an unavailable
+ * state instead of throwing.
+ */
+export const SR_CONTRACTS = profile.sr
+  ? {
+      sr: env('VITE_SR', profile.sr.sr),
+      strategy: env('VITE_SR_STRATEGY', profile.sr.strategy),
+      /** The PT/YT engine. **This same address is the YT token** — there is no separate YT SAC. */
+      yieldEngine: env('VITE_SR_YIELD', profile.sr.yieldEngine),
+      market: env('VITE_SR_MARKET', profile.sr.market),
+      pt: env('VITE_SR_PT', profile.sr.pt),
+      /** `CODE:ISSUER` for the PT trustline. Use verbatim; do not rebuild it from parts. */
+      ptAsset: env('VITE_SR_PT_ASSET', profile.sr.ptAsset),
+      usdc: env('VITE_SR_USDC', profile.sr.usdc),
+    }
+  : null;
+
+/** Whether the v2 SR stack is available on this network. */
+export const SR_DEPLOYED: boolean = SR_CONTRACTS !== null;
 
 /** Deployed Spield contract + asset addresses for the active network. */
 export const CONTRACTS = {

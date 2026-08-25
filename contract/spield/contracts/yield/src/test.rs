@@ -72,6 +72,11 @@ impl World {
         self.oracle()
             .set_price_stable(&vec![&self.env, 1_0000000, 1_0000000]);
         self.pool_client().get_reserve(&self.usdc);
+        // SR's rate is stored state, refreshed by any mutating interaction (`Sr::exchange_rate` is
+        // a PURE read — see its doc comment for the testnet footprint failure that forced that).
+        // Real usage syncs constantly; in a test where nothing else happens we do it explicitly so
+        // views reflect the elapsed time.
+        self.sr().sync_rate();
         self.env.cost_estimate().budget().reset_unlimited();
     }
 

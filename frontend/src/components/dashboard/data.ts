@@ -7,8 +7,7 @@ import {
   TrendingUp,
   Droplets,
   ArrowRightLeft,
-  type LucideIcon,
-} from 'lucide-react';
+  type LucideIcon, Layers } from 'lucide-react';
 
 /**
  * Sidebar groups. The nav is eight entries long, which is exactly the length
@@ -55,6 +54,15 @@ export const NAV_ITEMS: NavItem[] = [
     title: 'Overview',
     subtitle: 'Your portfolio at a glance — balances, performance and solvency.',
     group: 'main',
+  },
+  {
+    icon: Layers,
+    label: 'Spield v2',
+    id: 'v2',
+    title: 'Spield v2 — PT / YT',
+    subtitle:
+      'The Pendle-shaped stack: wrap USDC into SR, then trade principal (PT) and yield (YT).',
+    group: 'trade',
   },
   {
     icon: Lock,

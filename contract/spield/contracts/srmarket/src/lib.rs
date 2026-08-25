@@ -339,6 +339,17 @@ impl SrMarket {
     /// 3. `mint_py` the full notional → market holds `yt_out` PT **and** `yt_out` YT
     /// 4. `transfer` the YT to the user — **the hook settles them, so it is clean YT**
     ///
+    /// ## Two live-network bugs were fixed here — do not undo either (testnet 2026-08-24)
+    /// 1. **Pull `max_sr_in`, not the computed cost.** The user's payment is derived from the live
+    ///    index, which moves every ledger. Wallets sign auth entries against *simulation* amounts,
+    ///    so signing the computed figure fails at execution with `auth: invalid_action`. We pull the
+    ///    user's own `max_sr_in` and refund the difference.
+    /// 2. **The index is read through a PURE view.** `Sr::exchange_rate` no longer calls the
+    ///    strategy. It used to, and `strategy::current_rate` writes its RateBound only
+    ///    *conditionally* — so the footprint depended on timing and this call failed intermittently
+    ///    with `storage: exceeded_limit — outside of the footprint`. With the pure read, three
+    ///    consecutive brand-new users each bought YT successfully on their first attempt.
+    ///
     /// Returns the SR the user paid.
     pub fn buy_yt_exact_out(
         env: Env,
@@ -385,7 +396,19 @@ impl SrMarket {
         let me = env.current_contract_address();
         let sr_addr = storage::get_sr(&env);
         let sr = SrClient::new(&env, &sr_addr);
-        sr.transfer(&user, &me, &user_sr);
+
+        // Pull `max_sr_in` — NOT the computed `user_sr` — then refund the difference below.
+        //
+        // This is not a style choice. `user_sr` is derived from the LIVE index, which moves every
+        // ledger as Blend accrues. A wallet signs its authorization entries against the amounts
+        // seen during *simulation*, so by execution the computed figure has drifted and the signed
+        // `transfer(user, market, X)` no longer matches the actual call — the host rejects it with
+        // `auth: invalid_action` and the whole trade traps. `max_sr_in` is the user's own
+        // parameter, so it is identical in simulation and execution and the signature always fits.
+        //
+        // Found on testnet 2026-08-24, not in the unit suite: `mock_all_auths()` authorizes any
+        // amount, so this class of failure is invisible locally by construction.
+        sr.transfer(&user, &me, &max_sr_in);
 
         // Mint the pair to OURSELVES, then hand the YT on. Legal precisely because YT has a hook.
         let yield_addr = storage::get_yield(&env);
@@ -399,6 +422,11 @@ impl SrMarket {
         // Any face minted above the requested YT (a rounding stroop from the ceil) stays as pool PT.
         if treasury_sr > 0 {
             sr.transfer(&me, &storage::get_treasury(&env), &treasury_sr);
+        }
+        // Refund whatever the user over-authorized. Their net cost is still exactly `user_sr`.
+        let refund = max_sr_in - user_sr;
+        if refund > 0 {
+            sr.transfer(&me, &user, &refund);
         }
 
         storage::set_pt_reserve(&env, pt_res + py);

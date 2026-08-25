@@ -224,17 +224,29 @@ impl BlendStrategy {
         math::check_rate_bound_timed(&env, bound.last_rate, rate, elapsed, bound.max_apr_bps)
             .unwrap_or_else(|e| panic_with_error!(&env, e));
 
-        // Advance the observation point. We move `last_ts` to now whenever the rate is at least the
-        // last (always, given monotonicity passed above) so the next read's elapsed window is
-        // measured from here; bump `last_rate` only when it actually rose.
-        if rate > bound.last_rate || now > bound.last_ts {
-            if rate > bound.last_rate {
-                bound.last_rate = rate;
-            }
-            bound.last_ts = now;
-            env.storage().instance().set(&DataKey::Bound, &bound);
-            Self::bump_instance(&env);
+        // Advance the observation point. `last_rate` rises only when the rate actually rose;
+        // `last_ts` always moves to now so the next read's elapsed window is measured from here.
+        //
+        // The write is **UNCONDITIONAL**, and that is load-bearing rather than wasteful.
+        //
+        // It used to be guarded by `if rate > bound.last_rate || now > bound.last_ts`. Whether the
+        // guard passed therefore depended on how much time elapsed between a transaction's
+        // simulation and its execution — so a caller could simulate with no write (entry recorded
+        // read-only in the footprint) and then execute needing one, which the host rejects with
+        // `storage: exceeded_limit — trying to access contract instance outside of the footprint`.
+        // That made every caller above this intermittently unusable on a live network; it cost a
+        // day to find on testnet (2026-08-24) and is invisible in the local suite, where simulation
+        // and execution are the same ledger.
+        //
+        // Writing the same value back is cheap (the entry is already in the read set) and makes the
+        // footprint a function of the call graph alone, which is what simulation can actually
+        // predict.
+        if rate > bound.last_rate {
+            bound.last_rate = rate;
         }
+        bound.last_ts = now;
+        env.storage().instance().set(&DataKey::Bound, &bound);
+        Self::bump_instance(&env);
         rate
     }
 

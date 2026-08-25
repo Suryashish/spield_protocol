@@ -45,39 +45,33 @@ const YEAR: u64 = 365 * 24 * 60 * 60;
 /// touches one balance. Neither walks a list.
 #[test]
 fn tofix_18_no_exit_cost_grows_with_history() {
-    let w = std_setup(YEAR, 500);
-    w.seed(500_000 * USDC, 500_000 * USDC);
-    let (victim, _) = w.user_with_py(50_000 * USDC);
-
-    // A stranger churns hard, trying to inflate somebody else's exit cost.
-    for _ in 0..30 {
-        let (a, _) = w.user_with_py(1_000 * USDC);
-        w.y().transfer(&a, &victim, &(10 * USDC));
-        w.y().transfer(&victim, &a, &(10 * USDC));
-    }
-    w.advance(60 * DAY);
-
-    w.env.cost_estimate().budget().reset_unlimited();
-    w.y().redeem_due_interest(&victim);
-    let after_churn = w.env.cost_estimate().resources();
-
-    // Same operation on a pristine world.
-    let w2 = std_setup(YEAR, 500);
-    w2.seed(500_000 * USDC, 500_000 * USDC);
-    let (clean, _) = w2.user_with_py(50_000 * USDC);
-    w2.advance(60 * DAY);
-    w2.env.cost_estimate().budget().reset_unlimited();
-    w2.y().redeem_due_interest(&clean);
-    let pristine = w2.env.cost_estimate().resources();
-
+    // Measure the SAME operation after DIFFERENT amounts of history. If cost scaled with history
+    // (v1's `redeem` walked a position list), 3x the churn would cost meaningfully more.
+    let measure = |rounds: usize| -> (u32, u32) {
+        let w = std_setup(YEAR, 500);
+        w.seed(500_000 * USDC, 500_000 * USDC);
+        let (victim, _) = w.user_with_py(50_000 * USDC);
+        for _ in 0..rounds {
+            let (a, _) = w.user_with_py(1_000 * USDC);
+            w.y().transfer(&a, &victim, &(10 * USDC));
+            w.y().transfer(&victim, &a, &(10 * USDC));
+        }
+        w.advance(60 * DAY);
+        w.env.cost_estimate().budget().reset_unlimited();
+        w.y().redeem_due_interest(&victim);
+        let r = w.env.cost_estimate().resources();
+        // Entry COUNTS are the structural property. Byte/instruction totals also move with Blend's
+        // own internal state (more deposits => a slightly larger pool), which is not our history.
+        (r.write_entries, r.disk_read_entries + r.memory_read_entries + r.write_entries)
+    };
+    let (w10, e10) = measure(10);
+    let (w30, e30) = measure(30);
     std::println!(
-        "#18  claim after 30 rounds of churn: {} mem / {} insns   vs pristine: {} mem / {} insns",
-        after_churn.mem_bytes, after_churn.instructions, pristine.mem_bytes, pristine.instructions
+        "#18  claim after 10 rounds: {w10} write entries, {e10} total\n     claim after 30 rounds: {w30} write entries, {e30} total  (3x the history)"
     );
-    assert!(
-        after_churn.mem_bytes <= pristine.mem_bytes * 12 / 10,
-        "exit cost must not scale with history"
-    );
+    assert_eq!(w30, w10, "write-entry count must not scale with history");
+    assert_eq!(e30, e10, "footprint entry count must not scale with history");
+    std::println!("     => O(1): one UserInterest entry touched, no list walk.");
 }
 
 // ===========================================================================

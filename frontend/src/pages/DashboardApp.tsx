@@ -67,6 +67,7 @@ export default function DashboardApp() {
               <Route path="/vault" element={<DashboardPage />} />
               <Route path="/deposit" element={<DashboardPage />} />
               <Route path="/markets" element={<DashboardPage />} />
+              <Route path="/v2" element={<DashboardPage />} />
               <Route path="/liquidity" element={<DashboardPage />} />
               <Route path="/bridge" element={<DashboardPage />} />
               <Route path="/solvency" element={<DashboardPage />} />

@@ -80,6 +80,11 @@ impl World {
         self.oracle()
             .set_price_stable(&vec![&self.env, 1_0000000, 1_0000000]);
         self.pool_client().get_reserve(&self.usdc);
+        // SR's rate is stored state, refreshed by any mutating interaction (`Sr::exchange_rate` is
+        // a PURE read — see its doc comment for the testnet footprint failure that forced that).
+        // Real usage syncs constantly; in a test where nothing else happens we do it explicitly so
+        // views reflect the elapsed time.
+        self.sr().sync_rate();
         self.env.cost_estimate().budget().reset_unlimited();
     }
 
@@ -875,10 +880,13 @@ fn buy_yt_works_with_only_the_users_signature() {
             contract: &w.market,
             fn_name: "buy_yt_exact_out",
             args: (u.clone(), n, sr_in, 0u32).into_val(env),
+            // NOTE: the authorized amount is `sr_in` (== max_sr_in), NOT the quote. That is the
+            // whole point of the testnet auth-drift fix: the signed amount must be one the wallet
+            // can know at signing time. The market refunds the difference.
             sub_invokes: &[MockAuthInvoke {
                 contract: &w.sr,
                 fn_name: "transfer",
-                args: (u.clone(), w.market.clone(), quoted).into_val(env),
+                args: (u.clone(), w.market.clone(), sr_in).into_val(env),
                 sub_invokes: &[],
             }],
         },
@@ -1373,4 +1381,60 @@ fn reserves_stay_backed_through_a_long_mixed_sequence() {
         assert!(held + 20 >= needed, "step {step}: engine insolvent");
     }
     std::println!("10-step mixed sequence: reserves stayed backed and the engine stayed solvent");
+}
+
+/// **Regression for the testnet auth-drift bug (2026-08-24).**
+///
+/// `buy_yt_exact_out` must pull `max_sr_in` and refund the difference, never pull the internally
+/// computed `user_sr`. The computed figure moves with the live index between a wallet's simulation
+/// and execution, so signing against it fails with `auth: invalid_action` on a real network.
+/// `mock_all_auths()` hides this locally, so this test pins the *observable* consequence instead:
+/// the user is charged exactly the quote even when they authorize far more.
+#[test]
+fn buy_yt_charges_the_quote_and_refunds_the_over_authorized_remainder() {
+    let w = std_setup(YEAR, 500);
+    w.seed(500_000 * USDC, 500_000 * USDC);
+    let n = 10_000 * USDC;
+    let quoted = w.m().quote_buy_yt(&n);
+    assert!(quoted > 0);
+
+    // Authorize 10x the quote, the way a slippage-tolerant wallet would.
+    let generous = quoted * 10;
+    let (u, sr_in) = w.user_with_sr(w.sr().preview_redeem(&generous) + 10_000 * USDC);
+    assert!(sr_in > generous, "user must hold more than they authorize");
+    let before = w.sr().balance(&u);
+
+    let paid = w.m().buy_yt_exact_out(&u, &n, &generous, &0u32);
+    assert_eq!(paid, quoted, "charged the quote, not the authorization");
+    assert_eq!(
+        before - w.sr().balance(&u),
+        quoted,
+        "net SR out of the user's wallet must equal the quote — the rest was refunded"
+    );
+    assert_eq!(w.y().balance(&u), n);
+    // And the pool is still consistent.
+    let (pt_res, sr_res) = w.m().reserves();
+    assert!(w.pt().balance(&w.market) >= pt_res);
+    assert!(w.sr().balance(&w.market) >= sr_res);
+}
+
+/// The refund must not let a user drain the pool by over-authorizing wildly.
+#[test]
+fn an_enormous_max_sr_in_still_only_costs_the_quote() {
+    let w = std_setup(YEAR, 500);
+    let (lp, _) = w.seed(500_000 * USDC, 500_000 * USDC);
+    let (_, pt0, sr0) = w.m().lp_position(&lp);
+    let n = 5_000 * USDC;
+    let quoted = w.m().quote_buy_yt(&n);
+    let (u, sr_in) = w.user_with_sr(200_000 * USDC);
+    let before = w.sr().balance(&u);
+    let paid = w.m().buy_yt_exact_out(&u, &n, &sr_in, &0u32); // authorize EVERYTHING they hold
+    assert_eq!(paid, quoted);
+    assert_eq!(before - w.sr().balance(&u), quoted, "only the quote left the wallet");
+    let (_, pt1, sr1) = w.m().lp_position(&lp);
+    let idx = w.y().py_index();
+    assert!(
+        pt1 + sr1 * idx / SCALAR_12 >= pt0 + sr0 * idx / SCALAR_12,
+        "LP value must not fall from an over-authorized buy"
+    );
 }

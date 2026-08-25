@@ -6,7 +6,7 @@ import {
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
 
-import { ASSETS, NETWORK } from './config';
+import { ASSETS, NETWORK, SR_CONTRACTS } from './config';
 import { signWithWallet } from './stellar';
 
 /**
@@ -90,5 +90,58 @@ export const setupTrustlines = async (address: string): Promise<{ hash: string }
   const result = await horizon.submitTransaction(
     signed as Parameters<typeof horizon.submitTransaction>[0],
   );
+  return { hash: result.hash };
+};
+
+
+/**
+ * Establish the **v2 (SR stack) PT** trustline for `address`.
+ *
+ * Deliberately separate from {@link setupTrustlines}, which adds v1's PT *and* YT. The v2 stack
+ * needs neither of those:
+ *
+ * * Its PT is a different classic asset (a different code AND a different issuer), so v1's
+ *   trustline does not help.
+ * * Its **YT is a contract, not a classic asset** — there is nothing to trust, and asking a user to
+ *   trust a non-existent asset would simply fail.
+ *
+ * The asset is read from `SR_CONTRACTS.ptAsset` as a `CODE:ISSUER` pair recorded at deploy time.
+ * Never rebuild it from parts: getting the issuer wrong produces a trustline to a *different* asset
+ * that silently never receives anything.
+ *
+ * Returns `null` when the trustline already exists.
+ */
+export const setupSrPtTrustline = async (
+  address: string,
+): Promise<{ hash: string } | null> => {
+  if (!SR_CONTRACTS) throw new Error('Spield v2 is not deployed on this network.');
+  const [code, issuer] = SR_CONTRACTS.ptAsset.split(':');
+  if (!code || !issuer) throw new Error(`Malformed PT asset: ${SR_CONTRACTS.ptAsset}`);
+
+  const account = await horizon.loadAccount(address);
+  const already = account.balances.some(
+    (b) =>
+      'asset_code' in b && b.asset_code === code && 'asset_issuer' in b && b.asset_issuer === issuer,
+  );
+  if (already) return null;
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK.passphrase,
+  })
+    .addOperation(Operation.changeTrust({ asset: new Asset(code, issuer) }))
+    .setTimeout(120)
+    .build();
+
+  const { signedTxXdr, error } = await signWithWallet(tx.toXDR(), {
+    networkPassphrase: NETWORK.passphrase,
+    address,
+  });
+  if (error) {
+    throw new Error(error.message || 'Trustline setup was rejected in the wallet.');
+  }
+
+  const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK.passphrase);
+  const result = await horizon.submitTransaction(signed as Parameters<typeof horizon.submitTransaction>[0]);
   return { hash: result.hash };
 };

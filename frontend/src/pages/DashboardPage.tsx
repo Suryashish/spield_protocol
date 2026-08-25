@@ -31,6 +31,8 @@ import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
 import MarketChart from '@/components/dashboard/sections/MarketChart';
 import TradePanel from '@/components/dashboard/sections/TradePanel';
+import SrPanel from '@/components/dashboard/sections/SrPanel';
+import SrPortfolioPanel from '@/components/dashboard/sections/SrPortfolioPanel';
 import LpPanel from '@/components/dashboard/sections/LpPanel';
 import LpStatsStrip from '@/components/dashboard/sections/LpStatsStrip';
 import LpPositionPanel from '@/components/dashboard/sections/LpPositionPanel';
@@ -242,6 +244,24 @@ const SolvencySection = () => (
   </div>
 );
 
+/**
+ * Spield v2 — the SR stack. Kept as its own section rather than folded into the v1 pages because
+ * the model is genuinely different: SR is the entry token, YT is a contract rather than a SAC, and
+ * there is no vault. Mixing the two would make both harder to read.
+ */
+const V2Section = () => (
+  <div className="space-y-6">
+    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+      <div className="lg:col-span-5">
+        <SrPanel />
+      </div>
+      <div className="lg:col-span-7">
+        <SrPortfolioPanel />
+      </div>
+    </div>
+  </div>
+);
+
 const ActivitySection = () => <ActivityFeed />;
 
 const SECTIONS: Record<string, () => React.ReactNode> = {
@@ -249,6 +269,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   vault: VaultSection,
   deposit: DepositSection,
   markets: MarketsSection,
+  v2: V2Section,
   liquidity: LiquiditySection,
   bridge: BridgeSection,
   solvency: SolvencySection,

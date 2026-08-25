@@ -188,18 +188,26 @@ impl Sr {
 
     /// Underlying per 1e12 SR (SCALAR_12) — **the** yield oracle for everything above.
     ///
-    /// Clamped to an all-time high-water mark, so it is monotonic non-decreasing even across a
-    /// strategy rate dip. Read-only: never writes, so views and quotes are honest
-    /// (`tofix.md` #27 is about exactly this class of bug in the old wrapper).
+    /// **A genuinely pure read of stored state.** It does NOT call the strategy.
+    ///
+    /// That is not a micro-optimization, it is a correctness requirement discovered on testnet
+    /// (2026-08-24). `strategy::current_rate()` writes its `RateBound` *only when the rate has
+    /// moved*. A transaction that reaches it through a read path therefore has a footprint that
+    /// depends on timing: simulation sees no write and records the strategy read-only, then a
+    /// ledger passes, the rate moves, and execution needs to write — so the host rejects the whole
+    /// transaction with `storage: exceeded_limit — trying to access contract instance outside of
+    /// the footprint`. Intermittent, unreproducible locally, and fatal to `buy_yt_exact_out`.
+    ///
+    /// So the split is explicit: this view reads the stored high-water mark and nothing else, while
+    /// every mutating path refreshes it through [`Self::sync_rate`], which ALWAYS writes and is
+    /// therefore deterministic in the footprint.
+    ///
+    /// The value is monotonic non-decreasing by construction (see the module docs), and can only
+    /// ever lag the strategy — never lead it. Lagging is the safe direction: it under-states yield
+    /// and under-mints PY. `mint_py` / `redeem_py` / `redeem_due_interest` all sync first, so no
+    /// value-moving path ever runs on a stale rate.
     pub fn exchange_rate(env: Env) -> i128 {
-        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
-        let live = strategy.current_rate();
-        let hw = storage::rate_high_water(&env);
-        if live > hw {
-            live
-        } else {
-            hw
-        }
+        storage::rate_high_water(&env)
     }
 
     /// The underlying value of `user`'s SR right now.
@@ -243,11 +251,17 @@ impl Sr {
         Self::ensure_initialized(&env);
         let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
         let live = strategy.current_rate();
-        if live > storage::rate_high_water(&env) {
-            storage::set_rate_high_water(&env, live);
-            storage::bump_instance(&env);
+        let hw = storage::rate_high_water(&env);
+        let next = if live > hw { live } else { hw };
+        if live < hw {
+            events::rate_clamped(&env, live, hw);
         }
-        storage::rate_high_water(&env)
+        // ALWAYS write, even when the value is unchanged. A conditional write makes the
+        // transaction footprint depend on timing, which is exactly the failure documented on
+        // `exchange_rate`. Writing unconditionally costs one ledger entry we are already touching.
+        storage::set_rate_high_water(&env, next);
+        storage::bump_instance(&env);
+        next
     }
 
     // ================= SEP-41 =================
@@ -351,16 +365,15 @@ impl Sr {
     fn live_rate(env: &Env, strategy: &YieldStrategyClient) -> i128 {
         let live = strategy.current_rate();
         let hw = storage::rate_high_water(env);
-        if live > hw {
-            storage::set_rate_high_water(env, live);
-            return live;
-        }
+        let next = if live > hw { live } else { hw };
         if live < hw {
             // The clamp bit: the strategy came back BELOW its own high-water mark. Rare, and the
             // exact condition `tofix.md` #3 describes — surface it loudly rather than absorbing it.
             events::rate_clamped(env, live, hw);
         }
-        hw
+        // Unconditional write — see `sync_rate`.
+        storage::set_rate_high_water(env, next);
+        next
     }
 
     /// SR balances have no maturity of their own — bump them on the long window.

@@ -1,0 +1,1820 @@
+--- a/contracts/market/src/curve.rs
++++ b/contracts/market/src/curve.rs
+@@ -403,4 +403,48 @@
+         return Err(Error::InvalidAmount);
+     }
+     Ok(out)
++}
++
++/// **PROTOTYPE (spec §6.3 / §9)** — exact-OUTPUT pricing on the PT side: how much USDC the pool
++/// must retain in exchange for handing `pt_out` PT out of its reserve.
++///
++/// This is the mirror of [`try_swap_usdc_for_pt`], which is exact-*input*. A YT sale needs the
++/// exact-output form because the PT leg is pinned by the merge: the wrapper burns exactly `pt_out`
++/// PT against exactly `pt_out` YT. Same fixed-point pass on the post-trade proportion; the fee is
++/// still taken on the USDC leg, so the caller's gross input is grossed up by `1/(1-fee)`.
++pub fn try_usdc_in_for_exact_pt(
++    env: &Env,
++    pt_out: i128,
++    pt_reserve: i128,
++    usdc_reserve: i128,
++    fee_bps: u32,
++    p: &CurveParams,
++) -> Result<i128, Error> {
++    if pt_out <= 0 {
++        return Err(Error::InvalidAmount);
++    }
++    if pt_out >= pt_reserve {
++        return Err(Error::InsufficientLiquidity);
++    }
++    let new_pt = pt_reserve - pt_out;
++
++    // Iterate on the post-trade proportion exactly like the exact-input paths do.
++    let mut usdc_after_fee = 0i128;
++    let mut prop_after = try_proportion(env, new_pt, usdc_reserve)?;
++    for _ in 0..3 {
++        let rate = try_exchange_rate(env, prop_after, p)?;
++        usdc_after_fee = fmul(env, pt_out, rate)?;
++        prop_after = try_proportion(env, new_pt, usdc_reserve + usdc_after_fee)?;
++    }
++    // Gross up so that after the fee is skimmed the pool still nets `usdc_after_fee`.
++    // ceil-divide: the pool must never be short.
++    let keep = (10_000 - fee_bps as i128).max(1);
++    let gross = usdc_after_fee
++        .checked_mul(10_000)
++        .ok_or(Error::MathOverflow)?;
++    let usdc_in = (gross + keep - 1) / keep;
++    if usdc_in <= 0 {
++        return Err(Error::InvalidAmount);
++    }
++    Ok(usdc_in)
+ }
+--- a/contracts/market/src/lib.rs
++++ b/contracts/market/src/lib.rs
+@@ -337,6 +337,228 @@
+         events::swapped(&env, &trader, false, usdc_in, out);
+         Self::assert_reserves_sane(&env);
+         out
++    }
++
++
++    // ============ PROTOTYPE: capital-efficient YT trading (futureamm spec §8/§9) ============
++
++    /// **Spec §6.2 — exact-output YT purchase quote.** Returns
++    /// `(user_usdc_in, pool_usdc_contribution)` for buying exactly `yt_out` YT.
++    ///
++    /// No solver is needed for the exact-output direction: the pool receives exactly `yt_out` newly
++    /// minted PT, so its contribution is just the ordinary `quote_pt_for_usdc(yt_out)` and the user
++    /// pays the remainder of the notional. Panic-free; `(0, 0)` means "no quote".
++    pub fn quote_buy_yt_exact_out(env: Env, yt_out: i128) -> (i128, i128) {
++        if yt_out <= 0 {
++            return (0, 0);
++        }
++        let pool_in = Self::quote_pt_for_usdc(env, yt_out);
++        if pool_in <= 0 || pool_in >= yt_out {
++            return (0, 0);
++        }
++        (yt_out - pool_in, pool_in)
++    }
++
++    /// **Spec §8 — buy exactly `yt_out` YT.** The user funds only `yt_out - pool_contribution`;
++    /// the pool funds the rest and atomically receives `yt_out` newly minted PT.
++    ///
++    /// Economically this is *one ordinary swap*: the pool bought `yt_out` PT for
++    /// `pool_contribution` USDC. Reserves move exactly as `swap_exact_pt_for_usdc(yt_out)` would.
++    /// Returns the USDC the user actually paid.
++    pub fn buy_yt_exact_out(
++        env: Env,
++        user: Address,
++        yt_out: i128,
++        max_usdc_in: i128,
++        deadline_ledger: u32,
++    ) -> i128 {
++        Self::ensure_can_trade(&env);
++        Self::ensure_tradeable(&env);
++        Self::ensure_deadline(&env, deadline_ledger);
++        user.require_auth();
++        if yt_out <= 0 {
++            panic_with_error!(&env, Error::InvalidAmount);
++        }
++
++        let pt_res = storage::pt_reserve(&env);
++        let usdc_res = storage::usdc_reserve(&env);
++        let fee = storage::get_fee_bps(&env);
++        let params = Self::curve_params(&env);
++        // What the pool would pay for `yt_out` PT sold into it — its contribution to the split.
++        let pool_in = curve::swap_pt_for_usdc(&env, yt_out, pt_res, usdc_res, fee, &params)
++            .amount_out;
++        if pool_in <= 0 || pool_in >= yt_out {
++            // A pool contribution >= the notional would mean PT priced at/above par: the user would
++            // be paid to take YT. Refuse rather than mint a free position.
++            panic_with_error!(&env, Error::InsufficientLiquidity);
++        }
++        let user_in = yt_out - pool_in;
++        if user_in > max_usdc_in {
++            panic_with_error!(&env, Error::SlippageExceeded);
++        }
++
++        let me = env.current_contract_address();
++        let usdc = storage::get_underlying(&env);
++        // 1. Pull ONLY the YT price from the user.
++        token::Client::new(&env, &usdc).transfer(&user, &me, &user_in);
++        // 2. Hand the full notional to the wrapper, which mints PT here and YT (+position) to them.
++        let wrapper = storage::get_wrapper(&env);
++        Self::authorize_usdc_pull(&env, &usdc, &wrapper, yt_out);
++        WrapperContractClient::new(&env, &wrapper).split_for_market(&me, &user, &yt_out);
++
++        // 3. Reserves move exactly as if `yt_out` PT had been sold into the pool.
++        storage::set_pt_reserve(&env, pt_res + yt_out);
++        storage::set_usdc_reserve(&env, usdc_res - pool_in);
++        storage::bump_instance(&env);
++
++        events::swapped(&env, &user, true, yt_out, pool_in);
++        Self::assert_reserves_sane(&env);
++        Self::assert_reserves_backed(&env);
++        user_in
++    }
++
++    /// **Spec §6.3 — exact-input YT sale quote.** Returns `(user_usdc_out, pool_usdc_retained)`
++    /// for selling `yt_in` YT. Panic-free; `(0, 0)` means "no quote".
++    pub fn quote_sell_yt_exact_in(env: Env, yt_in: i128) -> (i128, i128) {
++        if yt_in <= 0 {
++            return (0, 0);
++        }
++        let retained = Self::try_curve_params(&env)
++            .and_then(|params| {
++                curve::try_usdc_in_for_exact_pt(
++                    &env,
++                    yt_in,
++                    storage::pt_reserve(&env),
++                    storage::usdc_reserve(&env),
++                    storage::get_fee_bps(&env),
++                    &params,
++                )
++            })
++            .unwrap_or(0);
++        if retained <= 0 || retained >= yt_in {
++            return (0, 0);
++        }
++        (yt_in - retained, retained)
++    }
++
++    /// **Spec §9 — sell `yt_in` YT out of `position_id`.** The pool contributes matching PT, the
++    /// wrapper checkpoints the seller's accrued yield and burns both legs, and the released
++    /// principal is split: the pool retains the PT's market value, the seller receives the rest.
++    ///
++    /// Returns `(usdc_paid_to_seller, yield_claimed)`.
++    pub fn sell_yt_exact_in(
++        env: Env,
++        user: Address,
++        position_id: u64,
++        yt_in: i128,
++        min_usdc_out: i128,
++        deadline_ledger: u32,
++    ) -> (i128, i128) {
++        Self::ensure_can_trade(&env);
++        Self::ensure_tradeable(&env);
++        Self::ensure_deadline(&env, deadline_ledger);
++        user.require_auth();
++        if yt_in <= 0 {
++            panic_with_error!(&env, Error::InvalidAmount);
++        }
++
++        let pt_res = storage::pt_reserve(&env);
++        let usdc_res = storage::usdc_reserve(&env);
++        let fee = storage::get_fee_bps(&env);
++        let params = Self::curve_params(&env);
++        let retained =
++            curve::try_usdc_in_for_exact_pt(&env, yt_in, pt_res, usdc_res, fee, &params)
++                .unwrap_or_else(|e| panic_with_error!(&env, e));
++        if retained <= 0 || retained >= yt_in {
++            panic_with_error!(&env, Error::InsufficientLiquidity);
++        }
++        let user_out = yt_in - retained;
++        if user_out < min_usdc_out {
++            panic_with_error!(&env, Error::SlippageExceeded);
++        }
++
++        let me = env.current_contract_address();
++        let wrapper = storage::get_wrapper(&env);
++        // The wrapper burns OUR PT and pays US the released principal.
++        Self::authorize_pt_burn(&env, yt_in);
++        let (principal, claimed) = WrapperContractClient::new(&env, &wrapper)
++            .merge_for_yt_sale(&me, &position_id, &yt_in);
++        if principal != yt_in {
++            panic_with_error!(&env, Error::InsufficientLiquidity);
++        }
++        // Pay the seller their YT proceeds; the pool keeps `retained` for the PT it gave up.
++        token::Client::new(&env, &storage::get_underlying(&env)).transfer(&me, &user, &user_out);
++
++        storage::set_pt_reserve(&env, pt_res - yt_in);
++        storage::set_usdc_reserve(&env, usdc_res + retained);
++        storage::bump_instance(&env);
++
++        events::swapped(&env, &user, false, retained, yt_in);
++        Self::assert_reserves_sane(&env);
++        Self::assert_reserves_backed(&env);
++        (user_out, claimed)
++    }
++
++    fn ensure_deadline(env: &Env, deadline_ledger: u32) {
++        if deadline_ledger != 0 && env.ledger().sequence() > deadline_ledger {
++            panic_with_error!(env, Error::MarketExpired);
++        }
++    }
++
++    /// Spec §12.11 / §12.5.5 — stored reserves must never exceed the tokens actually held.
++    /// Prototype form of the "accounted == actual" check the spec demands after every YT trade.
++    fn assert_reserves_backed(env: &Env) {
++        let me = env.current_contract_address();
++        let pt_bal = token::Client::new(env, &storage::get_pt(env)).balance(&me);
++        let usdc_bal = token::Client::new(env, &storage::get_underlying(env)).balance(&me);
++        if pt_bal < storage::pt_reserve(env) || usdc_bal < storage::usdc_reserve(env) {
++            panic_with_error!(env, Error::InsufficientLiquidity);
++        }
++    }
++
++    /// Authorize, on the pool's behalf, the nested `usdc.transfer(me, wrapper, amount)` that the
++    /// wrapper's `split_for_market` performs.
++    fn authorize_usdc_pull(env: &Env, usdc: &Address, wrapper: &Address, amount: i128) {
++        use soroban_sdk::{
++            auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
++            IntoVal, Symbol, Vec,
++        };
++        let me = env.current_contract_address();
++        let args: soroban_sdk::Vec<soroban_sdk::Val> =
++            (me.clone(), wrapper.clone(), amount).into_val(env);
++        env.authorize_as_current_contract(Vec::from_array(
++            env,
++            [InvokerContractAuthEntry::Contract(SubContractInvocation {
++                context: ContractContext {
++                    contract: usdc.clone(),
++                    fn_name: Symbol::new(env, "transfer"),
++                    args,
++                },
++                sub_invocations: Vec::new(env),
++            })],
++        ));
++    }
++
++    /// Authorize the nested `pt.burn(me, amount)` the wrapper performs during a YT sale.
++    fn authorize_pt_burn(env: &Env, amount: i128) {
++        use soroban_sdk::{
++            auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
++            IntoVal, Symbol, Vec,
++        };
++        let me = env.current_contract_address();
++        let pt = storage::get_pt(env);
++        let args: soroban_sdk::Vec<soroban_sdk::Val> = (me.clone(), amount).into_val(env);
++        env.authorize_as_current_contract(Vec::from_array(
++            env,
++            [InvokerContractAuthEntry::Contract(SubContractInvocation {
++                context: ContractContext {
++                    contract: pt,
++                    fn_name: Symbol::new(env, "burn"),
++                    args,
++                },
++                sub_invocations: Vec::new(env),
++            })],
++        ));
+     }
+ 
+     // ---------- read-only views (frontend Markets/Trade/LP) ----------
+--- a/contracts/market/src/test.rs
++++ b/contracts/market/src/test.rs
+@@ -30,7 +30,7 @@
+ const REQ_BORROW: u32 = 4;
+ const YEAR: u64 = 365 * 24 * 60 * 60;
+ const FEE_BPS: u32 = 30; // 0.30% swap fee
+-const MAX_FEE_BPS: u32 = 100; // 1% ceiling
++const MAX_FEE_BPS: u32 = 500; // widened for the Pendle-fee comparison
+ const SCALAR_12: i128 = 1_000_000_000_000;
+ // Curve params: anchor at PAR (1.0) so the price converges to par at maturity; the discount (and
+ // thus the implied yield) comes from the pool being tilted toward PT. A moderate steepness root
+@@ -46,6 +46,7 @@
+     wrapper: Address,
+     market: Address,
+     pt: Address,
++    yt: Address,
+     maturity: u64,
+ }
+ 
+@@ -68,6 +69,9 @@
+     fn pt(&self) -> TokenClient<'_> {
+         TokenClient::new(&self.env, &self.pt)
+     }
++    fn yt(&self) -> TokenClient<'_> {
++        TokenClient::new(&self.env, &self.yt)
++    }
+     fn oracle(&self) -> MockPriceOracleClient<'_> {
+         MockPriceOracleClient::new(&self.env, &self.oracle_id)
+     }
+@@ -104,6 +108,10 @@
+ 
+ /// Build the full stack: Blend pool + strategy + wrapper (with PT/YT SACs) + the market on top.
+ fn setup(maturity_secs_from_now: u64) -> World {
++    setup_with_anchor(maturity_secs_from_now, RATE_ANCHOR)
++}
++
++fn setup_with_anchor(maturity_secs_from_now: u64, rate_anchor: i128) -> World {
+     let env = Env::default();
+     env.mock_all_auths();
+     env.ledger().set_timestamp(1_700_000_000);
+@@ -179,10 +187,13 @@
+     // cross-checks `pt` + `maturity` against it on chain, so the pairing is an invariant.
+     let market = env.register(Market, (admin.clone(),));
+     MarketClient::new(&env, &market).initialize(
+-        &wrapper, &pt, &usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &RATE_ANCHOR,
++        &wrapper, &pt, &usdc, &maturity, &FEE_BPS, &MAX_FEE_BPS, &SCALAR_ROOT, &rate_anchor,
+     );
+ 
+-    World { env, pool, usdc, oracle_id, wrapper, market, pt, maturity }
++    // PROTOTYPE: register the market so it may call `split_for_market` / `merge_for_yt_sale`.
++    WrapperClient::new(&env, &wrapper).set_market(&market);
++
++    World { env, pool, usdc, oracle_id, wrapper, market, pt, yt, maturity }
+ }
+ 
+ /// Mint PT+YT for an LP and seed the pool with `pt_amt` PT + `usdc_amt` USDC. Returns (lp, shares).
+@@ -1624,5 +1635,1269 @@
+         res,
+         Err(Ok(spield_shared::Error::ImbalancedLiquidity.into())),
+         "the LP's deposit is refused outright, with no parameter to widen"
++    );
++}
++
++// ===========================================================================
++// PROTOTYPE — futureamm spec §8/§9: capital-efficient YT trading.
++//
++// Every test here runs against the real Blend v2 WASM, the real strategy adapter, the real
++// wrapper and the real curve. Nothing about the YT path is mocked.
++// ===========================================================================
++
++/// A deep pool seeded PT-heavy so PT trades at a real discount (positive implied APY), which is
++/// the only regime where YT has any value to buy.
++fn deep_pool(w: &World) -> (Address, i128) {
++    // Seed via the contract's OWN calibration so the pool opens at a realistic 8% implied APY —
++    // a 1.2:1 hand-picked ratio opens at ~0.5%, which is not a regime where YT exists at all.
++    let usdc_side = 1_000_000 * USDC;
++    let pt_side = w.market().seed_pt_for_apy(&usdc_side, &800u32);
++    assert!(pt_side > 0, "calibration failed");
++    seed_pool(w, pt_side, usdc_side)
++}
++
++/// The fee, expressed against the thing the YT trader actually pays. This is the number that
++/// decides whether capital-efficient YT trading is economically viable at all.
++#[test]
++fn the_swap_fee_is_charged_on_the_notional_not_on_the_yt_price() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    std::println!("pool implied APY = {:.3}%", w.market().implied_apy() as f64 * 100.0 / 1e12);
++    std::println!("PT price          = {:.6}", w.market().pt_price() as f64 / 1e12);
++    for want in [1_000 * USDC, 10_000 * USDC, 100_000 * USDC] {
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&want);
++        let fee_on_notional = want * (FEE_BPS as i128) / 10_000;
++        std::println!(
++            "{:>7} YT: user pays {:>10.4} USDC | fee on notional {:>9.4} = {:>6.1}% of what the user pays | leverage {:>6.1}x",
++            want / USDC,
++            user_in as f64 / USDC as f64,
++            fee_on_notional as f64 / USDC as f64,
++            fee_on_notional as f64 * 100.0 / user_in as f64,
++            want as f64 / user_in as f64
++        );
++    }
++}
++
++/// How long a freshly bought YT position stays sellable at all. The sale quote dies the moment
++/// the notional fee exceeds the remaining time value of the YT.
++#[test]
++fn how_long_a_yt_position_stays_sellable() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    std::println!("bought {} YT for {:.4} USDC", n / USDC, user_in as f64 / USDC as f64);
++    let _ = pid;
++    let mut days = 0u64;
++    loop {
++        let (out, retained) = w.market().quote_sell_yt_exact_in(&n);
++        std::println!(
++            "  day {:>3}: sale quote = {:>10.4} USDC (pool retains {:>10.4})",
++            days,
++            out as f64 / USDC as f64,
++            retained as f64 / USDC as f64
++        );
++        if out == 0 {
++            std::println!("  -> UNSELLABLE from day {days} onward");
++            break;
++        }
++        if days >= 360 {
++            break;
++        }
++        w.advance(30 * 24 * 60 * 60);
++        days += 30;
++    }
++}
++
++// --- §8.1 the headline claim: the user fronts only the YT price -------------
++
++#[test]
++fn buy_yt_costs_only_the_yt_price_not_the_notional() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++
++    let want_yt = 1_000 * USDC;
++    let (user_in, pool_in) = w.market().quote_buy_yt_exact_out(&want_yt);
++    std::println!(
++        "quote: 1000 YT -> user pays {} USDC, pool contributes {} USDC",
++        user_in as f64 / USDC as f64,
++        pool_in as f64 / USDC as f64
++    );
++    // The user's cost is a small fraction of the notional — that is the whole feature.
++    assert!(user_in > 0 && user_in < want_yt / 10, "user_in={user_in}");
++    assert_eq!(user_in + pool_in, want_yt);
++
++    // Fund the user with ONLY the quoted price plus a little slack — proving they never need
++    // to hold the notional.
++    let user = w.new_user(user_in);
++    let paid = w
++        .market()
++        .buy_yt_exact_out(&user, &want_yt, &user_in, &0u32);
++
++    assert_eq!(paid, user_in);
++    assert_eq!(w.usdc().balance(&user), 0, "user spent exactly the quote");
++    assert_eq!(w.yt().balance(&user), want_yt, "user holds the full YT");
++    assert_eq!(w.pt().balance(&user), 0, "user holds no PT");
++}
++
++#[test]
++fn buy_yt_leverage_ratio_is_reported() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    for want in [100 * USDC, 1_000 * USDC, 10_000 * USDC, 100_000 * USDC] {
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&want);
++        if user_in == 0 {
++            std::println!("{:>10} YT -> NO QUOTE", want / USDC);
++            continue;
++        }
++        std::println!(
++            "{:>10} YT costs {:>12.4} USDC   leverage {:>8.1}x",
++            want / USDC,
++            user_in as f64 / USDC as f64,
++            want as f64 / user_in as f64
++        );
++    }
++}
++
++// --- §8.3 step 20: reserves move exactly as one ordinary PT sale ------------
++
++#[test]
++fn buy_yt_moves_reserves_exactly_like_selling_that_pt_into_the_pool() {
++    // Two identical worlds; in one the user buys YT, in the other someone sells the same PT.
++    let n = 5_000 * USDC;
++
++    let w1 = setup(YEAR);
++    deep_pool(&w1);
++    let (user_in, _) = w1.market().quote_buy_yt_exact_out(&n);
++    let u = w1.new_user(user_in);
++    w1.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    let after_yt_buy = w1.market().reserves();
++
++    let w2 = setup(YEAR);
++    deep_pool(&w2);
++    let seller = w2.new_user(n);
++    w2.mint_position(&seller, n); // seller now holds n PT
++    w2.market().swap_exact_pt_for_usdc(&seller, &n, &0i128);
++    let after_pt_sale = w2.market().reserves();
++
++    assert_eq!(
++        after_yt_buy, after_pt_sale,
++        "a YT buy IS a PT sale as far as the pool is concerned"
++    );
++}
++
++#[test]
++fn buy_yt_keeps_stored_reserves_equal_to_real_token_balances() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 20_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    let (pt_res, usdc_res) = w.market().reserves();
++    assert_eq!(w.pt().balance(&w.market), pt_res, "PT accounted == PT actual");
++    assert_eq!(
++        w.usdc().balance(&w.market),
++        usdc_res,
++        "USDC accounted == USDC actual"
++    );
++}
++
++// --- §4.1/§4.3 conservation and solvency ------------------------------------
++
++#[test]
++fn buy_yt_mints_matched_pt_and_yt_and_leaves_the_wrapper_solvent() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++
++    let pt_pool_before = w.pt().balance(&w.market);
++    let (_, principal_before, _) = w.wrapper().solvency();
++
++    let n = 50_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    assert_eq!(w.pt().balance(&w.market) - pt_pool_before, n, "pool received exactly N PT");
++    assert_eq!(w.yt().balance(&u), n, "user received exactly N YT");
++
++    let (backing, principal, _) = w.wrapper().solvency();
++    assert_eq!(principal - principal_before, n, "principal liability +N");
++    assert!(
++        backing + (w.wrapper().open_positions() as i128) >= principal,
++        "backing {backing} must cover principal {principal}"
++    );
++}
++
++// --- §8.3 step 18: the position starts at the current index ------------------
++
++#[test]
++fn the_bought_yt_position_is_yt_only_and_earns_only_from_the_purchase_onward() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    w.advance(90 * 24 * 60 * 60); // let b_rate run up BEFORE the purchase
++
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    let pos = w.wrapper().get_position(&pid);
++    assert_eq!(pos.owner, u);
++    assert_eq!(pos.pt_amount, 0, "PT went to the pool, not the buyer");
++    assert_eq!(pos.yt_amount, n);
++    assert_eq!(
++        pos.settled_rate, pos.entry_rate,
++        "no historical yield is inherited"
++    );
++    let v = w.wrapper().position_value(&pid);
++    assert_eq!(v.claimable_yield, 0, "zero yield at the instant of purchase");
++}
++
++#[test]
++fn bought_yt_accrues_and_claims_real_blend_yield() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    w.advance(180 * 24 * 60 * 60);
++    let claimable = w.wrapper().position_value(&pid).claimable_yield;
++    assert!(claimable > 0, "YT must accrue");
++    let paid = w.wrapper().claim_yield(&pid);
++    assert_eq!(paid, claimable);
++    assert_eq!(w.usdc().balance(&u), paid);
++    std::println!(
++        "bought {} YT for {:.4} USDC; 180d yield claimed = {:.4} USDC",
++        n / USDC,
++        user_in as f64 / USDC as f64,
++        paid as f64 / USDC as f64
++    );
++}
++
++// --- §9 selling YT ----------------------------------------------------------
++
++#[test]
++fn sell_yt_pays_the_yt_value_and_checkpoints_yield_on_the_old_amount_first() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    w.advance(180 * 24 * 60 * 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let accrued = w.wrapper().position_value(&pid).claimable_yield;
++    assert!(accrued > 0);
++
++    let (quoted_out, retained) = w.market().quote_sell_yt_exact_in(&n);
++    assert!(quoted_out > 0, "must be sellable");
++    assert_eq!(quoted_out + retained, n);
++
++    let (paid, claimed) = w
++        .market()
++        .sell_yt_exact_in(&u, &pid, &n, &quoted_out, &0u32);
++
++    assert_eq!(paid, quoted_out);
++    assert_eq!(
++        claimed, accrued,
++        "the 180d of yield earned on the FULL amount is checkpointed before the close"
++    );
++    assert_eq!(w.yt().balance(&u), 0, "YT burned");
++    assert_eq!(w.usdc().balance(&u), paid + claimed);
++    let pos = w.wrapper().get_position(&pid);
++    assert!(!pos.open, "fully closed");
++}
++
++#[test]
++fn a_partial_yt_sale_leaves_the_remainder_accruing_from_the_new_index() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    w.advance(120 * 24 * 60 * 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let accrued_on_full = w.wrapper().position_value(&pid).claimable_yield;
++
++    let half = n / 2;
++    let (quoted_out, _) = w.market().quote_sell_yt_exact_in(&half);
++    let (paid, claimed) = w
++        .market()
++        .sell_yt_exact_in(&u, &pid, &half, &quoted_out, &0u32);
++
++    assert_eq!(claimed, accrued_on_full, "checkpoint uses the OLD full amount");
++    assert!(paid > 0);
++
++    let pos = w.wrapper().get_position(&pid);
++    assert_eq!(pos.yt_amount, half);
++    assert!(pos.open);
++    assert_eq!(w.yt().balance(&u), half);
++    assert_eq!(
++        w.wrapper().position_value(&pid).claimable_yield,
++        0,
++        "settled to now"
+     );
++
++    // Only the remaining half accrues from here.
++    w.advance(60 * 24 * 60 * 60);
++    let later = w.wrapper().position_value(&pid).claimable_yield;
++    assert!(later > 0);
++    std::println!(
++        "sold half after 120d: yield checkpointed {:.4}, sale proceeds {:.4}, next 60d on the remaining half {:.4}",
++        claimed as f64 / USDC as f64,
++        paid as f64 / USDC as f64,
++        later as f64 / USDC as f64
++    );
+ }
++
++#[test]
++fn an_immediate_buy_then_sell_round_trip_cannot_extract_value() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    let (quoted_out, _) = w.market().quote_sell_yt_exact_in(&n);
++    let (paid, claimed) = w
++        .market()
++        .sell_yt_exact_in(&u, &pid, &n, &quoted_out, &0u32);
++
++    let out = paid + claimed;
++    assert!(
++        out < user_in,
++        "round trip must LOSE money: paid {user_in}, got back {out}"
++    );
++    std::println!(
++        "round trip: paid {:.6}, recovered {:.6}, cost {:.6} USDC ({:.2}% of the YT price)",
++        user_in as f64 / USDC as f64,
++        out as f64 / USDC as f64,
++        (user_in - out) as f64 / USDC as f64,
++        (user_in - out) as f64 * 100.0 / user_in as f64
++    );
++}
++
++#[test]
++fn sell_yt_keeps_stored_reserves_equal_to_real_token_balances() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    w.advance(30 * 24 * 60 * 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let (q, _) = w.market().quote_sell_yt_exact_in(&(n / 2));
++    w.market().sell_yt_exact_in(&u, &pid, &(n / 2), &q, &0u32);
++
++    let (pt_res, usdc_res) = w.market().reserves();
++    assert_eq!(w.pt().balance(&w.market), pt_res);
++    assert_eq!(w.usdc().balance(&w.market), usdc_res);
++}
++
++// --- guardrails -------------------------------------------------------------
++
++#[test]
++#[should_panic(expected = "Error(Contract, #81)")] // SlippageExceeded
++fn buy_yt_reverts_when_the_price_exceeds_max_usdc_in() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.market().buy_yt_exact_out(&u, &n, &(user_in - 1), &0u32);
++}
++
++#[test]
++#[should_panic(expected = "Error(Contract, #81)")] // SlippageExceeded
++fn sell_yt_reverts_below_min_usdc_out() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    let (q, _) = w.market().quote_sell_yt_exact_in(&n);
++    w.market().sell_yt_exact_in(&u, &pid, &n, &(q + 1), &0u32);
++}
++
++#[test]
++#[should_panic(expected = "Error(Contract, #82)")] // MarketExpired (deadline)
++fn buy_yt_reverts_past_its_deadline() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 1_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.env.ledger().set_sequence_number(500);
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &10u32);
++}
++
++#[test]
++#[should_panic(expected = "Error(Contract, #3)")] // NotAuthorized
++fn an_unregistered_caller_cannot_split_for_a_market() {
++    let w = setup(YEAR);
++    let impostor = Address::generate(&w.env);
++    w.usdc_admin().mint(&impostor, &(1_000 * USDC));
++    w.wrapper()
++        .split_for_market(&impostor, &impostor, &(1_000 * USDC));
++}
++
++#[test]
++#[should_panic(expected = "Error(Contract, #21)")] // NotPositionOwner — the model guard
++fn a_bundled_pt_yt_position_cannot_be_sold_through_the_yt_path() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    // An ORDINARY mint: one position holding BOTH legs.
++    let holder = w.new_user(1_000 * USDC);
++    let pid = w.mint_position(&holder, 1_000 * USDC);
++    let pos = w.wrapper().get_position(&pid);
++    assert_eq!(pos.pt_amount, pos.yt_amount, "bundled position");
++    let (q, _) = w.market().quote_sell_yt_exact_in(&(500 * USDC));
++    w.market()
++        .sell_yt_exact_in(&holder, &pid, &(500 * USDC), &q, &0u32);
++}
++
++// --- §12.1 / §12.5 liquidity behaviour --------------------------------------
++
++#[test]
++fn repeated_yt_buying_raises_the_price_and_eventually_the_band_refuses() {
++    let w = setup(YEAR);
++    seed_pool(&w, 12_000 * USDC, 10_000 * USDC); // deliberately shallow
++    let n = 2_000 * USDC;
++    let mut round = 0;
++    loop {
++        let (user_in, pool_in) = w.market().quote_buy_yt_exact_out(&n);
++        if user_in == 0 {
++            std::println!("round {round}: NO QUOTE — pool refuses further YT buys");
++            break;
++        }
++        let (pt_res, usdc_res) = w.market().reserves();
++        std::println!(
++            "round {round}: {} YT costs {:.4} USDC (pool adds {:.2}); reserves PT {:.0} / USDC {:.0}",
++            n / USDC,
++            user_in as f64 / USDC as f64,
++            pool_in as f64 / USDC as f64,
++            pt_res as f64 / USDC as f64,
++            usdc_res as f64 / USDC as f64
++        );
++        let u = w.new_user(user_in);
++        // The band / liquidity check may reject before the quote goes to zero — that is the
++        // "insufficient early-trading liquidity" condition, and it must be a clean refusal.
++        let r = w.market().try_buy_yt_exact_out(&u, &n, &user_in, &0u32);
++        if r.is_err() {
++            std::println!("round {round}: trade REFUSED by the pool (clean revert)");
++            break;
++        }
++        round += 1;
++        assert!(round < 40, "pool never refused — unbounded drain");
++    }
++    assert!(round > 0, "at least one buy must succeed");
++    // Nothing was liquidated: every earlier buyer still holds their YT.
++    let (backing, principal, _) = w.wrapper().solvency();
++    assert!(backing + (w.wrapper().open_positions() as i128) >= principal);
++}
++
++#[test]
++fn yt_buying_and_pt_selling_consume_the_same_reserve() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let (_, usdc0) = w.market().reserves();
++    let n = 50_000 * USDC;
++    let (user_in, pool_in) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    let (_, usdc1) = w.market().reserves();
++    assert_eq!(usdc0 - usdc1, pool_in, "a YT buy drains USDC exactly like a PT sell");
++}
++
++// --- §7 PT trading is untouched ---------------------------------------------
++
++#[test]
++fn pt_bought_by_the_pool_in_a_yt_trade_still_redeems_at_par_at_maturity() {
++    let w = setup(YEAR);
++    let (lp, shares) = deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    w.env.ledger().set_timestamp(w.maturity + 1);
++    // The LP withdraws their PT and redeems it as a bearer.
++    let (pt_out, _usdc_out) = w.market().remove_liquidity(&lp, &shares);
++    assert!(pt_out > 0);
++    let before = w.usdc().balance(&lp);
++    let got = w.wrapper().redeem_pt_bearer(&lp, &pt_out);
++    assert_eq!(got, pt_out, "PT redeems 1:1");
++    assert_eq!(w.usdc().balance(&lp) - before, pt_out);
++}
++
++// --- mainnet resource budget (tofix.md §18 measures ~6.8 MB per Blend withdraw) -------------
++
++const MAINNET_INSTRUCTIONS: i64 = 600_000_000;
++const MAINNET_MEM_BYTES: i64 = 41_943_040;
++const MAINNET_WRITE_ENTRIES: u32 = 50;
++const MAINNET_LEDGER_ENTRIES: u32 = 100;
++const MAINNET_WRITE_BYTES: u32 = 132_096;
++
++fn cost(w: &World, label: &str) {
++    let r = w.env.cost_estimate().resources();
++    let entries = r.disk_read_entries + r.memory_read_entries + r.write_entries;
++    std::println!(
++        "{:<26} insns {:>11}/{} ({:>5.1}%)  mem {:>10}/{} ({:>5.1}%)  write {:>2}/{}  entries {:>3}/{}  wbytes {:>6}/{}",
++        label,
++        r.instructions, MAINNET_INSTRUCTIONS,
++        r.instructions as f64 * 100.0 / MAINNET_INSTRUCTIONS as f64,
++        r.mem_bytes, MAINNET_MEM_BYTES,
++        r.mem_bytes as f64 * 100.0 / MAINNET_MEM_BYTES as f64,
++        r.write_entries, MAINNET_WRITE_ENTRIES,
++        entries, MAINNET_LEDGER_ENTRIES,
++        r.write_bytes, MAINNET_WRITE_BYTES,
++    );
++}
++
++#[test]
++fn yt_trades_fit_the_mainnet_per_transaction_budget() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++
++    // Baseline: an ordinary PT swap (no wrapper, no Blend).
++    let seller = w.new_user(1_000 * USDC);
++    w.mint_position(&seller, 1_000 * USDC);
++    w.env.cost_estimate().budget().reset_unlimited();
++    w.market().swap_exact_pt_for_usdc(&seller, &(100 * USDC), &0i128);
++    cost(&w, "swap_exact_pt_for_usdc");
++
++    // Quote AFTER the baseline swap, so the price is live.
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++
++    // BUY YT: market -> wrapper -> Blend supply (one Blend submit).
++    w.env.cost_estimate().budget().reset_unlimited();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    cost(&w, "buy_yt_exact_out");
++
++    w.advance(180 * 24 * 60 * 60);
++
++    // SELL YT: market -> wrapper -> claim (Blend withdraw #1) + principal (Blend withdraw #2).
++    let (q, _) = w.market().quote_sell_yt_exact_in(&(n / 2));
++    w.env.cost_estimate().budget().reset_unlimited();
++    w.market().sell_yt_exact_in(&u, &pid, &(n / 2), &q, &0u32);
++    cost(&w, "sell_yt_exact_in (partial)");
++
++    let r = w.env.cost_estimate().resources();
++    assert!(r.mem_bytes < MAINNET_MEM_BYTES, "sell_yt must fit mainnet memory");
++    assert!(r.instructions < MAINNET_INSTRUCTIONS, "sell_yt must fit mainnet instructions");
++    assert!(r.write_entries <= MAINNET_WRITE_ENTRIES);
++    assert!(r.write_bytes <= MAINNET_WRITE_BYTES);
++}
++
++/// The viability boundary: the swap fee is levied on the NOTIONAL, but the YT buyer only pays
++/// `1 - PT_price` of it. So the fee the YT trader actually feels is `leverage x fee_bps`.
++/// Below some implied APY the fee exceeds the entire value of the YT and the market dies.
++#[test]
++fn below_a_minimum_implied_apy_the_notional_fee_exceeds_the_whole_yt_value() {
++    for apy_bps in [50u32, 100, 200, 400, 800, 1500] {
++        let w = setup(YEAR);
++        let usdc_side = 1_000_000 * USDC;
++        let pt_side = w.market().seed_pt_for_apy(&usdc_side, &apy_bps);
++        if pt_side <= 0 || pt_side > 20_000_000 * USDC {
++            std::println!("{:>5} bps: needs a {:.0}x PT-heavy pool — out of test range", apy_bps, pt_side as f64 / usdc_side as f64);
++            continue;
++        }
++        seed_pool(&w, pt_side, usdc_side);
++        let n = 10_000 * USDC;
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++        let (sell_out, _) = w.market().quote_sell_yt_exact_in(&n);
++        if user_in == 0 {
++            std::println!("{:>5} bps: YT UNBUYABLE", apy_bps);
++            continue;
++        }
++        let lev = n as f64 / user_in as f64;
++        std::println!(
++            "{:>5} bps APY | PT {:.4} | YT costs {:>9.3} ({:>6.1}x) | instant resale {:>9.3} | round-trip cost {:>5.1}% of the YT price{}",
++            apy_bps,
++            w.market().pt_price() as f64 / 1e12,
++            user_in as f64 / USDC as f64,
++            lev,
++            sell_out as f64 / USDC as f64,
++            (user_in - sell_out) as f64 * 100.0 / user_in as f64,
++            if sell_out == 0 { "   <-- UNSELLABLE" } else { "" }
++        );
++    }
++}
++
++// --- auth, for real (not mock_all_auths) ------------------------------------
++//
++// The FEATUREPLAN's flash-lend design flagged the Soroban callback/auth shape as its one
++// UNVALIDATED piece (§6.2). This design has no callback, but it does rely on the market
++// authorizing a nested `usdc.transfer(market -> wrapper)` on its own behalf. These tests take
++// `mock_all_auths` away and prove the plumbing under enforced authorization.
++
++#[test]
++fn buy_yt_works_with_only_the_users_signature() {
++    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
++    use soroban_sdk::IntoVal;
++
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let env = &w.env;
++
++    // ONLY the user signs, and only for the transfer they actually make. The market must supply
++    // the auth for the full-notional pull into the wrapper out of its own contract authority.
++    env.mock_auths(&[MockAuth {
++        address: &u,
++        invoke: &MockAuthInvoke {
++            contract: &w.market,
++            fn_name: "buy_yt_exact_out",
++            args: (u.clone(), n, user_in, 0u32).into_val(env),
++            sub_invokes: &[MockAuthInvoke {
++                contract: &w.usdc,
++                fn_name: "transfer",
++                args: (u.clone(), w.market.clone(), user_in).into_val(env),
++                sub_invokes: &[],
++            }],
++        },
++    }]);
++    let paid = w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    assert_eq!(paid, user_in);
++    assert_eq!(w.yt().balance(&u), n);
++}
++
++#[test]
++fn a_stranger_cannot_sell_someone_elses_yt_position() {
++    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
++    use soroban_sdk::IntoVal;
++
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let alice = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&alice, &n, &user_in, &0u32);
++
++    let mallory = Address::generate(&w.env);
++    let (q, _) = w.market().quote_sell_yt_exact_in(&n);
++    let env = &w.env;
++    env.mock_auths(&[MockAuth {
++        address: &mallory,
++        invoke: &MockAuthInvoke {
++            contract: &w.market,
++            fn_name: "sell_yt_exact_in",
++            args: (mallory.clone(), pid, n, q, 0u32).into_val(env),
++            sub_invokes: &[],
++        },
++    }]);
++    assert!(
++        w.market()
++            .try_sell_yt_exact_in(&mallory, &pid, &n, &q, &0u32)
++            .is_err(),
++        "a stranger must not be able to force-close someone else's YT position"
++    );
++    // Alice's position is untouched.
++    env.mock_all_auths();
++    assert_eq!(w.wrapper().get_position(&pid).yt_amount, n);
++    assert_eq!(w.yt().balance(&alice), n);
++}
++
++#[test]
++fn no_signature_at_all_means_no_yt_trade() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 1_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.env.set_auths(&[]);
++    assert!(w
++        .market()
++        .try_buy_yt_exact_out(&u, &n, &user_in, &0u32)
++        .is_err());
++}
++
++// --- §12.11 donation / reserve desynchronization ---------------------------
++
++#[test]
++fn a_pt_donation_does_not_become_tradeable_yt_capacity() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let (pt0, usdc0) = w.market().reserves();
++
++    // Anyone can push tokens at the pool address.
++    let donor = w.new_user(50_000 * USDC);
++    w.mint_position(&donor, 50_000 * USDC);
++    w.pt().transfer(&donor, &w.market, &(50_000 * USDC));
++
++    // Stored reserves are authoritative: the donation changes no quote.
++    assert_eq!(w.market().reserves(), (pt0, usdc0));
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    // Actual balance now EXCEEDS the accounted reserve — the invariant is one-sided by design.
++    let (pt_res, _) = w.market().reserves();
++    assert!(w.pt().balance(&w.market) > pt_res);
++}
++
++// --- §14 LP exposure --------------------------------------------------------
++
++#[test]
++fn heavy_yt_buying_turns_the_lp_position_into_mostly_pt() {
++    let w = setup(YEAR);
++    let (lp, shares) = deep_pool(&w);
++    let (_, pt0, u0) = w.market().lp_position(&lp);
++    std::println!(
++        "LP at seed:        PT {:>10.0}  USDC {:>10.0}",
++        pt0 as f64 / USDC as f64,
++        u0 as f64 / USDC as f64
++    );
++    for _ in 0..8 {
++        let n = 50_000 * USDC;
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++        if user_in == 0 {
++            break;
++        }
++        let u = w.new_user(user_in);
++        if w.market()
++            .try_buy_yt_exact_out(&u, &n, &user_in, &0u32)
++            .is_err()
++        {
++            break;
++        }
++    }
++    let (_, pt1, u1) = w.market().lp_position(&lp);
++    std::println!(
++        "LP after YT flow:  PT {:>10.0}  USDC {:>10.0}   (implied APY now {:.3}%)",
++        pt1 as f64 / USDC as f64,
++        u1 as f64 / USDC as f64,
++        w.market().implied_apy() as f64 * 100.0 / 1e12
++    );
++    assert!(pt1 > pt0 && u1 < u0, "YT flow pushes LP inventory into PT");
++    // The LP is never liquidated: they can always exit proportionally.
++    let (out_pt, out_usdc) = w.market().remove_liquidity(&lp, &shares);
++    assert!(out_pt > 0 && out_usdc > 0);
++    let _ = shares;
++}
++
++/// **The deployment reality check.** `scripts/deploy_mainnet.sh` defaults to a **90-day** term at
++/// **5.00%** with a **30 bps** fee and `scalar_root = 40`. Shorter term ⇒ smaller YT value ⇒ higher
++/// leverage ⇒ the flat notional fee eats proportionally more. This runs the real numbers.
++#[test]
++fn yt_economics_at_the_actual_mainnet_deploy_parameters() {
++    const DAY: u64 = 24 * 60 * 60;
++    for (label, term) in [
++        ("mainnet default 90d", 90 * DAY),
++        ("180d", 180 * DAY),
++        ("365d", 365 * DAY),
++    ] {
++        let w = setup(term);
++        let usdc_side = 1_000_000 * USDC;
++        let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32); // 5.00%, the deploy default
++        if pt_side <= 0 || pt_side > 50_000_000 * USDC {
++            std::println!("{label}: seed ratio out of range");
++            continue;
++        }
++        seed_pool(&w, pt_side, usdc_side);
++        let n = 10_000 * USDC;
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++        let (sell_out, _) = w.market().quote_sell_yt_exact_in(&n);
++        std::println!(
++            "{:<20} seed ratio {:>5.1}:1 PT | PT {:.5} | 10k YT costs {:>8.3} ({:>5.1}x) | instant resale {:>8.3} | round trip {:>5.1}%",
++            label,
++            pt_side as f64 / usdc_side as f64,
++            w.market().pt_price() as f64 / 1e12,
++            user_in as f64 / USDC as f64,
++            n as f64 / user_in as f64,
++            sell_out as f64 / USDC as f64,
++            if user_in > 0 { (user_in - sell_out) as f64 * 100.0 / user_in as f64 } else { 0.0 },
++        );
++    }
++}
++
++/// What fee a YT market would actually need. Re-prices the same 90-day pool across candidate fee
++/// levels to show where the round-trip cost lands.
++#[test]
++fn what_fee_a_90_day_yt_market_would_need() {
++    const DAY: u64 = 24 * 60 * 60;
++    for fee in [30u32, 10, 5, 2, 1] {
++        let w = setup(90 * DAY);
++        w.market().set_fee(&fee);
++        let usdc_side = 1_000_000 * USDC;
++        let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32);
++        seed_pool(&w, pt_side, usdc_side);
++        let n = 10_000 * USDC;
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++        let (sell_out, _) = w.market().quote_sell_yt_exact_in(&n);
++        std::println!(
++            "fee {:>2} bps | 10k YT costs {:>8.3} | instant resale {:>8.3} | round-trip cost {:>5.1}% of the YT price",
++            fee,
++            user_in as f64 / USDC as f64,
++            sell_out as f64 / USDC as f64,
++            if user_in > 0 { (user_in - sell_out) as f64 * 100.0 / user_in as f64 } else { 0.0 },
++        );
++    }
++}
++
++// --- §11 maturity / settlement of a market-created YT position --------------
++
++#[test]
++fn a_yt_only_position_settles_correctly_at_maturity() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    w.advance(300 * 24 * 60 * 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let mid = w.wrapper().claim_yield(&pid);
++    assert!(mid > 0);
++
++    // Past maturity: YT stops accruing, and the accrued-but-unclaimed remainder is still payable.
++    w.env.ledger().set_timestamp(w.maturity + 1);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let at_maturity = w.wrapper().claim_yield(&pid);
++    let after = w.wrapper().position_value(&pid).claimable_yield;
++    assert_eq!(after, 0, "nothing more accrues after settlement");
++
++    // ... and it stays zero however long we wait (the maturity rate is stamped once).
++    w.env.ledger().set_timestamp(w.maturity + 90 * 24 * 60 * 60);
++    assert_eq!(w.wrapper().position_value(&pid).claimable_yield, 0);
++    std::println!(
++        "YT-only position: paid {:.4} USDC at 300d + {:.4} at maturity, for a {:.4} entry",
++        mid as f64 / USDC as f64,
++        at_maturity as f64 / USDC as f64,
++        user_in as f64 / USDC as f64
++    );
++
++    // The YT is worthless now but the position is still open — the holder has no principal claim,
++    // which is correct: the PT the pool holds is the principal claim.
++    assert_eq!(w.wrapper().get_position(&pid).pt_amount, 0);
++}
++
++#[test]
++fn yt_selling_is_impossible_once_the_market_has_expired() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    w.env.ledger().set_timestamp(w.maturity + 1);
++    assert_eq!(w.market().quote_sell_yt_exact_in(&n), (0, 0));
++    assert!(w
++        .market()
++        .try_sell_yt_exact_in(&u, &pid, &n, &0i128, &0u32)
++        .is_err());
++    // But the yield claim never depended on the AMM (spec §4.6).
++    w.env.cost_estimate().budget().reset_unlimited();
++    assert!(w.wrapper().claim_yield(&pid) > 0);
++}
++
++#[test]
++fn a_yt_sale_larger_than_the_pools_pt_reserve_reverts_and_changes_nothing() {
++    let w = setup(YEAR);
++    // Small pool, big position: mint the YT elsewhere so the sale outruns the PT reserve.
++    let usdc_side = 20_000 * USDC;
++    let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32);
++    seed_pool(&w, pt_side, usdc_side);
++
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++
++    let (pt_res, _) = w.market().reserves();
++    let too_big = pt_res + 1;
++    let before = w.wrapper().get_position(&pid);
++    assert!(w
++        .market()
++        .try_sell_yt_exact_in(&u, &pid, &too_big, &0i128, &0u32)
++        .is_err());
++    let after = w.wrapper().get_position(&pid);
++    assert_eq!(before.yt_amount, after.yt_amount, "position untouched");
++    assert_eq!(before.shares, after.shares);
++    assert_eq!(w.yt().balance(&u), n);
++}
++
++#[test]
++fn selling_more_yt_than_the_position_holds_reverts() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    assert!(w
++        .market()
++        .try_sell_yt_exact_in(&u, &pid, &(n + 1), &0i128, &0u32)
++        .is_err());
++    assert_eq!(w.wrapper().get_position(&pid).yt_amount, n);
++}
++
++/// Spec §12.14: a raw SAC transfer of YT must NOT carry the yield claim. The position ledger is
++/// authoritative, so the recipient gets tokens and no claim — and the sender keeps a claim they
++/// can no longer back. This is the known stranding hazard (tofix.md #15), and it is unchanged —
++/// in fact WIDENED — by market-issued YT.
++#[test]
++fn a_raw_yt_transfer_still_strands_the_claim_and_the_market_path_does_not_fix_it() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 10_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let alice = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&alice, &n, &user_in, &0u32);
++
++    let bob = Address::generate(&w.env);
++    w.yt().transfer(&alice, &bob, &n);
++    assert_eq!(w.yt().balance(&bob), n);
++    assert_eq!(w.yt().balance(&alice), 0);
++
++    w.advance(90 * 24 * 60 * 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    // Alice holds ZERO YT and still collects every stroop of the yield.
++    let paid = w.wrapper().claim_yield(&pid);
++    assert!(paid > 0, "the ledger, not the token, is the claim");
++    assert_eq!(w.usdc().balance(&bob), 0, "Bob's YT is inert");
++    std::println!(
++        "Alice transferred away all {} YT and still claimed {:.4} USDC; Bob claimed 0",
++        n / USDC,
++        paid as f64 / USDC as f64
++    );
++
++    // Worse for the sale path: Alice can still sell YT she no longer holds, because the merge
++    // burns from `pos.owner` — which now fails on balance, so the sale reverts and she is stuck.
++    let (q, _) = w.market().quote_sell_yt_exact_in(&n);
++    assert!(w
++        .market()
++        .try_sell_yt_exact_in(&alice, &pid, &n, &q, &0u32)
++        .is_err(), "no YT to burn");
++}
++
++/// The AMM's *implied* APY and Blend's *realized* APY are independent numbers. Whoever seeds the
++/// pool picks the implied one by hand (`seed_pt_for_apy`), and nothing on chain reconciles it with
++/// what the strategy actually pays. This measures the gap in the test fixture.
++#[test]
++fn the_pools_implied_apy_is_not_reconciled_with_blends_realized_apy() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let n = 100_000 * USDC;
++    let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++    let u = w.new_user(user_in);
++    let pid = w.wrapper().next_position_id();
++    w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++    let implied = w.market().implied_apy();
++
++    w.advance(365 * 24 * 60 * 60 - 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let earned = w.wrapper().position_value(&pid).claimable_yield;
++    std::println!(
++        "notional {} | YT price {:.3} USDC | pool IMPLIED APY {:.3}% | Blend REALIZED over the term {:.4}% ({:.4} USDC)",
++        n / USDC,
++        user_in as f64 / USDC as f64,
++        implied as f64 * 100.0 / 1e12,
++        earned as f64 * 100.0 / n as f64,
++        earned as f64 / USDC as f64,
++    );
++    std::println!(
++        "  -> YT buyer paid {:.4} and earned {:.4}: {}",
++        user_in as f64 / USDC as f64,
++        earned as f64 / USDC as f64,
++        if earned > user_in { "PROFIT" } else { "TOTAL LOSS" }
++    );
++}
++
++/// Sanity: how much does the harness's Blend `b_rate` actually move? Needed so the "implied vs
++/// realized" figure above is read as a *structural* point and not as a mainnet yield forecast.
++#[test]
++fn how_fast_the_harness_blend_rate_actually_grows() {
++    let w = setup(2 * YEAR);
++    let holder = w.new_user(100_000 * USDC);
++    let pid = w.wrapper().mint(&holder, &(100_000 * USDC));
++    for m in [1u64, 3, 6, 12] {
++        let w2 = setup(2 * YEAR);
++        let h = w2.new_user(100_000 * USDC);
++        let p = w2.wrapper().mint(&h, &(100_000 * USDC));
++        // advance in monthly steps so Blend accrues repeatedly rather than in one jump
++        for _ in 0..m {
++            w2.advance(30 * 24 * 60 * 60);
++        }
++        w2.env.cost_estimate().budget().reset_unlimited();
++        let y = w2.wrapper().position_value(&p).claimable_yield;
++        std::println!(
++            "{:>2} monthly steps: yield on 100k = {:>10.4} USDC  ({:.4}% of notional)",
++            m,
++            y as f64 / USDC as f64,
++            y as f64 * 100.0 / (100_000 * USDC) as f64
++        );
++    }
++    // single 12-month jump, for comparison
++    w.advance(360 * 24 * 60 * 60);
++    w.env.cost_estimate().budget().reset_unlimited();
++    let y = w.wrapper().position_value(&pid).claimable_yield;
++    std::println!(
++        " 1 single 12-month jump: yield on 100k = {:>10.4} USDC ({:.4}%)",
++        y as f64 / USDC as f64,
++        y as f64 * 100.0 / (100_000 * USDC) as f64
++    );
++}
++
++/// **The feedback loop.** Opening the pool at a target implied APY requires a very PT-heavy seed
++/// (`seed_pt_for_apy`), and every PT in that seed is a real USDC deposit into Blend. If the seed is
++/// large relative to the Blend pool it floods it, collapses utilization, and destroys the very
++/// realized yield the YT is a claim on.
++#[test]
++fn the_seed_needed_to_open_the_curve_floods_blend_and_kills_the_yield_it_sells() {
++    // A: no market seed at all — just a lone depositor.
++    let a = setup(2 * YEAR);
++    let ha = a.new_user(100_000 * USDC);
++    let pa = a.wrapper().mint(&ha, &(100_000 * USDC));
++
++    // B: identical depositor, but an 8%-calibrated 1M-USDC-side pool is seeded first.
++    let b = setup(2 * YEAR);
++    let usdc_side = 1_000_000 * USDC;
++    let pt_side = b.market().seed_pt_for_apy(&usdc_side, &800u32);
++    seed_pool(&b, pt_side, usdc_side);
++    let hb = b.new_user(100_000 * USDC);
++    let pb = b.wrapper().mint(&hb, &(100_000 * USDC));
++
++    for _ in 0..12 {
++        a.advance(30 * 24 * 60 * 60);
++        b.advance(30 * 24 * 60 * 60);
++    }
++    a.env.cost_estimate().budget().reset_unlimited();
++    b.env.cost_estimate().budget().reset_unlimited();
++    let ya = a.wrapper().position_value(&pa).claimable_yield;
++    let yb = b.wrapper().position_value(&pb).claimable_yield;
++
++    std::println!(
++        "seed required to open at 8%: {:.0} PT ( = {:.0} USDC deposited into Blend)",
++        pt_side as f64 / USDC as f64,
++        pt_side as f64 / USDC as f64
++    );
++    std::println!(
++        "1-year realized yield on a 100k deposit:  no seed {:>9.2} USDC ({:.3}%)   |   with seed {:>9.2} USDC ({:.3}%)",
++        ya as f64 / USDC as f64,
++        ya as f64 * 100.0 / (100_000 * USDC) as f64,
++        yb as f64 / USDC as f64,
++        yb as f64 * 100.0 / (100_000 * USDC) as f64
++    );
++    assert!(yb < ya / 10, "the seed must visibly crush realized yield: {ya} -> {yb}");
++}
++
++/// Spec §5 recommends ONE aggregate position per (series, user). The wrapper is per-mint, so every
++/// YT buy opens another one — each needing its own `claim_yield` and its own `sell_yt_exact_in`.
++#[test]
++fn every_yt_buy_opens_another_position_the_user_must_manage_separately() {
++    let w = setup(YEAR);
++    deep_pool(&w);
++    let u = Address::generate(&w.env);
++    let mut ids = std::vec::Vec::new();
++    for _ in 0..5 {
++        let n = 2_000 * USDC;
++        let (user_in, _) = w.market().quote_buy_yt_exact_out(&n);
++        w.usdc_admin().mint(&u, &user_in);
++        let pid = w.wrapper().next_position_id();
++        w.market().buy_yt_exact_out(&u, &n, &user_in, &0u32);
++        ids.push(pid);
++    }
++    std::println!("5 YT buys by one user -> position ids {:?}", ids);
++    assert_eq!(ids.len(), 5);
++    assert_eq!(w.yt().balance(&u), 10_000 * USDC, "one fungible YT balance...");
++
++    w.advance(90 * 24 * 60 * 60);
++    // ...but FIVE separate claims, and the SAC balance backs all five ledgers at once.
++    let mut total = 0i128;
++    for id in &ids {
++        w.env.cost_estimate().budget().reset_unlimited();
++        total += w.wrapper().claim_yield(id);
++    }
++    std::println!(
++        "  -> 5 separate claim_yield calls for {:.4} USDC total",
++        total as f64 / USDC as f64
++    );
++    assert!(total > 0);
++}
++
++// ===========================================================================
++// PENDLE COMPARISON — Pendle charges `feeRate = exp(lnFeeRateRoot * yearsToExpiry)` on the
++// EXCHANGE RATE, so the fee shrinks with time to maturity in step with the yield being traded.
++// Spield charges a flat bps on the NOTIONAL, which does not shrink.
++//
++// We reproduce Pendle's fee exactly by computing its effective bps for each term and feeding it
++// through the existing fee machinery: effective_bps = 10_000 * (1 - exp(ln(1-F) * yearsToExpiry)).
++// (Pendle applies it multiplicatively on the rate; to first order that is the same thing.)
++// ===========================================================================
++
++/// `10_000 * (1 - (1-F)^t)` — Pendle's time-scaled fee, in bps, for an annual root `f_root_bps`.
++fn pendle_effective_bps(f_root_bps: u32, days: u64) -> u32 {
++    let t = days as f64 / 365.0;
++    let one_minus_f = 1.0 - (f_root_bps as f64 / 10_000.0);
++    let fee_rate = one_minus_f.powf(t);
++    ((1.0 - fee_rate) * 10_000.0).round() as u32
++}
++
++#[test]
++fn pendle_time_scaled_fee_vs_spield_flat_fee() {
++    const DAY: u64 = 24 * 60 * 60;
++    const F_ROOT: u32 = 100; // 1.00% annualized root
++
++    std::println!(
++        "{:<8} | {:<34} | {:<34}",
++        "term", "SPIELD  flat 30 bps on notional", "PENDLE  1%/yr root, time-scaled"
++    );
++    std::println!("{}", "-".repeat(84));
++
++    for days in [90u64, 180, 365] {
++        let mut row = std::vec::Vec::new();
++        for (tag, fee) in [("spield", 30u32), ("pendle", pendle_effective_bps(F_ROOT, days))] {
++            let w = setup(days * DAY);
++            w.market().set_fee(&fee);
++            let usdc_side = 1_000_000 * USDC;
++            let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32);
++            seed_pool(&w, pt_side, usdc_side);
++            let n = 10_000 * USDC;
++            let (buy, _) = w.market().quote_buy_yt_exact_out(&n);
++            let (sell, _) = w.market().quote_sell_yt_exact_in(&n);
++            let rt = if buy > 0 { (buy - sell) as f64 * 100.0 / buy as f64 } else { 0.0 };
++            row.push((tag, fee, buy, sell, rt));
++        }
++        std::println!(
++            "{:>4}d    | fee {:>3}bps  buy {:>7.2}  rt {:>5.1}%       | fee {:>3}bps  buy {:>7.2}  rt {:>5.1}%",
++            days,
++            row[0].1, row[0].2 as f64 / USDC as f64, row[0].4,
++            row[1].1, row[1].2 as f64 / USDC as f64, row[1].4,
++        );
++    }
++    std::println!("\n  Spield's round-trip cost EXPLODES as the term shortens; Pendle's stays flat.");
++}
++
++/// The same comparison against a FEE-INDEPENDENT denominator: the fair YT value read straight
++/// off the curve (`1 - pt_price`), so the two fee models are measured on the same basis.
++///
++/// Pendle's ratio is CONSTANT across maturities by construction; Spield's explodes as the term
++/// shortens. That shape difference — not the level — is the real finding.
++#[test]
++fn fee_as_a_fraction_of_the_yield_being_traded() {
++    const DAY: u64 = 24 * 60 * 60;
++    std::println!(
++        "{:<6} {:>12} {:>14} {:>14} {:>14} {:>14}",
++        "term", "fair YT/10k", "SPIELD 30bps", "PENDLE 1%/yr", "PENDLE 0.5%/yr", "PENDLE 0.25%/yr"
++    );
++    for days in [30u64, 90, 180, 365] {
++        let w = setup(days * DAY);
++        let usdc_side = 1_000_000 * USDC;
++        let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32);
++        seed_pool(&w, pt_side, usdc_side);
++        // Fair YT value = (1 - PT price) x notional, straight off the curve. No fee in it.
++        let pt_price = w.market().pt_price();
++        let n = 10_000 * USDC;
++        let fair_yt = (n as f64) * (1e12 - pt_price as f64) / 1e12;
++        let pct = |bps: u32| (n * bps as i128 / 10_000) as f64 * 100.0 / fair_yt;
++        std::println!(
++            "{:>4}d  {:>12.2} {:>13.1}% {:>13.1}% {:>13.1}% {:>13.1}%",
++            days,
++            fair_yt / USDC as f64,
++            pct(30),
++            pct(pendle_effective_bps(100, days)),
++            pct(pendle_effective_bps(50, days)),
++            pct(pendle_effective_bps(25, days)),
++        );
++    }
++    std::println!("\n  PENDLE columns are flat down the column. The SPIELD column is not.");
++}
++
++/// **Why Spield needs a 7:1 seed and Pendle does not.** Spield pins `rate_anchor` at PAR (1.0),
++/// so the entire PT discount has to come from the `ln(p/(1-p))` term — which needs an extreme
++/// PT-heavy pool. Pendle sets `initialAnchor` NEAR the expected PT price instead, so a nearly
++/// balanced pool already prices PT at a discount.
++///
++/// This sweeps the anchor to show the seed requirement collapse.
++#[test]
++fn moving_the_anchor_off_par_collapses_the_seed_requirement() {
++    const DAY: u64 = 24 * 60 * 60;
++    const SC12: i128 = 1_000_000_000_000;
++    std::println!("{:<28} {:>14} {:>12}", "anchor (USDC per PT)", "PT:USDC seed", "PT price");
++    for (label, anchor) in [
++        ("1.0000  (par - today)", SC12),
++        ("0.9950", SC12 * 995 / 1000),
++        ("0.9900", SC12 * 99 / 100),
++        ("0.9880  (~fair at 90d/5%)", SC12 * 988 / 1000),
++    ] {
++        // Fresh world with a custom anchor.
++        let w = setup_with_anchor(90 * DAY, anchor);
++        let usdc_side = 1_000_000 * USDC;
++        let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32);
++        if pt_side <= 0 {
++            std::println!("{:<28} {:>14} {:>12}", label, "uncalibratable", "-");
++            continue;
++        }
++        seed_pool(&w, pt_side, usdc_side);
++        std::println!(
++            "{:<28} {:>13.2}:1 {:>12.5}",
++            label,
++            pt_side as f64 / usdc_side as f64,
++            w.market().pt_price() as f64 / 1e12
++        );
++    }
++    std::println!("\n  Same 5% target rate. The par anchor is what costs 7x the capital.");
++}
++
++/// **The catch.** A static below-par anchor buys cheap seeding but BREAKS par convergence: as
++/// `t -> 0` the curve flattens onto `rate_anchor`, so PT converges to the anchor, not to 1.0.
++/// PT redeems at 1.0 regardless, so the pool would quote PT below its redemption value right up to
++/// maturity — a standing risk-free draw on LPs.
++///
++/// Pendle avoids the trade-off by RE-ANCHORING on every state update (`_getRateAnchor` recomputes
++/// the anchor from `lastLnImpliedRate`), which Spield does not do
++/// (`PHASE3_AMM_DESIGN.md` §3.4 calls it a "Stage C.1 refinement").
++#[test]
++fn a_below_par_static_anchor_breaks_par_convergence() {
++    const DAY: u64 = 24 * 60 * 60;
++    const SC12: i128 = 1_000_000_000_000;
++    for (label, anchor) in [("par 1.0000", SC12), ("0.9880", SC12 * 988 / 1000)] {
++        let w = setup_with_anchor(90 * DAY, anchor);
++        let usdc_side = 1_000_000 * USDC;
++        let pt_side = w.market().seed_pt_for_apy(&usdc_side, &500u32);
++        seed_pool(&w, pt_side, usdc_side);
++        std::print!("anchor {:<12}  PT price:", label);
++        for d in [0u64, 45, 80, 89] {
++            if d > 0 {
++                w.env.ledger().set_timestamp(w.env.ledger().timestamp() + 45 * DAY.min(d * DAY) / 45);
++            }
++            w.env.ledger().set_timestamp(1_700_000_000 + d * DAY);
++            std::print!("  d{:<3}={:.5}", d, w.market().pt_price() as f64 / 1e12);
++        }
++        std::println!();
++    }
++    std::println!("  A par anchor walks PT to 1.0. A 0.988 anchor walks it to 0.988 and STOPS there,");
++    std::println!("  while every PT still redeems at 1.0 -> free money out of the LPs at maturity.");
++}
+--- a/contracts/shared/src/wrapper.rs
++++ b/contracts/shared/src/wrapper.rs
+@@ -30,6 +30,17 @@
+     /// from a given position).
+     fn get_position(env: Env, position_id: u64) -> Position;
+ 
++    /// PROTOTYPE (futureamm spec §8) — the market funds `amount` USDC; the wrapper mints
++    /// `amount` PT to the market and `amount` YT (plus its yield position) to `yt_recipient`.
++    fn split_for_market(env: Env, market: Address, yt_recipient: Address, amount: i128) -> u64;
++
++    /// PROTOTYPE (futureamm spec §9) — the market contributes `amount` PT, the seller's position
++    /// gives up `amount` YT, and the released principal is paid to the market.
++    fn merge_for_yt_sale(env: Env, market: Address, position_id: u64, amount: i128) -> (i128, i128);
++
++    /// The settlement asset PT actually redeems into (tofix #19 needs this too).
++    fn underlying(env: Env) -> Address;
++
+     /// The PT Stellar Asset Contract address.
+     fn pt_token(env: Env) -> Address;
+ 
+--- a/contracts/wrapper/src/lib.rs
++++ b/contracts/wrapper/src/lib.rs
+@@ -210,6 +210,161 @@
+         id
+     }
+ 
++
++    // ================= PROTOTYPE: PT/YT AMM integration (futureamm spec §8/§9) =================
++
++    /// Register the one market allowed to call [`Self::split_for_market`] /
++    /// [`Self::merge_for_yt_sale`]. Admin-gated, mirrors the market's own init cross-checks.
++    pub fn set_market(env: Env, market: Address) {
++        storage::get_admin(&env).require_auth();
++        storage::set_market(&env, &market);
++    }
++
++    /// PROTOTYPE: the id the NEXT position will get. Tests use it to name the position a
++    /// market-routed split is about to create — which is itself a finding: `buy_yt_exact_out`
++    /// gives the caller no handle on the position it opens.
++    pub fn next_position_id(env: Env) -> u64 {
++        storage::peek_next_position_id(&env)
++    }
++
++    pub fn market(env: Env) -> Option<Address> {
++        storage::get_market(&env)
++    }
++
++    /// **Spec §8 — capital-efficient YT buy.** The *market* supplies `amount` USDC (its own
++    /// reserve contribution plus the user's), and the wrapper splits it into
++    /// `amount` PT minted **to the market** (pure bearer inventory, no position) and
++    /// `amount` YT minted **to `yt_recipient`**, recorded as a YT-only position they own.
++    ///
++    /// This is the leg the existing `mint` cannot express: `mint` always bundles PT+YT into one
++    /// position owned by one address.
++    pub fn split_for_market(env: Env, market: Address, yt_recipient: Address, amount: i128) -> u64 {
++        Self::ensure_can_deposit(&env);
++        Self::ensure_registered_market(&env, &market);
++        market.require_auth();
++        if amount <= 0 {
++            panic_with_error!(&env, Error::InvalidAmount);
++        }
++        if env.ledger().timestamp() >= storage::get_maturity(&env) {
++            panic_with_error!(&env, Error::MarketMatured);
++        }
++        let strategy_addr = storage::get_strategy(&env);
++        let strategy = YieldStrategyClient::new(&env, &strategy_addr);
++        let underlying = storage::get_underlying(&env);
++
++        // Pull the full notional from the MARKET (not the user) — this is what makes the trade
++        // capital-efficient for the user: they only ever funded the YT price into the market.
++        token::Client::new(&env, &underlying).transfer(
++            &market,
++            &env.current_contract_address(),
++            &amount,
++        );
++
++        let entry_rate = strategy.current_rate();
++        let min_mint = math::min_mintable(entry_rate);
++        if amount < min_mint {
++            panic_with_error!(&env, Error::InvalidAmount);
++        }
++        Self::approve_strategy_pull(&env, &underlying, &strategy_addr, amount);
++        let shares = strategy.deposit(&env.current_contract_address(), &amount);
++        if shares <= 0 {
++            panic_with_error!(&env, Error::SolvencyViolation);
++        }
++
++        // The two legs go to two different addresses — the whole point of this entrypoint.
++        Self::pt_admin(&env).mint(&market, &amount);
++        Self::yt_admin(&env).mint(&yt_recipient, &amount);
++
++        // A YT-ONLY position: `pt_amount = 0` because the PT left as bearer inventory.
++        let id = storage::next_position_id(&env);
++        let pos = Position {
++            owner: yt_recipient.clone(),
++            principal: amount,
++            pt_amount: 0,
++            yt_amount: amount,
++            entry_rate,
++            settled_rate: entry_rate,
++            shares,
++            open: true,
++        };
++        storage::save_position(&env, id, &pos);
++        storage::set_total_principal(&env, storage::total_principal(&env) + amount);
++        storage::inc_open_positions(&env);
++        storage::bump_instance(&env);
++
++        events::minted(&env, &yt_recipient, id, amount, entry_rate);
++        Self::assert_solvent(&env);
++        id
++    }
++
++    /// **Spec §9 — YT sale.** The market contributes `amount` PT from its reserve; the wrapper
++    /// checkpoints the seller's yield on the OLD amount (spec §4.5), burns both legs, and pays the
++    /// released `amount` USDC of principal to the market, which then splits it between its own
++    /// retained PT value and the seller's YT proceeds.
++    ///
++    /// Returns `(principal_released_to_market, yield_claimed_for_seller)`.
++    pub fn merge_for_yt_sale(
++        env: Env,
++        market: Address,
++        position_id: u64,
++        amount: i128,
++    ) -> (i128, i128) {
++        Self::ensure_initialized(&env); // an exit — open while paused
++        Self::ensure_registered_market(&env, &market);
++        market.require_auth();
++        if amount <= 0 {
++            panic_with_error!(&env, Error::InvalidAmount);
++        }
++        let mut pos = Self::load(&env, position_id);
++        pos.owner.require_auth();
++        if !pos.open {
++            panic_with_error!(&env, Error::PositionClosed);
++        }
++        // PROTOTYPE GUARD: only YT-only positions may be merged this way. A bundled PT+YT position
++        // would have its `principal` reduced while `pt_amount` stayed put, and `principal ==
++        // pt_amount` is load-bearing for `redeem_pt` / `split_position`. See `futureamm.md` §"the
++        // position model is the blocker".
++        if pos.pt_amount != 0 {
++            panic_with_error!(&env, Error::NotPositionOwner);
++        }
++        if amount > pos.yt_amount {
++            panic_with_error!(&env, Error::InsufficientBalance);
++        }
++
++        // Checkpoint on the OLD amount first (spec §4.5) — never after the reduction.
++        let claimed = Self::do_claim(&env, position_id, &mut pos);
++
++        Self::pt_admin(&env).burn(&market, &amount);
++        Self::yt_admin(&env).burn(&pos.owner, &amount);
++        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
++        let burned = strategy.redeem_underlying(&market, &amount);
++
++        pos.yt_amount -= amount;
++        pos.principal -= amount;
++        pos.shares -= burned;
++        if pos.shares < 0 {
++            pos.shares = 0;
++        }
++        if Self::close_if_empty(&mut pos) {
++            storage::dec_open_positions(&env);
++        }
++        storage::save_position(&env, position_id, &pos);
++        storage::set_total_principal(&env, storage::total_principal(&env) - amount);
++        storage::bump_withdraw_ops(&env);
++        storage::bump_instance(&env);
++
++        events::combined(&env, &pos.owner, position_id, amount);
++        Self::assert_solvent(&env);
++        (amount, claimed)
++    }
++
++    fn ensure_registered_market(env: &Env, market: &Address) {
++        match storage::get_market(env) {
++            Some(m) if m == *market => {}
++            _ => panic_with_error!(env, Error::NotAuthorized),
++        }
++    }
++
+     /// Claim accrued yield for a position. **Settles, never burns YT** (SCF #6). Yield is measured
+     /// from the position's own `settled_rate` (SCF #4/#5). Returns USDC paid out.
+     pub fn claim_yield(env: Env, position_id: u64) -> i128 {
+--- a/contracts/wrapper/src/storage.rs
++++ b/contracts/wrapper/src/storage.rs
+@@ -67,6 +67,9 @@
+     ///
+     /// Monotonic and informational: nothing in the contract branches on it.
+     BearerRedeemed,
++    /// PROTOTYPE: the one registered market allowed to call `split_for_market` /
++    /// `merge_for_yt_sale`. Absent until the admin sets it.
++    Market,
+     /// A single position record, keyed by id.
+     Position(u64),
+ }
+@@ -288,4 +291,15 @@
+ 
+ fn panic_not_init(env: &Env) -> ! {
+     soroban_sdk::panic_with_error!(env, Error::NotInitialized)
++}
++
++// ----- PROTOTYPE: registered market -----
++
++pub fn get_market(env: &Env) -> Option<Address> {
++    env.storage().instance().get(&DataKey::Market)
+ }
++
++pub fn set_market(env: &Env, m: &Address) {
++    env.storage().instance().set(&DataKey::Market, m);
++    bump_instance(env);
++}
