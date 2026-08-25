@@ -8,8 +8,8 @@ import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
-import { addLiquidity, removeLiquidity } from '@/lib/market';
-import { setupTrustlines } from '@/lib/horizon';
+import { buildAddLiquiditySteps, removeLiquidity } from '@/lib/v2adapters';
+import { setupSrPtTrustline } from '@/lib/horizon';
 import { fromBaseUnits, formatAmount, formatUsd } from '@/lib/soroban';
 import { NETWORK, MARKET_DEPLOYED } from '@/lib/config';
 
@@ -26,7 +26,7 @@ type Mode = 'add' | 'remove';
 const LpPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, marketStats: m, lpPosition, trustlines } = useProtocol();
-  const { run, busy } = useTxAction();
+  const { run, runSteps, busy } = useTxAction();
 
   const [mode, setMode] = useState<Mode>('add');
   const [ptAmount, setPtAmount] = useState('');
@@ -57,7 +57,7 @@ const LpPanel = () => {
     if (!MARKET_DEPLOYED) return 'Market not deployed';
     if (!isConnected) return 'Connect Wallet';
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
-    if (needsTrustlines) return 'Enable PT & YT';
+    if (needsTrustlines) return 'Enable PT';
     if (mode === 'add') {
       if (!ptValid) return 'Enter an amount';
       if (overPt) return 'Insufficient PT';
@@ -83,17 +83,18 @@ const LpPanel = () => {
       return;
     }
     if (needsTrustlines) {
-      // Reuse the wrapper's PT/YT trustline helper (LP holds PT directly).
-      await run('Enable PT & YT', async () => {
-        const res = await setupTrustlines(address);
+      // Only PT needs a trustline — YT is a contract, not a classic asset. The LP receives PT
+      // directly, so this gate is real here even though it is not on a YT purchase.
+      await run('Enable PT', async () => {
+        const res = await setupSrPtTrustline(address);
         return res ?? { hash: '' };
       });
       return;
     }
     if (mode === 'add') {
-      const ok = await run('Add liquidity', () =>
-        addLiquidity(address, ptAmount, String(usdcNeeded)),
-      );
+      const steps = await buildAddLiquiditySteps(address, ptAmount, String(usdcNeeded));
+      if (!steps) return;
+      const ok = await runSteps('Add liquidity', steps);
       if (ok) setPtAmount('');
     } else {
       const ok = await run('Remove liquidity', () =>

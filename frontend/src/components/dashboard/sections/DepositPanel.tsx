@@ -8,15 +8,15 @@ import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
-import { mint } from '@/lib/spield';
+import { buildMintSteps } from '@/lib/v2adapters';
 import { fromBaseUnits, toBaseUnits, formatAmount } from '@/lib/soroban';
-import { setupTrustlines } from '@/lib/horizon';
+import { setupSrPtTrustline } from '@/lib/horizon';
 import { NETWORK, VAULT_DEPLOYED, MARKET_DEPLOYED, MIN_MINT_BASE_UNITS } from '@/lib/config';
 
 /**
  * Deposit panel — the protocol's primary action.
  *
- * Deposit USDC → the wrapper supplies it to Blend and mints an equal amount of
+ * Deposit USDC → it is wrapped into SR, supplied to Blend, and split into equal amounts of
  * PT (the fixed-rate bond) and YT (the variable yield claim) to the user, opening
  * a new position. 1 USDC → 1 PT + 1 YT.
  */
@@ -24,25 +24,27 @@ const DepositPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, paused, trustlines } = useProtocol();
   const { navigate } = useNav();
-  const { run, busy } = useTxAction();
+  const { run, runSteps, busy } = useTxAction();
   const [amount, setAmount] = useState('');
 
   const usdcBalance = fromBaseUnits(balances.usdc);
   const parsed = Number(amount);
   const entered = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
-  // Below the wrapper's minimum, Blend credits 0 shares and `mint` refuses with
+  // Below SR's minimum, Blend credits 0 shares and the deposit refuses with
   // `InvalidAmount`. Catch it here so the user reads why instead of a failed tx.
   const belowMinimum = entered && toBaseUnits(amount) < MIN_MINT_BASE_UNITS;
   const amountValid = entered && !belowMinimum;
   const overBalance = amountValid && parsed > usdcBalance;
 
-  // A connected wallet must trust PT + YT before the wrapper can mint to it.
+  // A connected wallet must trust PT before the engine can mint to it. YT needs no trustline —
+  // it is a hook-bearing contract rather than a classic asset, which is what lets it settle
+  // interest on transfer at all.
   const needsTrustlines = isConnected && onCorrectNetwork && !trustlines.ready;
 
   const cta = useMemo(() => {
     if (!isConnected) return 'Connect Wallet';
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
-    if (needsTrustlines) return 'Enable PT & YT';
+    if (needsTrustlines) return 'Enable PT';
     if (paused) return 'Protocol Paused';
     if (belowMinimum) return 'Amount too small';
     if (!amountValid) return 'Enter an amount';
@@ -72,13 +74,17 @@ const DepositPanel = () => {
     }
     if (needsTrustlines) {
       // One tx adds the missing PT/YT trustlines; `run` refreshes state after.
-      await run('Enable PT & YT', async () => {
-        const res = await setupTrustlines(address);
+      await run('Enable PT', async () => {
+        const res = await setupSrPtTrustline(address);
         return res ?? { hash: '' };
       });
       return;
     }
-    const ok = await run('Deposit', () => mint(address, amount));
+    // Two transactions (wrap, then split) — see `v2adapters.buildMintSteps`. `runSteps` puts both
+    // under one toast with real progress, instead of a single spinner spanning two wallet prompts.
+    const steps = await buildMintSteps(address, amount);
+    if (!steps) return;
+    const ok = await runSteps('Deposit', steps);
     if (ok) setAmount('');
   };
 
@@ -162,12 +168,14 @@ const DepositPanel = () => {
               One-time wallet setup — takes 5 seconds
             </div>
             <p className="text-muted-foreground leading-relaxed">
-              Before you can receive PT &amp; YT tokens, your wallet needs to &quot;trust&quot; them.
-              This is a <span className="font-semibold text-foreground">free, one-click step</span> — no USDC
-              will leave your wallet. After you approve it, you can deposit immediately.
+              Before you can receive PT, your wallet needs to &quot;trust&quot; it — PT is an ordinary
+              Stellar asset, and Stellar asks first. This is a{' '}
+              <span className="font-semibold text-foreground">free, one-click step</span> and no USDC
+              leaves your wallet. YT needs nothing: it is a contract rather than a classic asset,
+              which is exactly what lets it carry your yield when it moves.
             </p>
             <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-              <li>Click <span className="font-medium text-foreground">Enable PT &amp; YT</span> below</li>
+              <li>Click <span className="font-medium text-foreground">Enable PT</span> below</li>
               <li>Approve the transaction in Freighter (no cost)</li>
               <li>Come back here and deposit your USDC</li>
             </ol>

@@ -449,6 +449,11 @@ inherits.
    utilization. It fired on its first run: **Blend testnet USDC was at 85.4%**. This is not a
    hypothetical failure mode.
 
+   *Deployment note:* the partial-exit path needs **both** `sr` and `strategy` upgraded — SR calls
+   `strategy::available_liquidity`, which is new. Upgrading only SR leaves `max_redeemable` and
+   `redeem_partial` reverting while every wiring check still passes. That happened once here; the
+   deploy script now invokes each cross-contract call and fails closed rather than reporting green.
+
 4. **Disclosure** — `RiskDisclosure.tsx` covers this separately from #3, because they are different
    causes with the same user-visible shape and this one is considerably more likely.
 

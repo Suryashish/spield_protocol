@@ -208,7 +208,7 @@ const parseContractError = (raw: string, method: string): string => {
     lower.includes('not authorized') ||
     /Error\(Contract, #1[13]\)/.test(text)
   ) {
-    return 'Your wallet needs PT & YT trustlines first. Click “Enable PT & YT”, approve it, then deposit.';
+    return 'Your wallet needs a PT trustline first. Click “Enable PT”, approve it, then deposit. (YT needs no trustline — it is a contract, not a classic asset.)';
   }
   // Underlying balance too low for the requested amount (SAC error #10).
   if (lower.includes('insufficient') || lower.includes('balance') || /Error\(Contract, #10\)/.test(text)) {

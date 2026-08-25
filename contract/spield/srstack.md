@@ -451,8 +451,9 @@ Be clear-eyed about the gap between "works" and "shippable":
 1. **No migration path.** v1 and this stack coexist. Moving TVL is unspecified.
 2. ~~No deploy scripts~~ — **done.** `deploy_sr_testnet.sh` is resumable and self-verifying, with
    the issuer lockdown rehearsed end to end (`TESTNET_SR.md`).
-3. ~~No SDK or frontend wiring~~ — **done.** `frontend/src/lib/srstack.ts` is a full typed client;
-   the dApp has USDC-denominated trading, a separate SR wrapper section, and a yield panel.
+3. ~~No SDK or frontend wiring~~ — **done, and the whole dApp now runs on this stack.**
+   `frontend/src/lib/srstack.ts` is a full typed client, and the dashboard was migrated off v1
+   entirely (see below).
 4. **No secondary rewards.** SY standardizes `claimRewards` / `getRewardTokens`; SR does not. Blend's
    BLND emissions are still unsurfaced.
 5. ~~No router / zap~~ — **done 2026-08-25.** `contracts/srrouter` gives one-signature
@@ -472,6 +473,40 @@ Be clear-eyed about the gap between "works" and "shippable":
    by anyone but this test suite.
 10. **The harness's Blend rate is low** (~0.4–1.9%/yr). Every yield figure above is a mechanism check,
    not a mainnet forecast.
+
+---
+
+## 7b. The dApp migration — one file, not twenty
+
+The dashboard was built against v1: every chart, stat tile, panel and feed. Pointing all of it at
+the SR stack could have meant editing twenty-odd components. It did not, because none of them talk
+to a contract — they consume a **shape**, supplied by `ProtocolContext`.
+
+So `frontend/src/lib/v2adapters.ts` keeps the shapes and swaps what fills them. Every export has the
+same signature and return type as its v1 counterpart and reads the SR stack instead; the context
+imports from there, and the components are untouched.
+
+Where the two models genuinely differ, the mapping is documented at the function rather than papered
+over:
+
+| v1 concept | v2 reality | What the adapter does |
+|---|---|---|
+| A numbered position per deposit | PT/YT are fungible bearer tokens — there is no position, which is exactly what makes `tofix.md` #18 inexpressible | Returns **one synthetic row** for the wallet's whole holding. The panel labels it "Your PT + YT position" rather than showing a meaningless `#0`. |
+| USDC everywhere | SR is a *share*, and `1 SR ≠ 1 USDC` | Converts at the live rate before any figure reaches a component, because every component's label says USDC. |
+| PT **and** YT trustlines | YT is a contract, not a classic asset | Reports `yt: true`, so `ready` keeps meaning "this wallet can receive what it is about to be sent". |
+| Blend position value vs principal | SR held vs SR owed | Converts, and uses `total_py` for principal rather than the engine's `needed` — which folds in credited yield and would overstate the principal leg. |
+
+What moved with it: the yield chart now reads SR's rate history, the market chart reads the PT/SR
+pool's swaps, the activity feed watches sr/yield/market/vault (deliberately **not** the router — its
+events would double every row, since a routed trade already appears as the `sr_deposit` and `swap`
+it actually performed), and the solvency card links to the engine that enforces the invariant.
+
+Two flows are honestly two transactions — minting PY and adding liquidity, because both need SR and
+wrapping does not fit alongside them. They return **step lists** so the UI shows "1 of 2" instead of
+one spinner spanning two wallet prompts, which is the moment people cancel.
+
+The v1 modules stay in the tree. They still address the live mainnet deployment, which exists and
+can be read; nothing in the dashboard points at them any more.
 
 ---
 

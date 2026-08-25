@@ -873,3 +873,29 @@ export const unwrapSrPartial = (wallet: string, srShares: bigint): Promise<Write
     i128(0n),
   ]);
 };
+
+/** SR shares held by `owner`. Exposed for callers that need to size a wrap before a trade. */
+export const getSrBalance = (owner: string): Promise<bigint> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return Promise.resolve(0n);
+  return safeBalance(SR_CONTRACTS.sr, owner);
+};
+
+/**
+ * Buy exactly `ytOut` of YT face, paying at most `maxSrIn` SR.
+ *
+ * The raw market call, for callers that have already wrapped. Prefer {@link buyYtFromUsdc} when
+ * starting from USDC — it handles the wrap leg and reports progress across both prompts.
+ */
+export const buyYtExactOut = (
+  wallet: string,
+  ytOut: bigint,
+  maxSrIn: bigint,
+): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.market, 'buy_yt_exact_out', [
+    addr(wallet),
+    i128(ytOut),
+    i128(maxSrIn),
+    u32(0),
+  ]);
+};

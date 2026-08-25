@@ -31,7 +31,6 @@ import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
 import RiskDisclosure from '@/components/dashboard/sections/RiskDisclosure';
 import MarketChart from '@/components/dashboard/sections/MarketChart';
-import TradePanel from '@/components/dashboard/sections/TradePanel';
 import SrTradePanel from '@/components/dashboard/sections/SrTradePanel';
 import SrWrapPanel from '@/components/dashboard/sections/SrWrapPanel';
 import SrYieldPanel from '@/components/dashboard/sections/SrYieldPanel';
@@ -218,7 +217,7 @@ const MarketsSection = () => (
         <MarketChart />
       </div>
       <div className="lg:col-span-4">
-        <TradePanel />
+        <SrTradePanel />
       </div>
     </div>
     <HowMarketWorks />
@@ -252,26 +251,17 @@ const SolvencySection = () => (
 );
 
 /**
- * Spield v2 — the SR stack. Kept as its own section rather than folded into the v1 pages because
- * the model is genuinely different: SR is the entry token, YT is a contract rather than a SAC, and
- * the maturity structure has no v1 analogue. Mixing the two would make both harder to read.
+ * **Yield** — what YT has earned, and the position that earned it.
  *
- * The layout follows the user's actual sequence: take a position, see what you hold, take the yield
- * it threw off. Wrapping is deliberately **not** here — it moved to its own section, because
- * requiring it as step one was the thing that made this page hard to approach. Trades wrap
- * internally now; the wrapper page is for people who want SR itself.
+ * This page used to be "Spield v2" and carried a trading panel too. Once the whole dashboard moved
+ * onto the SR contracts that made it a second Markets page, so the trading panel moved to Markets
+ * (where the chart already lived) and this page kept the job nothing else covers: seeing accrued
+ * yield and taking it, without giving up the position.
  */
-const V2Section = () => (
+const YieldSection = () => (
   <div className="space-y-6">
-    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
-      <div className="lg:col-span-5">
-        <SrTradePanel />
-      </div>
-      <div className="lg:col-span-7">
-        <SrPortfolioPanel />
-      </div>
-    </div>
     <SrYieldPanel />
+    <SrPortfolioPanel />
   </div>
 );
 
@@ -298,7 +288,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   vault: VaultSection,
   deposit: DepositSection,
   markets: MarketsSection,
-  v2: V2Section,
+  v2: YieldSection,
   srwrap: SrWrapSection,
   liquidity: LiquiditySection,
   bridge: BridgeSection,
@@ -405,10 +395,10 @@ const HowItWorks = () => (
     title="How a deposit works"
     blurb="Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token."
     steps={[
-      { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC; it is lent into the Blend pool where it earns real, on-chain interest.' },
+      { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC. It is wrapped into SR \u2014 a yield-bearing share \u2014 and lent into the Blend pool, where it earns real on-chain interest.' },
       { icon: Lock, title: '2 · Get PT + YT', body: 'You receive equal PT (your principal, redeemable 1:1 at maturity) and YT (the yield claim).' },
       { icon: TrendingUp, title: '3 · Earn & claim', body: "As Blend's bRate rises, claim accrued yield against your YT — anytime, without burning it." },
-      { icon: ShieldCheck, title: '4 · Redeem', body: 'Redeem PT 1:1 at maturity, or combine PT + YT to exit early. The vault stays fully backed.' },
+      { icon: ShieldCheck, title: '4 · Redeem', body: 'Redeem PT 1:1 at maturity, or recombine PT + YT to exit early at face. Backing is checked on every single state change.' },
     ]}
   />
 );
@@ -434,7 +424,7 @@ const HowMarketWorks = () => (
       { icon: TrendingUp, title: 'Time-decay curve', body: 'PT trades below par and drifts to 1.0 as maturity nears — the discount is the yield. The curve makes that march automatic.' },
       { icon: Coins, title: 'Earn Fixed', body: 'Buy PT now with USDC and hold to maturity to lock the implied APY. The cheaper you buy, the higher your fixed return.' },
       { icon: Lock, title: 'Sell anytime', body: 'Need to exit early? Sell PT back to USDC at the live market price — no waiting for maturity.' },
-      { icon: TrendingUp, title: 'Long Yield', body: 'Bet that real Blend yield beats the implied rate: mint PT + YT, sell the PT back, and keep the YT for a small net cost.' },
+      { icon: TrendingUp, title: 'Long Yield', body: 'Bet that real Blend yield beats the implied rate. Buy YT straight from the pool for a fraction of its face \u2014 the pool funds the rest and keeps the PT, so you never touch it.' },
     ]}
   />
 );
@@ -444,10 +434,10 @@ const HowLiquidityWorks = () => (
     title="How liquidity works"
     blurb="Provide the two sides of the pool, earn fees on every PT trade, and exit on your terms."
     steps={[
-      { icon: Droplets, title: '1 · Supply PT + USDC', body: 'Add liquidity in the pool\u2019s current ratio. The panel auto-matches the USDC side for you.' },
-      { icon: Coins, title: '2 · Earn the swap fee', body: 'Every trade pays a 0.30% fee that accrues to the pool — your LP shares grow in value as volume flows.' },
+      { icon: Droplets, title: '1 \u00b7 Supply PT + USDC', body: 'Add liquidity in the pool\u2019s current ratio. The pool\u2019s second leg is SR, so the panel wraps your USDC for you \u2014 that is the extra signature.' },
+      { icon: Coins, title: '2 \u00b7 Earn the swap fee', body: 'Every trade pays a fee that shrinks as maturity nears \u2014 wide when there is term risk to price, near zero at expiry. LPs keep 80% of it; your shares grow as volume flows.' },
       { icon: ShieldCheck, title: '3 · Low impermanent loss', body: 'Because the time-decay curve tracks PT\u2019s march to par, an LP who holds to maturity sees ~no IL on the predictable price move.' },
-      { icon: Lock, title: '4 · Withdraw anytime', body: 'Burn your LP shares to take back a proportional slice of PT + USDC — including any fees earned — whenever you like.' },
+      { icon: Lock, title: '4 · Withdraw anytime', body: 'Burn your LP shares to take back a proportional slice of PT + SR \u2014 including fees earned \u2014 whenever you like. Unwrap the SR in the SR Wrapper section.' },
     ]}
   />
 );
@@ -464,7 +454,7 @@ const WhySolvency = () => (
       <span className="font-medium text-foreground">bRate</span> — so yield is real, not an IOU.
     </p>
     <p>
-      The wrapper asserts the invariant{' '}
+      The engine asserts the invariant{' '}
       <span className="mono text-xs text-foreground">backing ≥ principal</span> after every
       mutation. The figures above are read live from the contract&apos;s{' '}
       <span className="mono text-xs text-foreground">solvency()</span> view — anyone can verify

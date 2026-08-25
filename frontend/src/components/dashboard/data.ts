@@ -58,12 +58,12 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     icon: Layers,
-    label: 'Spield v2',
+    label: 'Yield',
     id: 'v2',
-    title: 'Spield v2 — PT / YT',
+    title: 'Yield',
     subtitle:
-      'Buy principal (PT) or yield (YT) straight from USDC in one transaction, and claim what you earn.',
-    group: 'trade',
+      'What your YT has earned — claimable straight to USDC without giving up the position.',
+    group: 'earn',
   },
   {
     icon: Package,
@@ -79,7 +79,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Fixed Vault',
     id: 'vault',
     title: 'Fixed-Rate Vault',
-    subtitle: 'Deposit USDC and lock a guaranteed fixed return until maturity.',
+    subtitle:
+      'Deposit USDC and lock a guaranteed return until maturity, backed by PT the vault already holds.',
     group: 'earn',
   },
   {
@@ -87,7 +88,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Deposit',
     id: 'deposit',
     title: 'Deposit',
-    subtitle: 'Supply USDC to mint a fixed-rate bond (PT) and a yield token (YT).',
+    subtitle:
+      'Split USDC into a fixed-rate bond (PT) and a yield token (YT), at par — no curve, no spread.',
     group: 'earn',
   },
   {
@@ -103,7 +105,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Liquidity',
     id: 'liquidity',
     title: 'Liquidity',
-    subtitle: 'Provide PT + USDC to the time-decay pool and earn the swap fee.',
+    subtitle:
+      'Provide PT + USDC to the pool and earn the swap fee. LPs keep 80% of every fee — the inverse of\n      Pendle\u2019s split.',
     group: 'trade',
   },
   {
@@ -119,7 +122,8 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Solvency',
     id: 'solvency',
     title: 'Solvency',
-    subtitle: 'Live proof the vault is fully backed by its Blend position.',
+    subtitle:
+      'Live proof every PT is backed \u2014 and an honest account of what would break it.',
     group: 'proof',
   },
   {
@@ -127,7 +131,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Activity',
     id: 'activity',
     title: 'Activity',
-    subtitle: 'On-chain deposits, claims and redemptions from the wrapper contract.',
+    subtitle: 'On-chain deposits, claims and redemptions, read from the contracts.',
     group: 'proof',
   },
 ];

@@ -10,28 +10,37 @@ import {
 import type { ReactNode } from 'react';
 
 import { useWallet } from '@/context/WalletContext';
-import {
-  getMaturity,
-  getOwnerPositions,
-  getPaused,
-  getSolvency,
-  getWalletBalances,
-  type PositionValue,
-  type Solvency,
-} from '@/lib/spield';
-import {
-  getOwnerReceipts,
-  getVaultStats,
-  type Receipt,
-  type VaultStats,
-} from '@/lib/vault';
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// SOURCED FROM v2 (the SR stack), 2026-08-25.
+//
+// Every read below used to come from `lib/{spield,vault,market,horizon}` — the v1 contracts. It now
+// comes from `lib/v2adapters`, which reads the SR stack and returns the *same shapes*.
+//
+// That indirection is the whole migration. Twenty-odd components — every chart, stat tile, panel
+// and feed — consume this context rather than talking to a contract, so swapping what fills it
+// moves all of them at once and leaves their logic untouched. The types below are still v1's
+// because they are the interface, not the implementation; where the two models genuinely differ
+// (positions, trustlines, SR-vs-USDC units) `v2adapters` documents the mapping at each function.
+//
+// The v1 modules stay in the tree: `lib/spield.ts` and friends still address the live mainnet
+// deployment, which exists and can be read even though nothing here points at it any more.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 import {
   getLpPosition,
   getMarketStats,
-  type LpPosition,
-  type MarketStats,
-} from '@/lib/market';
-import { getTrustlines, type TrustlineStatus } from '@/lib/horizon';
+  getMaturity,
+  getOwnerPositions,
+  getOwnerReceipts,
+  getPaused,
+  getSolvency,
+  getTrustlines,
+  getVaultStats,
+  getWalletBalances,
+} from '@/lib/v2adapters';
+import type { PositionValue, Solvency } from '@/lib/spield';
+import type { Receipt, VaultStats } from '@/lib/vault';
+import type { LpPosition, MarketStats } from '@/lib/market';
+import type { TrustlineStatus } from '@/lib/horizon';
 
 type Balances = { usdc: bigint; pt: bigint; yt: bigint };
 

@@ -19,7 +19,8 @@ import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
-import { claimYield, combineAndRedeem, redeemPt, type PositionValue } from '@/lib/spield';
+import { type PositionValue } from '@/lib/spield';
+import { claimYield, combineAndRedeem, redeemPt } from '@/lib/v2adapters';
 import { formatAmount, formatUsd, fromBaseUnits } from '@/lib/soroban';
 import { VAULT_DEPLOYED } from '@/lib/config';
 
@@ -58,7 +59,11 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
             <Layers size={16} />
           </div>
           <div>
-            <p className="text-[13.5px] font-medium">Position #{pos.positionId}</p>
+            {/* v2 has no position ids — PT and YT are fungible bearer balances, which is exactly
+                what makes v1's unpaginated position walk inexpressible here. The context surfaces
+                the wallet's whole holding as one synthetic row, so name it for what it is rather
+                than showing a meaningless "#0". */}
+            <p className="text-[13.5px] font-medium">Your PT + YT position</p>
             <p className="text-xs text-muted-foreground">
               {formatUsd(pos.principal)} principal
             </p>

@@ -546,6 +546,38 @@ expect "router.pt_token == PT SAC"      "$(read_view "$SRROUTER" pt_token)"     
 expect "router.underlying == USDC"      "$(read_view "$SRROUTER" underlying)"    "$USDC_SAC"
 expect "router.expiry == expiry"        "$(read_view "$SRROUTER" expiry)"        "$EXPIRY"
 
+# ── Cross-contract COMPATIBILITY, not just wiring ────────────────────────────────────────────────
+#
+# The checks above prove the contracts point at each other. They do not prove they can still TALK to
+# each other, and those are different failures. Caught on 2026-08-25: `Sr::max_redeemable` was
+# upgraded to call `strategy::available_liquidity`, the strategy was never redeployed, and every
+# wiring check above still passed while the feature was dead on chain.
+#
+# So: actually invoke the calls that cross a contract boundary. A view that cannot complete is a
+# version skew between two deployments, and it is invisible to an address comparison.
+echo "    checking cross-contract compatibility..."
+COMPAT_FAIL=0
+compat() {  # compat <label> <contract> <fn> [args...]
+  if read_view "$2" "${@:3}" >/dev/null 2>&1 && [ -n "$(read_view "$2" "${@:3}")" ]; then
+    echo "    ✓ $1"
+  else
+    echo "    ✗ $1 — FAILED. The callee is likely an older deployment missing this entry point."
+    COMPAT_FAIL=1
+  fi
+}
+compat "sr.max_redeemable -> strategy.available_liquidity" "$SR" max_redeemable
+compat "sr.total_assets"                                   "$SR" total_assets
+compat "sr.deposit_cap"                                    "$SR" deposit_cap
+compat "strategy.available_liquidity"                      "$STRATEGY" available_liquidity
+compat "market.asset_reserve -> sr.exchange_rate"          "$SRMARKET" asset_reserve
+compat "router.quote_buy_pt_with_usdc -> sr + market"      "$SRROUTER" quote_buy_pt_with_usdc --usdc_in 1000000
+if [ "$COMPAT_FAIL" = "1" ]; then
+  echo
+  echo "ERROR: a cross-contract call failed. One of these deployments is out of date relative to the"
+  echo "       others. Upgrade the callee before relying on the feature that needs it."
+  exit 1
+fi
+
 SR_RATE=$(read_view "$SR" exchange_rate)
 echo "    ✓ sr.exchange_rate = $SR_RATE (live Blend b_rate)"
 echo "    ✓ yield.py_index   = $(read_view "$YIELD" py_index)"

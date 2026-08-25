@@ -4,7 +4,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { formatUsd, fromBaseUnits } from '@/lib/soroban';
-import { CONTRACTS, explorerContract } from '@/lib/config';
+import { CONTRACTS, SR_CONTRACTS, explorerContract } from '@/lib/config';
+
+/** The contract that actually enforces the solvency invariant now: the PT/YT engine. */
+const SOLVENCY_CONTRACT: string = SR_CONTRACTS?.yieldEngine ?? CONTRACTS.wrapper;
 
 /**
  * Public solvency hero (plan §11.5). v1 was rejected by SCF for being
@@ -129,7 +132,7 @@ const SolvencyCard = () => {
             </code>
           </span>
           <a
-            href={explorerContract(CONTRACTS.wrapper)}
+            href={explorerContract(SOLVENCY_CONTRACT)}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-xs font-semibold text-brand-text hover:underline"

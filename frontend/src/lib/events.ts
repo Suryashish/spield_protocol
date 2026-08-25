@@ -1,6 +1,24 @@
 import { scValToNative, xdr } from '@stellar/stellar-sdk';
 
-import { BACKEND_URL, CONTRACTS, NETWORK_KEY, explorerContract, explorerTx } from './config';
+import {
+  BACKEND_URL,
+  NETWORK_KEY,
+  SR_CONTRACTS,
+  explorerContract,
+  explorerTx,
+} from './config';
+
+/**
+ * The contracts whose events make up the feed — the ones that actually hold or move user funds.
+ *
+ * Falls back to an empty list where the SR stack is not deployed, which makes every fetch below a
+ * no-op rather than a crash, and the feed renders its empty state.
+ */
+const ACTIVITY_CONTRACTS: string[] = SR_CONTRACTS
+  ? [SR_CONTRACTS.sr, SR_CONTRACTS.yieldEngine, SR_CONTRACTS.market, SR_CONTRACTS.vault].filter(
+      (c): c is string => Boolean(c) && !c.startsWith('__'),
+    )
+  : [];
 import { server } from './soroban';
 
 /**
@@ -20,20 +38,49 @@ import { server } from './soroban';
  *      a deployment is more than a week old). See website/server/index.js.
  */
 
-export type ActivityKind = 'Mint' | 'Claim' | 'RedeemPt' | 'Combine' | 'TransferPosition';
+export type ActivityKind =
+  | 'Wrap'
+  | 'Unwrap'
+  | 'Mint'
+  | 'RedeemPt'
+  | 'Claim'
+  | 'Swap'
+  | 'YtTrade'
+  | 'AddLiquidity'
+  | 'RemoveLiquidity'
+  | 'VaultDeposit'
+  | 'VaultRedeem';
 
 /**
- * The `#[contractevent]` macro publishes topic[0] as the *snake_case* of the event
- * struct name (e.g. `Mint` → `mint`, `RedeemPt` → `redeem_pt`). Map those wire names
- * back to our PascalCase `ActivityKind`. Anything not in this map (e.g. the one-off
- * `initialized` event) is intentionally dropped from the feed.
+ * The `#[contractevent]` macro publishes topic[0] as the *snake_case* of the event struct name
+ * (`SrDeposit` → `sr_deposit`, `MintPy` → `mint_py`). Map those wire names back to our PascalCase
+ * `ActivityKind`. Anything not in this map — `initialized`, fee-setting, governance — is
+ * intentionally dropped: this is a user activity feed, not an audit log.
+ *
+ * ## Why the router is deliberately absent
+ *
+ * `srrouter` emits its own end-to-end events, and including them would double every row: a routed
+ * PT buy already shows up here as the `sr_deposit` and `swap` it actually performed. The router
+ * composes existing calls rather than replacing them, so watching the contracts that hold the funds
+ * captures everything with no duplicates. (It also uses a two-level topic layout —
+ * `["router", "buy_pt", user]` — which this parser, which expects `[name, user]`, would misread.)
  */
 const EVENT_NAME_TO_KIND: Record<string, ActivityKind> = {
-  mint: 'Mint',
-  claim: 'Claim',
-  redeem_pt: 'RedeemPt',
-  combine: 'Combine',
-  transfer_position: 'TransferPosition',
+  // SR wrapper
+  sr_deposit: 'Wrap',
+  sr_redeem: 'Unwrap',
+  // PT/YT engine
+  mint_py: 'Mint',
+  redeem_py: 'RedeemPt',
+  interest_paid: 'Claim',
+  // PT/SR market
+  swap: 'Swap',
+  yt_trade: 'YtTrade',
+  add_liquidity: 'AddLiquidity',
+  remove_liquidity: 'RemoveLiquidity',
+  // Fixed-Rate Vault
+  deposited: 'VaultDeposit',
+  redeemed: 'VaultRedeem',
 };
 
 export type Activity = {
@@ -72,9 +119,31 @@ const nativeOrEmpty = (val: xdr.ScVal): unknown => {
 };
 
 /** Pull (positionId, amount) out of a decoded event body map. */
+/**
+ * Pull a displayable amount out of an event body.
+ *
+ * The v2 events carry different field names per contract — a wrap reports `underlying_in`, a mint
+ * reports `py_amount`, a swap reports `sr_in`. The order below is "most meaningful to a user
+ * first": what they put in or took out, before any internal share figure.
+ *
+ * `positionId` is retained at 0 because the `Activity` type still carries it, but v2 has no
+ * positions — PT and YT are fungible bearer balances. Nothing may use it to address anything.
+ */
 const readBody = (body: Record<string, unknown>) => ({
-  positionId: Number(toBig(body.position_id)),
-  amount: toBig(body.amount ?? body.payout),
+  positionId: 0,
+  amount: toBig(
+    body.underlying_in ??
+      body.underlying_out ??
+      body.py_amount ??
+      body.principal ??
+      body.payout ??
+      body.net ??
+      body.pt_amount ??
+      body.yt_amount ??
+      body.sr_in ??
+      body.sr_out ??
+      body.amount,
+  ),
 });
 
 /**
@@ -91,7 +160,7 @@ const fetchRpcEvents = async (): Promise<Activity[]> => {
   try {
     await server.getEvents({
       startLedger: 1,
-      filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+      filters: [{ type: 'contract', contractIds: ACTIVITY_CONTRACTS }],
       limit: 1,
     });
     // No error → ledger 1 is somehow in range (fresh network); start from 1.
@@ -118,13 +187,13 @@ const fetchRpcEvents = async (): Promise<Activity[]> => {
       raw = await server.getEvents(
         cursor
           ? {
-              filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+              filters: [{ type: 'contract', contractIds: ACTIVITY_CONTRACTS }],
               cursor,
               limit: 100,
             }
           : {
               startLedger,
-              filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+              filters: [{ type: 'contract', contractIds: ACTIVITY_CONTRACTS }],
               limit: 100,
             },
       );
@@ -176,7 +245,7 @@ const fetchExplorerEvents = async (limit: number): Promise<Activity[]> => {
   let records: ExplorerEvent[] = [];
   try {
     const res = await fetch(
-      `${BACKEND_URL}/activity?contract=${CONTRACTS.wrapper}` +
+      `${BACKEND_URL}/activity?contract=${ACTIVITY_CONTRACTS.join(',')}` +
         `&network=${network}&limit=${Math.min(limit, 100)}`,
     );
     if (!res.ok) return [];
@@ -215,7 +284,7 @@ const fetchExplorerEvents = async (limit: number): Promise<Activity[]> => {
       positionId,
       amount,
       // Explorer events don't carry a tx hash here — link to the contract page.
-      explorerUrl: explorerContract(CONTRACTS.wrapper),
+      explorerUrl: explorerContract(ACTIVITY_CONTRACTS[0] ?? ''),
       // Use the timestamp as a monotonic sort key (newest-first).
       ledger: rec.ts,
     });

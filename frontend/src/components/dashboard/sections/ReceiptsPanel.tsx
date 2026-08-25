@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
-import { harvest, redeem, type Receipt } from '@/lib/vault';
+import { type Receipt } from '@/lib/vault';
+import { harvest, redeem } from '@/lib/v2adapters';
 import { formatUsd } from '@/lib/soroban';
 import { VAULT_DEPLOYED } from '@/lib/config';
 

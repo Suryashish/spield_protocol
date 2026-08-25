@@ -1,6 +1,16 @@
 import { scValToNative } from '@stellar/stellar-sdk';
 
-import { CONTRACTS } from './config';
+import { CONTRACTS, SR_CONTRACTS } from './config';
+
+/**
+ * The contract whose rate history drives the yield chart.
+ *
+ * v2's yield oracle is the SR wrapper — its `exchange_rate` is the monotonic high-water mark every
+ * other contract prices against — so that is what the series is read from. Falls back to the v1
+ * wrapper only where the SR stack is not deployed, which keeps the chart working on a network that
+ * has one and not the other rather than rendering blank.
+ */
+const YIELD_HISTORY_CONTRACT: string = SR_CONTRACTS?.sr ?? CONTRACTS.wrapper;
 import { server } from './soroban';
 import { getCurrentRate } from './spield';
 
@@ -140,7 +150,7 @@ const sampleFromEvents = async (): Promise<RateSample[]> => {
     try {
       const raw = await server.getEvents({
         startLedger,
-        filters: [{ type: 'contract', contractIds: [CONTRACTS.wrapper] }],
+        filters: [{ type: 'contract', contractIds: [YIELD_HISTORY_CONTRACT] }],
         limit: 100,
       });
       events = raw.events ?? [];

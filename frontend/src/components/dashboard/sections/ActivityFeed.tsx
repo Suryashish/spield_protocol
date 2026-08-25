@@ -23,11 +23,19 @@ const KIND_META: Record<
   ActivityKind,
   { label: string; icon: LucideIcon; positive: boolean }
 > = {
-  Mint: { label: 'Deposit', icon: ArrowDownToLine, positive: false },
+  // `positive` means "value came back to the user", which is what drives the row's colour. Money in
+  // is not negative in any moral sense — it is just the other direction.
+  Wrap: { label: 'Wrap USDC', icon: ArrowDownToLine, positive: false },
+  Unwrap: { label: 'Unwrap to USDC', icon: Unlock, positive: true },
+  Mint: { label: 'Split into PT + YT', icon: Combine, positive: false },
+  RedeemPt: { label: 'Redeem at par', icon: Unlock, positive: true },
   Claim: { label: 'Claim Yield', icon: Sparkles, positive: true },
-  RedeemPt: { label: 'Redeem PT', icon: Unlock, positive: true },
-  Combine: { label: 'Combine & Redeem', icon: Combine, positive: true },
-  TransferPosition: { label: 'Transfer', icon: ArrowLeftRight, positive: false },
+  Swap: { label: 'Trade PT', icon: ArrowLeftRight, positive: false },
+  YtTrade: { label: 'Trade YT', icon: Sparkles, positive: false },
+  AddLiquidity: { label: 'Add Liquidity', icon: ArrowDownToLine, positive: false },
+  RemoveLiquidity: { label: 'Remove Liquidity', icon: Unlock, positive: true },
+  VaultDeposit: { label: 'Fixed-Rate Deposit', icon: ArrowDownToLine, positive: false },
+  VaultRedeem: { label: 'Fixed-Rate Payout', icon: Sparkles, positive: true },
 };
 
 const ActivityFeed = () => {
@@ -119,7 +127,7 @@ const ActivityFeed = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{meta.label}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      Position #{item.positionId} · {shortenAddress(item.user)}
+                      {shortenAddress(item.user)}
                     </p>
                   </div>
                 </div>

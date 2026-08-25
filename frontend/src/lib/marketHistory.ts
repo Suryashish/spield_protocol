@@ -1,6 +1,14 @@
 import { scValToNative } from '@stellar/stellar-sdk';
 
-import { CONTRACTS } from './config';
+import { CONTRACTS, SR_CONTRACTS } from './config';
+
+/**
+ * The market whose swap history backfills the price chart.
+ *
+ * Points at the PT/SR pool. Its `swap` event keeps the same topic name as v1's, so the decoder
+ * below is unchanged — only the source moved.
+ */
+const MARKET_HISTORY_CONTRACT: string = SR_CONTRACTS?.market ?? CONTRACTS.market;
 import { server } from './soroban';
 
 /**
@@ -155,7 +163,7 @@ const sampleFromEvents = async (): Promise<MarketSample[]> => {
     try {
       const raw = await server.getEvents({
         startLedger,
-        filters: [{ type: 'contract', contractIds: [CONTRACTS.market] }],
+        filters: [{ type: 'contract', contractIds: [MARKET_HISTORY_CONTRACT] }],
         limit: 100,
       });
       events = raw.events ?? [];

@@ -27,7 +27,7 @@ const PortfolioChart = () => {
   const { positions, loading } = useProtocol();
 
   const data = positions.map((p) => ({
-    name: `#${p.positionId}`,
+    name: 'PT + YT',
     principal: fromBaseUnits(p.principal),
     yield: fromBaseUnits(p.claimableYield),
   }));
