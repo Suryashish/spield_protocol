@@ -450,18 +450,21 @@ fn tofix_15_a_raw_yt_transfer_carries_the_claim_with_it() {
 // Deployment-readiness gaps that no test can close
 // ===========================================================================
 
-/// **THIS TEST DOCUMENTS A BLOCKER.** The three new contracts have **no governance**: no two-step
-/// admin rotation and — critically — **no upgrade timelock**. v1 has both, via
-/// `spield_shared::governance`.
-///
-/// Deploying without an upgrade path means any bug found post-launch is unfixable without
-/// redeploying and migrating. It fails deliberately so it cannot be skipped by accident.
+/// **Closed 2026-08-25.** The three v2 contracts now expose the same governance surface v1 has:
+/// two-step admin rotation and timelocked upgrades, via `spield_shared::governance`. Proven
+/// end-to-end in `governance.rs`; this asserts the surface simply exists on all three.
 #[test]
-#[ignore = "documents a launch blocker: wire spield_shared::governance into sr/yield/srmarket"]
-fn tofix_governance_the_new_contracts_have_no_upgrade_path() {
-    panic!(
-        "sr / yield / srmarket expose no propose_admin, accept_admin, schedule_upgrade, \
-         apply_upgrade or set_timelock. v1 has all of them. Wire spield_shared::governance in \
-         before deploying, or a post-launch bug has no remedy."
-    );
+fn tofix_governance_all_three_contracts_expose_admin_rotation_and_a_timelock() {
+    let w = std_setup(YEAR, 500);
+    // Every contract answers `timelock()` with the shared 24h default, and `pending_*` with None.
+    for (name, tl, pa, pu) in [
+        ("market", w.m().timelock(), w.m().pending_admin(), w.m().pending_upgrade().is_none()),
+        ("yield", w.y().timelock(), w.y().pending_admin(), w.y().pending_upgrade().is_none()),
+        ("sr", w.sr().timelock(), w.sr().pending_admin(), w.sr().pending_upgrade().is_none()),
+    ] {
+        assert_eq!(tl, 24 * 60 * 60, "{name}: default timelock");
+        assert_eq!(pa, None, "{name}: no pending admin at deploy");
+        assert!(pu, "{name}: no pending upgrade at deploy");
+    }
+    std::println!("#governance  sr / yield / srmarket all expose rotation + a 24h upgrade timelock");
 }

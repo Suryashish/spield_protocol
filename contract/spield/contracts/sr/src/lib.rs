@@ -54,9 +54,9 @@ mod storage;
 mod test;
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, Address, Env, String,
-};
+    contract, contractimpl, panic_with_error, token, Address, Env, String, BytesN};
 use spield_shared::{
+    governance,
     math,
     token::{self as tok},
     Error, YieldStrategyClient, SCALAR_12,
@@ -74,6 +74,7 @@ impl Sr {
     pub fn __constructor(env: Env, admin: Address) {
         storage::set_admin(&env, &admin);
         storage::set_paused(&env, false);
+        governance::init(&env);
         storage::bump_instance(&env);
     }
 
@@ -343,6 +344,80 @@ impl Sr {
 
     pub fn admin(env: Env) -> Address {
         storage::get_admin(&env)
+    }
+
+
+    // ---------- governance: two-step admin rotation + timelocked upgrades ----------
+    //
+    // Identical in shape to the v1 wrapper/vault/market, deliberately: an operator who has learned
+    // one of these contracts has learned all of them, and a divergent governance surface is exactly
+    // the kind of thing that goes wrong under pressure.
+    //
+    // Rotation is TWO-STEP — the current admin proposes, the new admin must accept — so a typo in
+    // an address cannot lock the contract out of administration. Upgrades are TIMELOCKED, so a
+    // compromised admin key cannot swap the code out from under holders without a public window in
+    // which the pending hash is readable on chain and users can exit.
+
+    /// Propose a new admin (step 1 of 2). The proposed address must then call
+    /// [`Self::accept_admin`]; until it does, nothing changes.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        governance::propose_admin(&env, &storage::get_admin(&env), &new_admin);
+    }
+
+    /// Accept a pending admin proposal (step 2 of 2). Callable only by the proposed address.
+    pub fn accept_admin(env: Env) {
+        let new_admin = governance::accept_admin(&env);
+        storage::set_admin(&env, &new_admin);
+        storage::bump_instance(&env);
+    }
+
+    /// Withdraw a pending proposal. Current admin only.
+    pub fn cancel_admin_transfer(env: Env) {
+        governance::cancel_admin_transfer(&env, &storage::get_admin(&env));
+    }
+
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        governance::pending_admin(&env)
+    }
+
+    /// Schedule an upgrade to `wasm_hash`, applyable once the timelock elapses. Returns the `eta`.
+    /// The pending hash is publicly readable via [`Self::pending_upgrade`] for the whole window.
+    pub fn schedule_upgrade(env: Env, wasm_hash: BytesN<32>) -> u64 {
+        governance::schedule_upgrade(&env, &storage::get_admin(&env), wasm_hash)
+    }
+
+    /// Apply a scheduled upgrade. Reverts until `eta` has passed.
+    pub fn apply_upgrade(env: Env) {
+        governance::apply_upgrade(&env, &storage::get_admin(&env));
+    }
+
+    pub fn cancel_upgrade(env: Env) {
+        governance::cancel_upgrade(&env, &storage::get_admin(&env));
+    }
+
+    pub fn pending_upgrade(env: Env) -> Option<governance::PendingUpgrade> {
+        governance::pending_upgrade(&env)
+    }
+
+    /// The current upgrade delay, seconds. Bounded on chain to [1h, 30d].
+    pub fn timelock(env: Env) -> u64 {
+        governance::timelock(&env)
+    }
+
+    pub fn set_timelock(env: Env, secs: u64) {
+        governance::set_timelock(&env, &storage::get_admin(&env), secs);
+    }
+
+    /// The live deployed WASM hash (32-byte SHA-256) — reflects the running code across upgrades,
+    /// so anyone can verify what is actually deployed rather than trusting a version string.
+    pub fn code_hash(env: Env) -> BytesN<32> {
+        governance::code_hash(&env)
+    }
+
+    /// Human-readable semver of the source build (informational; for verifiable identity use
+    /// [`Self::code_hash`]).
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, "spield-sr-0.1.0")
     }
 
     // ================= internals =================

@@ -19,7 +19,7 @@ use spield_sr::{Sr, SrClient};
 use spield_strategy::{BlendStrategy, BlendStrategyClient};
 use spield_yield::{Yield, YieldClient};
 
-const USDC: i128 = 1_0000000;
+pub const USDC: i128 = 1_0000000;
 const SCALAR_7: i128 = 1_0000000;
 pub const SCALAR_12: i128 = 1_000_000_000_000;
 const YEAR: u64 = 365 * 24 * 60 * 60;
@@ -48,6 +48,7 @@ pub struct World {
     pub yield_c: Address,
     pub market: Address,
     pub treasury: Address,
+    pub admin: Address,
     pub expiry: u64,
 }
 
@@ -211,7 +212,7 @@ pub fn setup(term: u64, initial_apy_bps: u32, ln_fee_root: i128, treasury_bps: u
         &treasury_bps,
     );
 
-    World { env, pool, usdc, oracle_id, sr, pt, yield_c, market, treasury, expiry }
+    World { env, pool, usdc, oracle_id, sr, pt, yield_c, market, treasury, admin, expiry }
 }
 
 pub fn std_setup(term: u64, apy_bps: u32) -> World {

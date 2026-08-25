@@ -1544,6 +1544,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "spield-srvault"
+version = "0.1.0"
+dependencies = [
+ "blend-contract-sdk",
+ "sep-40-oracle",
+ "soroban-sdk",
+ "spield-shared",
+ "spield-sr",
+ "spield-strategy",
+ "spield-yield",
+]
+
+[[package]]
 name = "spield-strategy"
 version = "0.1.0"
 dependencies = [

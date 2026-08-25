@@ -476,3 +476,121 @@ fn strategy_admin_rotation_and_governed_set_max_apr() {
     let (_, _, max) = strategy.rate_bound();
     assert_eq!(max, 7_777u32);
 }
+
+// ===========================================================================
+// Re-review of the 2026-08-24 `current_rate` change (SR-stack prerequisite)
+//
+// The diff removed one guard so the RateBound write became unconditional:
+//
+//   -  if rate > bound.last_rate || now > bound.last_ts {
+//   -      if rate > bound.last_rate { bound.last_rate = rate; }
+//   -      bound.last_ts = now;
+//   -      env.storage().instance().set(&DataKey::Bound, &bound);
+//   -      Self::bump_instance(&env);
+//   -  }
+//   +  if rate > bound.last_rate { bound.last_rate = rate; }
+//   +  bound.last_ts = now;
+//   +  env.storage().instance().set(&DataKey::Bound, &bound);
+//   +  Self::bump_instance(&env);
+//
+// This contract is shared with the audited v1 deployment, so the change needs to be shown SAFE,
+// not merely useful. The argument, then the tests that pin it:
+//
+//   The old guard could only be FALSE when `rate <= last_rate && now <= last_ts`. Ledger
+//   timestamps are non-decreasing and `last_ts` was itself a past `now`, so `now <= last_ts`
+//   implies `now == last_ts` — i.e. a second call inside the SAME ledger with a non-rising rate.
+//   In exactly that case the new code writes `last_rate` unchanged and `last_ts = now == last_ts`:
+//   **byte-identical values**. Every other input reaches an identical write under both versions.
+//
+//   So the change alters no stored state. It alters only *whether a write happens*, which is what
+//   made the transaction footprint depend on wall-clock timing — see `Sr::exchange_rate`.
+//
+// Cost: one extra instance write on a path that already reads that entry, plus a TTL bump that is
+// strictly protective. Measured below.
+// ===========================================================================
+
+/// Same-ledger repeats are idempotent: the stored bound is unchanged, which is the exact case the
+/// removed guard used to skip.
+#[test]
+fn repeated_same_ledger_rate_reads_leave_the_bound_identical() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+
+    let first = s.current_rate();
+    let bound_after_first = s.rate_bound(); // (last_rate, last_ts, max_apr_bps)
+    // Several more reads in the SAME ledger — no time passes, the rate cannot rise.
+    for _ in 0..5 {
+        assert_eq!(s.current_rate(), first, "rate must not move within a ledger");
+        assert_eq!(
+            s.rate_bound(),
+            bound_after_first,
+            "the unconditional write must store identical values on a same-ledger repeat"
+        );
+    }
+}
+
+/// Across ledgers the bound advances exactly as before: `last_ts` tracks now, `last_rate` only
+/// ratchets upward.
+#[test]
+fn the_bound_still_advances_correctly_across_ledgers() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+
+    let mut prev = s.rate_bound();
+    for _ in 0..4 {
+        advance(&b, 30 * 24 * 60 * 60);
+        let rate = s.current_rate();
+        let now = b.env.ledger().timestamp();
+        let (last_rate, last_ts, _) = s.rate_bound();
+        assert_eq!(last_ts, now, "last_ts must track the observation time");
+        assert_eq!(last_rate, rate, "last_rate must equal the observed rate once it has risen");
+        assert!(last_rate >= prev.0, "last_rate must never fall");
+        assert!(last_ts >= prev.1, "last_ts must never go backwards");
+        prev = (last_rate, last_ts, prev.2);
+    }
+}
+
+// NOTE on the monotonicity half of the bound: forcing `b_rate` DOWN needs a test-only setter this
+// contract deliberately does not expose, and `BlendFixture` cannot push the real rate backwards.
+// That half is covered against a controllable mock in `wrapper::test_rate_brick`
+// (`brate_decrease_bricks_every_entry_point_including_exits`) and in `sr::test`
+// (`a_guarded_strategy_still_bricks_sr_on_a_rate_dip`) — both still pass after this change, which
+// is the evidence that the CHECK was untouched and only the WRITE became unconditional.
+
+/// And the *ceiling* half of the bound still fires: an implausible jump is still rejected.
+#[test]
+fn the_ceiling_guard_still_fires_after_the_change() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    // A 1 bps/yr cap makes any real accrual look implausible.
+    let admin = Address::generate(&b.env);
+    let s = deploy_strategy_with_bound(&b, &wrapper, &admin, 1);
+    s.current_rate();
+    advance(&b, 365 * 24 * 60 * 60);
+    assert!(
+        s.try_current_rate().is_err(),
+        "a rise past the pro-rated ceiling must still be refused"
+    );
+}
+
+/// The measured cost of making the write unconditional, so the trade-off is a number rather than an
+/// assertion. One instance write on a path that already reads that entry.
+#[test]
+fn the_unconditional_write_costs_one_instance_entry() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+    s.current_rate(); // warm
+
+    b.env.cost_estimate().budget().reset_unlimited();
+    s.current_rate();
+    let r = b.env.cost_estimate().resources();
+    std::println!(
+        "current_rate (same-ledger repeat, always writes): {} insns, {} mem, {} write entries, {} write bytes",
+        r.instructions, r.mem_bytes, r.write_entries, r.write_bytes
+    );
+    assert!(r.write_entries <= 2, "should touch its own instance entry, not a pile of them");
+    assert!(r.instructions < 50_000_000, "still cheap");
+}

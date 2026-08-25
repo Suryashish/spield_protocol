@@ -52,6 +52,26 @@ for the migration decision. Recorded so they are not re-litigated as "already fi
 
 **Bottom line: this list shortens when v1 is fixed or retired, not when v2 is built.**
 
+### Update 2026-08-25 — the SR stack now covers more of the list
+
+Re-verified again: **v1 is still byte-for-byte unchanged**, so nothing below is fixed *in v1*. What
+changed is how much of the list a migration to v2 would carry, and three of the "N/A — the SR stack
+has no vault" rows no longer apply, because it now has one (`contracts/srvault`).
+
+| Item | Status in v1 | In the SR stack (2026-08-25) |
+|---|---|---|
+| **[18](#18-p0--vault-redeem-is-unpaginated-and-seed-is-permissionless-so-anyone-can-strand-every-receipt)** | **open** | **Absent by construction.** PT is a fungible bearer balance, so `srvault::redeem` has no list to walk: measured at **15 write entries / 39 footprint entries, identical whether inventory came from 1 seed or 20**, and 10.5% of the mainnet memory ceiling. v1 measured ~6.8 MB *per position spanned* and bricked at 6. `seed` is admin-gated as well, closing the DoS vector twice. |
+| **[21](#21-p1--vault-yt-yield-is-unclaimable-after-maturity-and-live-yt-legs-are-pruned)** | **open** | **Absent.** `srvault::harvest` has no maturity gate and no pruning; pre-expiry yield stays claimable through the engine forever. |
+| **[22](#22-p1--vault-seed-capital-and-surplus-inventory-are-one-way)** | **open** | **Absent.** `srvault::sweep` returns surplus, gated on covering every open liability plus its redemption buffer. |
+| **[24](#24-p1--vaultinitialize-does-not-cross-check-its-underlying-either)** | **open** | **Not expressible.** The vault takes only the engine's address and reads sr/pt/underlying/maturity back from it. |
+| **[13](#13-p1--issuer-lockdown--rehearsal-only)** | **open** | **Rehearsed end to end on testnet.** Before the lock the issuer minted 10 base units of counterfeit PT while `total_py` stayed put; after it the same payment failed `TxBadAuth` **and the engine still minted 2,000,000,006 PT** — the lock closes the hole without bricking the protocol. Now a step in `deploy_sr_testnet.sh` with two fail-closed pre-flights. Still a *procedural* control, not a contract invariant — see `AUDITPREP.md` §5.1. |
+| **[23](#23-p1--the-solvency-monitor-does-not-enforce-the-invariant-the-contract-enforces)** | **open** | **Written for v2**: `scripts/sr_solvency_monitor.mjs`, six invariants. One of them — classic PT supply vs `total_py`, read from Horizon — caught the counterfeit above **to the stroop** (`exceeds engine total_py by 11`) and exits 2 to page. |
+| **[3](#3-p0--b_rate-deep-dip-freezes-exits)** | **open** | Unchanged, and the 3-line `strategy` change does **not** weaken it: the dip guards in `wrapper::test_rate_brick` and `sr::test` still fire. Argument and tests in `AUDITPREP.md` §5.2. |
+| **[30](#30-p2--sdk-surface-gaps)** | **open** | Improved for v2 — `frontend/src/lib/srstack.ts` is a full typed client — but v1's own SDK gaps are untouched. |
+
+Everything else in the table above this section is unchanged.
+
+
 ---
 
 ## What is left

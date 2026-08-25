@@ -78,6 +78,8 @@ type SrContractSet = {
   yieldEngine: string;
   /** PT/SR AMM. */
   market: string;
+  /** Fixed-Rate Vault — deposit USDC, get a guaranteed payout at maturity, backed by PT. */
+  vault: string;
   /** PT Stellar Asset Contract. */
   pt: string;
   /** PT classic asset as `CODE:ISSUER` — required verbatim to open a trustline. */
@@ -122,16 +124,18 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
       yt: 'CA2QLQDSJUR6H5QNZSYURGGMZPGJI7D4WEYPXBSXWDLX7FCFZF7FD2OU',
       usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
     },
-    // ── SR stack (v2), deployed + seeded on testnet 2026-08-24 against the real Blend TestnetV2
-    // pool. Pool opened at exactly 5.0000% implied APY, PT price 0.988042.
-    // See contract/spield/scripts/deploy_sr_testnet.state and TESTNET_SR.md.
+    // ── SR stack (v2). Redeployed 2026-08-25 WITH GOVERNANCE (two-step admin rotation + a 24h
+    // upgrade timelock on all three contracts), against the real Blend TestnetV2 pool.
+    // Opened at exactly 5.0000% implied APY, PT price 0.988042.
+    // Source of truth: contract/spield/scripts/deploy_sr_testnet.state — see TESTNET_SR.md.
     sr: {
-      sr: 'CCVGEIAYGO3FIANVJVM4HBIFMPIQWMLN2IP3KMNGES5Y2NEGHAMEY2LU',
-      strategy: 'CATOFZHFURHGBNTN3UATN4BICJK6URC25Z5XCU7QMU3NXL7Z3HYBYEIJ',
-      yieldEngine: 'CBYJSMCDDZGRVFRV3YOYYGSXO6PO5OG6MDH2DXYX6UER4KTXL6BPJVNI',
-      market: 'CDWNTHQAFFPXUEQWSZYEY4S6JYHXWMA7UUMZCBY2FC2UZUQ23UZXKQ2W',
-      pt: 'CAF4KHXRV4MOERZBD6ABVTDTG4QSHBXIZ73HNZ2FKUS442D3YSWVX3QF',
-      ptAsset: 'SPLDPT4:GB5Q4MKMWT3RMCJ2YCCXVUITH2M44NTFSC4ROJ7U5IPW4ZSS2GZMDL43',
+      sr: 'CDL44OYHVIZQSQZOPC7P5YWCKPWYAI7LYT62RROKOSVIXFU43YOJ7IF2',
+      strategy: 'CCC7C4RGNRHSIHCW4FI2FFEVA5BM5NCLKHM3TK3YA5WR4DDMLGRLJT4Q',
+      yieldEngine: 'CDR4LNBYRPNCKXVMJEJ3XMSGEBRLABDSNBY5W327LT2E65MCCWFHS5ZB',
+      market: 'CAFY2E5GSDNGL3UCYP7JZ2VZHVR2VHAVX5J3M7SBMA4KZUHRFHV4A74Z',
+      vault: 'CAHWXX7DQKAJ733SL7U7IHDG5JHGKIW74JN23AY2WQDESQSV4BW2VBHV',
+      pt: 'CCEJSM4TFAKQ4F5XCMRRRAFHT2DYAXXX5IZMK4MX4SH6M4VT5ZO75S3K',
+      ptAsset: 'SPLDPT5:GCCDH7PSRAB6SKZPKBGTJYKKUCPSR3SNI3GCCFLTHR2Z6E6ASN5EEAYX',
       usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
     },
   },
@@ -189,6 +193,8 @@ export const SR_CONTRACTS = profile.sr
       /** The PT/YT engine. **This same address is the YT token** — there is no separate YT SAC. */
       yieldEngine: env('VITE_SR_YIELD', profile.sr.yieldEngine),
       market: env('VITE_SR_MARKET', profile.sr.market),
+      /** Fixed-Rate Vault. */
+      vault: env('VITE_SR_VAULT', profile.sr.vault),
       pt: env('VITE_SR_PT', profile.sr.pt),
       /** `CODE:ISSUER` for the PT trustline. Use verbatim; do not rebuild it from parts. */
       ptAsset: env('VITE_SR_PT_ASSET', profile.sr.ptAsset),

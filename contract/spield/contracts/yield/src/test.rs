@@ -1112,3 +1112,280 @@ fn sub_dust_mints_are_refused_and_keep_the_users_sr() {
     }
     let _ = sr;
 }
+
+// ===========================================================================
+// SECURITY REVIEW — `before_yt_change` and the interest ledger
+//
+// This is the most security-sensitive line in the codebase, so it gets its own section. The
+// property it must uphold, stated once:
+//
+//   **No YT balance may change without both affected parties first being settled at the current
+//   index.** If a balance moves first, the settle then measures the WRONG principal — crediting a
+//   seller for yield they no longer back, or a buyer for yield they never earned.
+//
+// Every balance-mutating path was enumerated by hand and each is covered below:
+//
+//   yt_mint   <- mint_py                       (hook at the receiver, before the balance grows)
+//   yt_burn   <- redeem_py, burn, burn_from    (hook at the owner, before the balance shrinks)
+//   yt_move   <- transfer, transfer_from       (hook INSIDE yt_move, both parties)
+//
+// The review also found one real defect, fixed and pinned here: `burn_from` used to delegate to
+// the public `burn`, which calls `from.require_auth()` — so an allowance could never actually be
+// spent. See `a_spender_can_burn_on_an_allowance_without_the_owners_signature`.
+// ===========================================================================
+
+/// **The ordering property, measured.** A holder who transfers away YT mid-term must be credited
+/// for the FULL balance they held up to that instant, and for nothing after. If the hook ran after
+/// the balance change, the pre-transfer window would be credited against the smaller balance.
+#[test]
+fn settlement_uses_the_balance_held_BEFORE_the_change_not_after() {
+    let w = setup(YEAR, 0);
+    let (alice, py) = w.user_with_py(100_000 * USDC);
+    let bob = Address::generate(&w.env);
+
+    // Phase 1: alice holds the FULL amount.
+    w.advance(100 * DAY);
+    let full_balance_accrual = w.y().claimable_interest(&alice);
+    assert!(full_balance_accrual > 0);
+
+    // Give away 90%. The hook must credit phase 1 against 100%, not against the remaining 10%.
+    w.y().transfer(&alice, &bob, &(py * 9 / 10));
+    assert_eq!(
+        w.y().interest_of(&alice).accrued,
+        full_balance_accrual,
+        "phase-1 yield must be credited against the pre-transfer balance"
+    );
+
+    // A 10% balance over the same window would have accrued ~a tenth as much. Prove the credited
+    // figure is the large one, not the small one.
+    let tenth_scale = full_balance_accrual / 10;
+    assert!(
+        w.y().interest_of(&alice).accrued > tenth_scale * 5,
+        "credited {} looks like it was measured against the POST-transfer balance",
+        w.y().interest_of(&alice).accrued
+    );
+}
+
+/// The same ordering property on the BURN path, which is a separate code path from transfer.
+#[test]
+fn burning_settles_before_the_balance_shrinks() {
+    let w = setup(YEAR, 0);
+    let (u, py) = w.user_with_py(100_000 * USDC);
+    w.advance(100 * DAY);
+    let owed = w.y().claimable_interest(&u);
+    assert!(owed > 0);
+
+    w.y().burn(&u, &(py * 9 / 10));
+    assert_eq!(
+        w.y().interest_of(&u).accrued,
+        owed,
+        "burning must credit the pre-burn balance, then shrink"
+    );
+    // ...and the credit remains payable afterwards.
+    let (paid, _) = w.y().redeem_due_interest(&u);
+    assert_eq!(paid, owed);
+}
+
+/// And on the redeem_py path.
+#[test]
+fn recombining_settles_before_the_balance_shrinks() {
+    let w = setup(YEAR, 0);
+    let (u, py) = w.user_with_py(100_000 * USDC);
+    w.advance(100 * DAY);
+    let owed = w.y().claimable_interest(&u);
+    assert!(owed > 0);
+    w.y().redeem_py(&u, &u, &(py / 2));
+    assert_eq!(w.y().interest_of(&u).accrued, owed, "redeem_py must settle first");
+}
+
+/// And on the MINT path — a top-up must not let new YT earn the old window.
+#[test]
+fn minting_settles_before_the_balance_grows() {
+    let w = setup(YEAR, 0);
+    let (u, _) = w.user_with_py(10_000 * USDC);
+    w.advance(200 * DAY);
+    let owed = w.y().claimable_interest(&u);
+    assert!(owed > 0);
+
+    // A top-up 10x the original size. If the hook ran AFTER the mint, the 200-day window would be
+    // credited against 11x the balance.
+    w.usdc_admin().mint(&u, &(100_000 * USDC));
+    let sr2 = w.sr().deposit(&u, &u, &(100_000 * USDC), &0i128);
+    w.y().mint_py(&u, &u, &sr2);
+    assert_eq!(
+        w.y().interest_of(&u).accrued,
+        owed,
+        "the top-up must not retro-credit the pre-existing window against the larger balance"
+    );
+}
+
+/// **Regression for the defect this review found.** A spender holding an allowance must be able to
+/// burn WITHOUT the owner signing. Previously `burn_from` delegated to `burn`, which called
+/// `from.require_auth()`, so no allowance was ever spendable.
+#[test]
+fn a_spender_can_burn_on_an_allowance_without_the_owners_signature() {
+    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+    use soroban_sdk::IntoVal;
+
+    let w = setup(YEAR, 0);
+    let (alice, py) = w.user_with_py(10_000 * USDC);
+    let spender = Address::generate(&w.env);
+    let exp = w.env.ledger().sequence() + 1_000;
+    w.y().approve(&alice, &spender, &(py / 2), &exp);
+
+    // ONLY the spender signs. Alice does not.
+    let env = &w.env;
+    env.mock_auths(&[MockAuth {
+        address: &spender,
+        invoke: &MockAuthInvoke {
+            contract: &w.yield_c,
+            fn_name: "burn_from",
+            args: (spender.clone(), alice.clone(), py / 2).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
+    w.y().burn_from(&spender, &alice, &(py / 2));
+    env.mock_all_auths();
+
+    assert_eq!(w.y().balance(&alice), py - py / 2, "the allowance was actually spent");
+    assert_eq!(w.y().allowance(&alice, &spender), 0, "and consumed");
+}
+
+/// The allowance burn still settles interest — the fix must not have skipped the hook.
+#[test]
+fn burn_from_still_settles_interest_first() {
+    let w = setup(YEAR, 0);
+    let (alice, py) = w.user_with_py(50_000 * USDC);
+    let spender = Address::generate(&w.env);
+    w.advance(120 * DAY);
+    let owed = w.y().claimable_interest(&alice);
+    assert!(owed > 0);
+
+    w.y().approve(&alice, &spender, &py, &(w.env.ledger().sequence() + 1_000));
+    w.y().burn_from(&spender, &alice, &py);
+
+    assert_eq!(w.y().balance(&alice), 0);
+    assert_eq!(w.y().interest_of(&alice).accrued, owed, "burn_from must settle before burning");
+    let (paid, _) = w.y().redeem_due_interest(&alice);
+    assert_eq!(paid, owed);
+}
+
+/// A spender cannot burn more than their allowance, even with the fix.
+#[test]
+fn burn_from_still_respects_the_allowance_limit() {
+    let w = setup(YEAR, 0);
+    let (alice, py) = w.user_with_py(10_000 * USDC);
+    let spender = Address::generate(&w.env);
+    w.y().approve(&alice, &spender, &(py / 4), &(w.env.ledger().sequence() + 1_000));
+    assert!(w.y().try_burn_from(&spender, &alice, &(py / 2)).is_err());
+    assert_eq!(w.y().balance(&alice), py, "nothing burned");
+}
+
+/// **Conservation under adversarial ordering.** Whatever sequence of settles and balance changes
+/// occurs, the sum of every party's claim can never exceed the SR actually available above PT
+/// cover. This is the property that would break first if the hook were ever skipped.
+#[test]
+fn total_claims_never_exceed_available_backing_under_hostile_ordering() {
+    let w = setup(YEAR, 0);
+    let (a, py) = w.user_with_py(60_000 * USDC);
+    let b = Address::generate(&w.env);
+    let c = Address::generate(&w.env);
+    let parties = [a.clone(), b.clone(), c.clone()];
+
+    // Deliberately awkward interleavings: transfer, checkpoint, transfer back, partial burn.
+    for step in 0..10 {
+        w.advance(15 * DAY);
+        match step % 5 {
+            0 => w.y().transfer(&a, &b, &(py / 8)),
+            1 => {
+                w.y().checkpoint(&b);
+            }
+            2 => w.y().transfer(&b, &c, &(py / 16)),
+            3 => {
+                w.y().transfer(&c, &a, &(py / 32));
+            }
+            _ => {
+                if w.y().balance(&b) > 1_000 {
+                    w.y().burn(&b, &1_000i128);
+                }
+            }
+        }
+        let total: i128 = parties.iter().map(|p| w.y().claimable_interest(p)).sum();
+        let (held, _needed, surplus) = w.y().solvency();
+        let coverage = surplus + w.y().total_accrued();
+        assert!(
+            total <= coverage + 20,
+            "step {step}: claims {total} exceed coverage {coverage} (held {held})"
+        );
+    }
+    // Everyone withdraws successfully at the end.
+    for p in &parties {
+        w.y().redeem_due_interest(p);
+    }
+    let (held, needed, _) = w.y().solvency();
+    assert!(held + 20 >= needed);
+}
+
+/// A holder whose index is already current must not be credited twice by a second settle in the
+/// same instant — the `ui.index == index` early return is load-bearing.
+#[test]
+fn a_second_settle_at_the_same_index_credits_nothing() {
+    let w = setup(YEAR, 0);
+    let (u, py) = w.user_with_py(10_000 * USDC);
+    let other = Address::generate(&w.env);
+    w.advance(90 * DAY);
+
+    w.y().checkpoint(&u);
+    let after_first = w.y().interest_of(&u).accrued;
+    // Three more balance-changing ops in the same instant, each of which runs the hook.
+    w.y().transfer(&u, &other, &1_000i128);
+    w.y().transfer(&u, &other, &1_000i128);
+    w.y().burn(&u, &1_000i128);
+    assert_eq!(
+        w.y().interest_of(&u).accrued,
+        after_first,
+        "repeated settles at an unchanged index must credit nothing further"
+    );
+    let _ = py;
+}
+
+/// The hook must be safe when a party's balance is zero — a receiver seeing YT for the first time,
+/// and a sender emptying their position.
+#[test]
+fn the_hook_is_safe_at_zero_balances_on_both_sides() {
+    let w = setup(YEAR, 0);
+    let (a, py) = w.user_with_py(10_000 * USDC);
+    let fresh = Address::generate(&w.env);
+    w.advance(60 * DAY);
+    let a_owed = w.y().claimable_interest(&a);
+
+    // Sender empties completely; receiver starts from zero.
+    w.y().transfer(&a, &fresh, &py);
+    assert_eq!(w.y().balance(&a), 0);
+    assert_eq!(w.y().interest_of(&a).accrued, a_owed, "emptied sender keeps their credit");
+    assert_eq!(w.y().interest_of(&fresh).accrued, 0, "fresh receiver starts at zero");
+
+    // A zero-balance holder settling again accrues nothing.
+    w.advance(60 * DAY);
+    w.y().checkpoint(&a);
+    assert_eq!(w.y().interest_of(&a).accrued, a_owed, "a zero balance earns nothing");
+    assert!(w.y().claimable_interest(&fresh) > 0, "the new holder earns");
+}
+
+/// `accrued_between` must not overflow on the largest position the protocol could hold. The fused
+/// form `balance * SCALAR_12 * (cur - prev)` reaches ~1e39 and would; the split form must not.
+#[test]
+fn interest_math_does_not_overflow_at_extreme_size() {
+    let w = setup(YEAR, 0);
+    // 10 million USDC of face — far above any realistic single position.
+    let (u, py) = w.user_with_py(10_000_000 * USDC);
+    assert!(py > 0);
+    w.advance(360 * DAY);
+    let claim = w.y().claimable_interest(&u);
+    assert!(claim > 0, "must compute, not overflow");
+    let (paid, _) = w.y().redeem_due_interest(&u);
+    assert_eq!(paid, claim);
+    let (held, needed, _) = w.y().solvency();
+    assert!(held + 10 >= needed);
+    std::println!("10M USDC face over 360d: claim {} SR computed without overflow", claim);
+}
