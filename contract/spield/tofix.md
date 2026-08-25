@@ -152,7 +152,7 @@ never have run as written.)
 | [18](#18-p0--vault-redeem-is-unpaginated-and-seed-is-permissionless-so-anyone-can-strand-every-receipt) | `redeem` unpaginated + `seed` open ⇒ receipts strandable | vault | **P0** | **Cap the walk, gate `seed`, add a partial/resumable redeem** |
 | [19](#19-p0--marketinitialize-never-cross-checks-the-settlement-asset) | Market never cross-checks the settlement asset | market | **P0** | **Add the `underlying()` cross-check + a deploy read-back** |
 | [3](#3-p0--b_rate-deep-dip-freezes-exits) | `b_rate` deep dip freezes exits | strategy | **P0** | Residual accepted — **set the TVL cap, publish the disclosure** |
-| [20](#20-p1--a-blend-liquidity-crunch-halts-exits-and-the-vault-has-no-partial-path) | Blend liquidity crunch halts exits | strategy / vault | **P1** | **Partial-redeem path + a utilization watchtower + disclosure** |
+| [20](#20-p1--a-blend-liquidity-crunch-halts-exits-and-the-vault-has-no-partial-path) | Blend liquidity crunch halts exits | strategy / vault | **P1** | **Closed for v2** (partial exit + `max_redeemable` + watchtower + disclosure). Open for v1; the v2 **vault** still has no partial path. |
 | [21](#21-p1--vault-yt-yield-is-unclaimable-after-maturity-and-live-yt-legs-are-pruned) | Vault YT yield unclaimable after maturity | vault | **P1** | **Let `harvest` run post-maturity; stop pruning live YT legs** |
 | [22](#22-p1--vault-seed-capital-and-surplus-inventory-are-one-way) | Seed capital + surplus inventory are one-way | vault | **P1** | **Add a liability-gated sweep** |
 | [23](#23-p1--the-solvency-monitor-does-not-enforce-the-invariant-the-contract-enforces) | Monitor doesn't track the real band, or conservation | ops | **P1** | Script rewritten 2026-08-25 — **redeploy the wrapper so `open_positions()` / `bearer_redeemed()` exist** |
@@ -346,14 +346,36 @@ deep dips blocked — they fix the *freeze*, not the *shortfall*. Only loss allo
 and it means PT stops being a strict 1:1 claim and touches the vault's solvency model too. That is
 not a pre-launch change.
 
-### What is left — two actions, neither of them code
+### What is left
 
-1. **Set and enforce a launch TVL cap.** This is the actual mitigation: it bounds the worst case to
-   an amount that can be absorbed or made whole off-protocol. Decide the number, write it down,
-   enforce it operationally.
-2. **Publish the disclosure** in user-facing docs, not only here: a deep Blend bad-debt event
-   freezes withdrawals until backing recovers, with no bounded recovery time. Users cannot consent
-   to a risk that is only recorded in an internal tracker.
+Both remaining actions were **done on 2026-08-25 — for the v2 stack**. v1 is unchanged, so the item
+stays open there; what follows is what a migration now inherits.
+
+1. ~~Set and enforce a launch TVL cap~~ — **enforced on chain, not operationally.** The action as
+   written was "decide the number, write it down, enforce it operationally", and a cap that lives in
+   a runbook is not a cap. `Sr::set_deposit_cap` bounds deployed assets in `Sr::deposit`, with
+   `deposit_cap()` / `total_assets()` / `deposit_headroom()` to read it back, an event on every
+   change, and `SR_DEPOSIT_CAP` in the deploy script (which warns loudly when it is 0).
+
+   Three properties are pinned by tests, and the middle one is the one that makes it safe to hand an
+   admin:
+
+   * it is **opt-in** — 0 means uncapped, so it changes nothing until an operator sets a number;
+   * it **gates deposits only** — `the_cap_can_never_trap_a_depositor` slams the cap to 1 USDC on a
+     full wrapper and confirms the exit still pays out in full. The worst an admin can do with it is
+     stop new money, which `pause` already allows;
+   * it measures **exposure, not supply** — `yield_growth_does_not_eat_the_cap` confirms a user's own
+     return does not consume headroom, or a healthy protocol would slowly close its own front door.
+
+   **Still to decide: the number.** The contract enforces whatever it is told; nobody has said what
+   it should be. `SR_DEPOSIT_CAP=0` today.
+
+2. ~~Publish the disclosure~~ — **`RiskDisclosure.tsx`**, on the Solvency page beside the solvency
+   proof, because showing what holds today without showing what would break it is the shape of most
+   DeFi dashboards and the reason people are surprised later. It leads with the plain sentence
+   ("withdrawals stop and we cannot say for how long"), covers this item and #20 as the separate
+   causes they are, states that the code is unaudited, and shows the live cap next to the risk it
+   bounds — including saying so when no cap is set.
 
 Revisit loss allocation before scaling past the cap. Note that item **20** is a *second*, more
 likely Blend-dependency freeze with the same user-visible shape and a different cause — the
@@ -395,6 +417,44 @@ Vault (a 100,000 USDC receipt, payout 105,000, free liquidity 45,200): **`redeem
 same `#1207`. There is no partial path at all — `settle_redeem` reverts anything short of the full
 `payout` — so a vault receipt goes from "delayed" to "unpayable" while `stats()` reports
 `pt_inventory (400,000) >= total_liability (105,000)`.
+
+### Update 2026-08-25 — closed for the v2 stack
+
+All three actions are done. v1 is unchanged, so the item stays open there; this is what a migration
+inherits.
+
+1. **Partial-redeem path** — `Sr::redeem_partial(from, receiver, shares, min_out)` clamps to what
+   the venue can actually pay and burns only the shares it redeems. The rest of the position is
+   untouched and claimable as liquidity returns. `shares` is a **ceiling**, so it is the same
+   authorization shape as everything else here: burning fewer than authorized can only leave the
+   user better off. A user who would rather fail than take a partial fill sets `min_out` to the full
+   amount and gets exactly the old behaviour — pinned by
+   `min_out_still_lets_a_user_refuse_a_partial_fill`.
+
+   The property that matters, from `a_partial_exit_succeeds_where_a_full_one_reverts`: with 900 of
+   1,000 USDC drawn down, the full exit reverts and returns the user **nothing**; the partial exit
+   returns them **over 90 USDC** of the 100 on hand and leaves the remainder claimable.
+
+2. **Visibility before submitting** — `Sr::max_redeemable()` and
+   `strategy::available_liquidity()`. Previously a crunch produced a bare revert with no way to find
+   out in advance and no way to discover the smaller amount that would have worked. The dApp now
+   shows the cap and offers "Withdraw what is available" instead of a button that fails.
+
+   One design note worth recording: the first version applied the 1% safety haircut
+   unconditionally, which capped **every** redemption at 99% of the position — so a user could never
+   fully exit even on a completely healthy venue. `max_redeemable` now returns `i128::MAX` when the
+   venue covers everything, and the haircut applies only when liquidity actually binds.
+
+3. **Watchtower** — `sr_solvency_monitor.mjs` reads the venue's reserve and warns above 85%
+   utilization. It fired on its first run: **Blend testnet USDC was at 85.4%**. This is not a
+   hypothetical failure mode.
+
+4. **Disclosure** — `RiskDisclosure.tsx` covers this separately from #3, because they are different
+   causes with the same user-visible shape and this one is considerably more likely.
+
+**Still open for the vault**: `srvault::redeem` has no partial path of its own — a receipt is paid in
+full or not at all. Less severe than v1's version (the PT is held as bearer inventory, so the vault
+is not competing for venue liquidity at redemption time), but not addressed.
 
 ### Possible fixes
 

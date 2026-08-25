@@ -46,4 +46,13 @@ pub trait YieldStrategy {
 
     /// The underlying token (USDC SAC) this strategy supplies. Lets the wrapper discover it.
     fn underlying(env: Env) -> Address;
+
+    /// **Underlying the venue can pay out right now** (`tofix.md` #20).
+    ///
+    /// An exit failing for lack of venue liquidity is a different thing from the protocol being
+    /// insolvent, and it is by far the more likely of the two. This is what lets a caller find that
+    /// out *before* submitting, and size a withdrawal that will actually succeed.
+    ///
+    /// Implementations should return an honest **upper** bound; callers take their own haircut.
+    fn available_liquidity(env: Env) -> i128;
 }

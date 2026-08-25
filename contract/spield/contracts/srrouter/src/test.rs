@@ -867,8 +867,24 @@ fn the_router_has_a_timelocked_upgrade_path() {
 // also the whole danger — Soroban's per-transaction limits are hard, and a path that fits locally
 // but not on mainnet is a path that simply does not exist for users.
 //
-// These are mainnet's published caps, not testnet's.
-const MAINNET_INSTRUCTIONS: i64 = 600_000_000;
+// ## Read these numbers with the right amount of suspicion
+//
+// The binding limit for this stack is **memory, not instructions** — measured on chain, the busiest
+// router path uses ~16% of the 400M instruction budget, while `buy_yt_with_usdc` fails on the 40MB
+// memory budget at *every* trade size, down to 0.005 USDC of face. Soroban's memory budget is
+// **cumulative**, not a high-water mark: every host allocation and every module instantiation
+// spends it and nothing is ever given back. So two operations that each fit can still sum past it.
+//
+// And the memory figures below are the least trustworthy thing in this file, because the local
+// `BlendFixture` is far lighter than the deployed pool. Treat them as a regression tripwire — "did
+// this path get dramatically worse?" — never as evidence that a path fits on a real network. Only
+// a simulation against the target network can tell you that.
+//
+// Read from the live network's `ConfigSettingContractComputeV0` on 2026-08-25, not copied from a
+// blog post: `txMaxInstructions = 400_000_000`, `txMemoryLimit = 41_943_040`. The 600M figure this
+// file previously used was simply wrong, and being wrong in the *permissive* direction is the worst
+// kind — it would have let a genuinely over-budget path pass here.
+const MAINNET_INSTRUCTIONS: i64 = 400_000_000;
 const MAINNET_MEM_BYTES: i64 = 41_943_040;
 const MAINNET_WRITE_ENTRIES: u32 = 50;
 const MAINNET_LEDGER_ENTRIES: u32 = 100;

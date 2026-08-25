@@ -12,10 +12,12 @@ import { SR_DEPLOYED } from '@/lib/config';
 import {
   getExchangeRate,
   getPortfolio,
+  getMaxRedeemable,
   srToUsdc,
   usdcToSr,
   wrapUsdc,
   unwrapSr,
+  unwrapSrPartial,
   fromScalar12,
   type SrPortfolio,
 } from '@/lib/srstack';
@@ -49,10 +51,19 @@ const SrWrapPanel = () => {
   const [amount, setAmount] = useState('');
   const [rate, setRate] = useState<bigint>(10n ** 12n);
   const [portfolio, setPortfolio] = useState<SrPortfolio | null>(null);
+  /**
+   * The venue's exit capacity in SR shares, or null when unconstrained (`tofix.md` #20).
+   *
+   * Worth showing even though it is usually null: when it is not, the alternative is a withdrawal
+   * that reverts with no explanation and no hint at the amount that would have worked.
+   */
+  const [maxRedeemable, setMaxRedeemable] = useState<bigint | null>(null);
 
   const refresh = useCallback(async () => {
     if (!SR_DEPLOYED) return;
-    setRate(await getExchangeRate());
+    const [r, cap] = await Promise.all([getExchangeRate(), getMaxRedeemable()]);
+    setRate(r);
+    setMaxRedeemable(cap);
     if (address) setPortfolio(await getPortfolio(address));
   }, [address]);
 
@@ -75,10 +86,25 @@ const SrWrapPanel = () => {
       : srToUsdc(toBaseUnits(amount), rate)
     : 0n;
 
+  // True when this withdrawal is larger than the venue can currently pay.
+  const units = amountValid ? toBaseUnits(amount) : 0n;
+  const crunched = mode === 'unwrap' && maxRedeemable !== null && units > maxRedeemable;
+
   const onSubmit = async () => {
     if (!address || !amountValid) return;
-    await run(mode === 'wrap' ? 'Wrapping USDC into SR' : 'Unwrapping SR into USDC', () =>
-      mode === 'wrap' ? wrapUsdc(address, amount) : unwrapSr(address, toBaseUnits(amount)),
+    await run(
+      mode === 'wrap'
+        ? 'Wrapping USDC into SR'
+        : crunched
+          ? 'Withdrawing what the pool can pay'
+          : 'Unwrapping SR into USDC',
+      () =>
+        mode === 'wrap'
+          ? wrapUsdc(address, amount)
+          : // All-or-nothing would revert here and leave the user with nothing. Take what is there.
+            crunched
+            ? unwrapSrPartial(address, units)
+            : unwrapSr(address, units),
     );
     setAmount('');
     void refresh();
@@ -175,9 +201,17 @@ const SrWrapPanel = () => {
               Worth {fmtTok(parsed)} USDC today, and more every ledger after that.
             </p>
           )}
-          {mode === 'unwrap' && (
+          {mode === 'unwrap' && !crunched && (
             <p className="mt-2 text-xs text-muted-foreground">
               No maturity gate — unwrapping stays open even if deposits are paused.
+            </p>
+          )}
+          {crunched && (
+            <p className="mt-2 text-xs text-amber-500">
+              The lending pool cannot pay that much right now — borrowers have drawn down its
+              supply. This will withdraw about{' '}
+              {fmtTok(fromBaseUnits(srToUsdc(maxRedeemable ?? 0n, rate)))} USDC and leave the rest of
+              your position intact, claimable as liquidity returns.
             </p>
           )}
         </div>
@@ -217,7 +251,7 @@ const SrWrapPanel = () => {
               disabled={busy || !amountValid || overBalance}
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
-              {mode === 'wrap' ? 'Wrap into SR' : 'Unwrap to USDC'}
+              {mode === 'wrap' ? 'Wrap into SR' : crunched ? 'Withdraw what is available' : 'Unwrap to USDC'}
             </Button>
           )}
         </div>

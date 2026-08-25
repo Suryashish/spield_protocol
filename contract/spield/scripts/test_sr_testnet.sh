@@ -419,6 +419,28 @@ chk "USDC landed with the user directly" "$(( $(usdc "$BOB") - SY_USDC_BEFORE ))
 gt "yield still claimable after selling YT" "$(v "$BOB" "$SRROUTER" quote_claim_yield --user "$B")" "-1"
 fi
 
+hdr "13b. Exit liquidity is visible before you submit (tofix #20)"
+# The freeze mode that has nothing to do with solvency: borrowers take the venue's supply and
+# withdrawals revert. These views are what turn that from a bare revert into a number a user can act
+# on. They only exist after the SR upgrade that added them, so treat their absence as a skip.
+SR_CAP=$(v "$ALICE" "$SR" max_redeemable)
+if [ -z "$SR_CAP" ]; then
+  echo "  (this SR deployment predates max_redeemable — skipping)"
+else
+  echo "  max_redeemable = $SR_CAP SR shares"
+  AVAIL=$(v "$ALICE" "$STRATEGY" available_liquidity)
+  echo "  venue available_liquidity = $AVAIL underlying"
+  gt "the venue reports its liquidity" "${AVAIL:-0}" "0"
+  # i128::MAX means "no constraint at all", which is the healthy case and must not read as an error.
+  if [ "$SR_CAP" = "170141183460469231731687303715884105727" ]; then
+    ok "liquidity covers every share — no exit constraint (the healthy reading)"
+  else
+    gt "a constrained cap is still positive and actionable" "$SR_CAP" "0"
+  fi
+  # The TVL cap from tofix #3 lives on the same contract; check it reads back too.
+  echo "  deposit_cap = $(v "$ALICE" "$SR" deposit_cap)  total_assets = $(v "$ALICE" "$SR" total_assets)"
+fi
+
 hdr "14. INVARIANT: the router is never a custodian"
 # Asserted on chain by `assert_drained` after every entry point, but worth confirming from outside:
 # a router holding value between transactions is a router that can be drained by whoever trades next.

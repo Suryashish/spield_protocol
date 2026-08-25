@@ -29,6 +29,7 @@ import VaultStatsStrip from '@/components/dashboard/sections/VaultStatsStrip';
 import ReceiptsPanel from '@/components/dashboard/sections/ReceiptsPanel';
 import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
+import RiskDisclosure from '@/components/dashboard/sections/RiskDisclosure';
 import MarketChart from '@/components/dashboard/sections/MarketChart';
 import TradePanel from '@/components/dashboard/sections/TradePanel';
 import SrTradePanel from '@/components/dashboard/sections/SrTradePanel';
@@ -242,6 +243,10 @@ const LiquiditySection = () => (
 const SolvencySection = () => (
   <div className="space-y-6">
     <SolvencyCard />
+    {/* Solvency proof and risk disclosure belong on the same page: one says what holds today, the
+        other says what would break it. Showing the first without the second is the shape of most
+        DeFi dashboards, and it is why people are surprised later. */}
+    <RiskDisclosure />
     <WhySolvency />
   </div>
 );

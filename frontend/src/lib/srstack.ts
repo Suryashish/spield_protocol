@@ -806,3 +806,70 @@ export const solveYtFaceForUsdc = async (usdcBudget: bigint): Promise<bigint> =>
   }
   return best;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The launch TVL cap (tofix.md #3)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// #3 accepts a residual — a deep Blend bad-debt event freezes withdrawals — and mitigates it by
+// bounding total exposure. The cap is enforced in `Sr::deposit` rather than in a runbook, and it
+// gates deposits ONLY: no cap setting can ever block a withdrawal.
+
+const srRead = async (fn: string, fallback: bigint): Promise<bigint> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return fallback;
+  try {
+    return toBig(await readContract(SR_CONTRACTS.sr, fn, []));
+  } catch {
+    // An older deployment predates the cap. Report "uncapped" rather than throwing — but note the
+    // UI says "no cap is set", which is the truthful reading either way.
+    return fallback;
+  }
+};
+
+/** The TVL cap in USDC base units. `0n` means uncapped. */
+export const getDepositCap = () => srRead('deposit_cap', 0n);
+/** Underlying currently deployed through the wrapper — what the cap is measured against. */
+export const getTotalAssets = () => srRead('total_assets', 0n);
+/** Underlying that can still be deposited before the cap bites. */
+export const getDepositHeadroom = () => srRead('deposit_headroom', 0n);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exit liquidity (tofix.md #20)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A withdrawal can fail for a reason that has nothing to do with solvency: borrowers have taken the
+// venue's supply and there is nothing on hand to pay with. Until now that surfaced as a bare
+// revert. These two let the UI say "you can take out X right now" instead, and let the user take
+// that X rather than nothing.
+
+/** The largest redemption that can succeed right now, in SR shares. `null` when unconstrained. */
+export const getMaxRedeemable = async (): Promise<bigint | null> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return null;
+  try {
+    const v = toBig(await readContract(SR_CONTRACTS.sr, 'max_redeemable', []));
+    // The contract returns i128::MAX to mean "no constraint at all". Normalise that to null so
+    // callers do not have to know the sentinel.
+    return v >= (2n ** 127n - 1n) ? null : v;
+  } catch {
+    // An older deployment predates the view. Unknown, not zero — reporting zero would tell the user
+    // they cannot withdraw at all, which is a far worse error than saying nothing.
+    return null;
+  }
+};
+
+/**
+ * Redeem up to `srShares`, taking whatever the venue can actually pay.
+ *
+ * Use this in preference to {@link unwrapSr} whenever {@link getMaxRedeemable} reports a constraint:
+ * the plain redeem is all-or-nothing, so during a crunch it returns the user nothing at all.
+ * `srShares` is a ceiling — burning fewer than authorized can only leave the user better off.
+ */
+export const unwrapSrPartial = (wallet: string, srShares: bigint): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.sr, 'redeem_partial', [
+    addr(wallet),
+    addr(wallet),
+    i128(srShares),
+    i128(0n),
+  ]);
+};

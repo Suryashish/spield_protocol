@@ -17,6 +17,16 @@ pub enum DataKey {
     /// Highest exchange rate ever observed. SR's rate is monotonic **by contract**, even if the
     /// strategy's own rate dips — see `Sr::exchange_rate`.
     RateHighWater,
+    /// Launch TVL cap, in underlying. `0` = uncapped. See `Sr::set_deposit_cap`.
+    DepositCap,
+}
+
+/// The TVL cap in underlying units. `0` means uncapped.
+pub fn deposit_cap(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::DepositCap).unwrap_or(0)
+}
+pub fn set_deposit_cap(env: &Env, v: i128) {
+    env.storage().instance().set(&DataKey::DepositCap, &v);
 }
 
 pub fn bump_instance(env: &Env) {

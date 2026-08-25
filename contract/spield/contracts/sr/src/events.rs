@@ -90,3 +90,12 @@ pub fn transferred(env: &Env, from: &Address, to: &Address, amount: i128) {
 pub fn rate_clamped(env: &Env, live: i128, high_water: i128) {
     RateClamped { live, high_water }.publish(env);
 }
+
+#[contractevent(topics = ["sr", "deposit_cap"])]
+pub struct DepositCapSet {
+    pub cap: i128,
+}
+
+pub fn deposit_cap_set(env: &Env, cap: i128) {
+    DepositCapSet { cap }.publish(env);
+}

@@ -60,6 +60,15 @@ USDC_ASSET="${USDC_ASSET:-USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOP
 # Defence-in-depth ceiling on b_rate growth (300% APR). Set generously above Blend's real max.
 MAX_APR_BPS="${MAX_APR_BPS:-30000}"
 
+# ─── Launch TVL cap (`tofix.md` #3) ──────────────────────────────────────────────────────────────
+# #3 accepts a real residual — a deep Blend bad-debt event freezes every mutation, exits included —
+# and mitigates it by bounding the worst case. The tracker specified that bound as an *operational*
+# control; it is enforced on chain instead, because a cap that lives in a runbook is not a cap.
+#
+# In UNDERLYING base units. 0 = uncapped. Gates deposits only: `redeem` never consults it, so this
+# can never trap anyone. SET THIS BEFORE SEEDING MAINNET.
+SR_DEPOSIT_CAP="${SR_DEPOSIT_CAP:-0}"
+
 # ─── Series parameters ───────────────────────────────────────────────────────────────────────────
 MATURITY_DAYS="${MATURITY_DAYS:-90}"
 EXPIRY="${EXPIRY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
@@ -270,6 +279,11 @@ if [ -n "$DEPLOY_COMPLETE" ]; then
 fi
 
 [ -z "$SAVED_EXPIRY" ] && save_state SAVED_EXPIRY "$EXPIRY"
+# Record the external dependencies too, so downstream tooling reads them from the deployment record
+# rather than re-deriving them from its own defaults. The solvency monitor's Blend utilization probe
+# (`tofix.md` #20) needs both, and a monitor pointed at the wrong pool is worse than no monitor.
+save_state BLEND_POOL "$BLEND_POOL"
+save_state USDC_SAC "$USDC_SAC"
 
 # ─── [1/9] Build ─────────────────────────────────────────────────────────────────────────────────
 echo "==> [1/9] Building + optimizing WASMs..."
@@ -323,6 +337,17 @@ if [ -z "$SR_INIT" ]; then
   invoke_retry "$SR" initialize --strategy "$STRATEGY"
   save_state SR_INIT 1; echo "    ✓ SR initialized"
 else echo "    SR already initialized — skipping."; fi
+
+# Apply the TVL cap on every run, not just the first: it is the one parameter an operator is most
+# likely to want to change between runs, and re-reading it from the environment each time makes the
+# script the single source of truth for it.
+if [ "${SR_DEPOSIT_CAP}" != "0" ]; then
+  echo "    setting the launch TVL cap to $SR_DEPOSIT_CAP underlying base units..."
+  invoke_retry "$SR" set_deposit_cap --cap "$SR_DEPOSIT_CAP"
+  echo "    ✓ cap set (headroom now $(read_view "$SR" deposit_headroom))"
+else
+  echo "    ⚠ SR_DEPOSIT_CAP=0 — the wrapper is UNCAPPED. tofix.md #3 requires a cap before mainnet."
+fi
 
 # ─── [4/9] Yield contract (PT/YT engine + the YT token) ──────────────────────────────────────────
 if [ -z "$YIELD" ]; then

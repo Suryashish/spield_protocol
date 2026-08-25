@@ -41,6 +41,8 @@ An auditor's fastest attack is to find a path that mutates state without passing
 | **I6** | PY index never decreases; frozen at expiry | `Yield::index_current` / `post_expiry_index` | `the_expiry_index_is_stamped_once_and_never_moves` |
 | **I7** | Classic PT supply == `yield.total_py` | **NOT enforceable on chain** — see §5.1 | `sr_solvency_monitor.mjs` check 2 |
 | **I8** | The router's balance of USDC/SR/PT/YT is 0 at the end of every entry point | `srrouter::assert_drained` | `the_router_holds_nothing_after_any_path` |
+| **I9** | A partial exit burns only the shares it redeems, and never more than authorized | `Sr::redeem_partial` | `a_partial_exit_never_exceeds_what_was_asked_for` |
+| **I10** | The TVL cap gates deposits only, never exits | `Sr::deposit` (checked nowhere in `redeem`) | `the_cap_can_never_trap_a_depositor` |
 
 **I7 is the one an auditor should push hardest on.** It is the only invariant with no on-chain
 enforcement, because a classic-asset issuer can mint outside the contract entirely.
@@ -107,6 +109,22 @@ the other side, `redirecting_someone_elses_yield_requires_their_signature` in th
 
 **Please attack this specifically.** It is the newest privileged path in the engine.
 
+### Two newer surfaces worth the same scrutiny
+
+**`Sr::redeem_partial` (`tofix.md` #20).** Clamps a redemption to what the venue can pay rather than
+reverting. Its safety rests on `shares` being a *ceiling* — burning fewer than authorized can only
+leave the user better off — and on `min_underlying_out` still applying to what is actually paid, so
+a user can refuse a partial fill. The clamp itself comes from `available_liquidity()`, which is an
+**upper** bound (Blend also refuses withdrawals that breach its utilization ceiling), so a 1%
+haircut is taken. *We already got this wrong once*: the first version applied the haircut
+unconditionally and thereby capped every redemption at 99% of the position, on healthy venues too.
+Please check the boundary conditions rather than the happy path.
+
+**`Sr::set_deposit_cap` (`tofix.md` #3).** The one new admin power. It is deliberately weak — it
+gates `deposit` and is read nowhere in `redeem`, so no setting of it can trap a depositor, and the
+worst an admin can do with it is what `pause` already allows. Confirm there is no path by which it
+reaches an exit.
+
 ### Where we would look next if we were the auditor
 
 1. **The `settle` early-return.** `if ui.index == index { return 0 }`. Is there any way to make a
@@ -132,7 +150,7 @@ fixed with a regression test; each is a category worth re-checking elsewhere.
 | 2 | `strategy::current_rate` wrote its RateBound only *conditionally*, so the transaction footprint depended on wall-clock timing between simulate and execute | **Any conditional write on a read path.** Fixed by making it unconditional and making `Sr::exchange_rate` a pure read. |
 | 3 | Frontend `setupTrustlines` added v1's PT+YT for a v2 flow | **Asset identity reconstructed rather than recorded.** |
 | 4 | A test-harness retry keyed on *empty output*, so a successful void-returning `transfer` was resubmitted and moved funds twice | **Retry logic keyed on output rather than exit status.** Called out because the same mistake in a frontend retry double-spends real funds. |
-| 5 | `srrouter::buy_yt_with_usdc` fits the mainnet caps against the local Blend fixture and **fails on chain** with `Error(Budget, ExceededLimit)` | **Transaction budget measured against a fixture rather than the real pool.** Each leg succeeds alone; the combination does not. Four rounds of slimming did not close it. |
+| 5 | `srrouter::buy_yt_with_usdc` fits the caps against the local Blend fixture and **fails on chain** at every trade size | **Budget measured against a fixture, and against the wrong limit.** CPU turned out to be at 16% of a 400M cap; the binding limit is the 40MB *cumulative* memory budget, dominated by Blend. Our own test constant said 600M instructions — wrong, and wrong permissively. |
 | 6 | A resumed deploy aborted with "the issuer is NOT locked", naming an account that had never issued anything — the lockdown burns the issuer identity, so the key name was regenerated and no longer resolved to the real issuer | **Asset identity reconstructed from parts instead of read from where it was recorded.** Same class as #3, one layer up. Fail-closed behaviour was correct; the account it checked was not. |
 
 `mock_all_auths()` hides category 1 entirely, a single-ledger test host hides category 2, and a
@@ -162,7 +180,14 @@ check 2 is the compensating control, and it caught the counterfeit to the stroop
 
 ### 5.2 The `strategy` change is not byte-identical to the audited v1 build
 
-Three lines: the RateBound write became unconditional. Our argument that this is safe:
+**Two changes now, not one.** The second is purely additive: `available_liquidity()` returns the
+venue's own token balance and is called by nothing in v1 — it exists so `Sr::max_redeemable` can
+size a partial exit (`tofix.md` #20). It reads one balance, writes nothing, and touches no existing
+code path. It does mean the deployed v1 strategy and this source tree have now diverged twice, and
+that a v1 redeploy would be needed for v1 to see either.
+
+The first change is three lines: the RateBound write became unconditional. Our argument that this is
+safe:
 
 > The old guard could only be false when `rate <= last_rate && now <= last_ts`. Ledger timestamps
 > are non-decreasing and `last_ts` was a past `now`, so `now <= last_ts` implies `now == last_ts` —

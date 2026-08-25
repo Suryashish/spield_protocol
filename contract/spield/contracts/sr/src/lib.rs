@@ -65,6 +65,14 @@ use spield_shared::{
 /// SR carries the underlying's decimals (USDC = 7) so wallets show sane numbers.
 const DECIMALS: u32 = 7;
 
+/// Safety margin taken off the venue's reported liquidity before sizing a partial exit.
+///
+/// The venue's token balance is an **upper** bound on what it will pay: Blend also refuses
+/// withdrawals that would push utilization past its ceiling, and its own accounting rounds. 1% is
+/// generous next to either. The asymmetry is what sets it — being wrong low costs a user one extra
+/// transaction; being wrong high costs them a revert and the information they came for.
+const LIQUIDITY_HAIRCUT_BPS: i128 = 100;
+
 #[contract]
 pub struct Sr;
 
@@ -134,6 +142,31 @@ impl Sr {
             panic_with_error!(&env, Error::DustAmount);
         }
 
+        // ── The launch TVL cap (`tofix.md` #3) ──────────────────────────────────────────────────
+        //
+        // #3 accepts a real residual: a deep Blend bad-debt event leaves backing below principal, and
+        // every mutation then refuses — withdrawals included — until it recovers. The agreed
+        // mitigation is a TVL cap that bounds the worst case to a number that can be absorbed or
+        // made whole off-protocol.
+        //
+        // That mitigation was written down as *operational*: "decide the number, write it down,
+        // enforce it operationally". A cap that lives in a runbook is not a cap. It is enforced here
+        // instead, so exceeding it is impossible rather than merely against policy.
+        //
+        // Checked against assets already deployed, not against SR supply, because the cap bounds the
+        // **loss** — and the loss is denominated in the underlying a depositor could fail to get back.
+        // Growth from yield is deliberately NOT counted as new exposure: it is the users' own return,
+        // and letting it consume headroom would slowly close deposits on a healthy protocol.
+        let cap = storage::deposit_cap(&env);
+        if cap > 0 {
+            let principal_after = math::shares_to_underlying(&env, tok::total_supply(&env), rate)
+                .unwrap_or_else(|e| panic_with_error!(&env, e))
+                + amount;
+            if principal_after > cap {
+                panic_with_error!(&env, Error::DepositCapExceeded);
+            }
+        }
+
         token::Client::new(&env, &underlying).transfer(&from, &me, &amount);
         Self::approve_strategy_pull(&env, &underlying, &strategy_addr, amount);
         let shares = strategy.deposit(&me, &amount);
@@ -185,6 +218,102 @@ impl Sr {
         }
         events::redeemed(&env, &from, &receiver, shares, out);
         out
+    }
+
+    /// **The largest redemption that can succeed right now**, in SR shares (`tofix.md` #20).
+    ///
+    /// Exits do not only fail when the protocol is insolvent. They fail — far more often — because
+    /// borrowers have taken the venue's supply and there is nothing on hand to pay with. Before
+    /// this, that produced a bare revert: no way to find out in advance, and no way to discover the
+    /// smaller amount that would have worked.
+    ///
+    /// `i128::MAX` when liquidity comfortably covers everything, so the common case needs no
+    /// special handling in callers.
+    ///
+    /// **This is an estimate, and deliberately a conservative one.** The venue's balance is an upper
+    /// bound on what it can pay — Blend additionally refuses withdrawals that would push utilization
+    /// past its ceiling — so [`LIQUIDITY_HAIRCUT_BPS`] is taken off before converting to shares.
+    /// Being wrong low costs a user a second transaction; being wrong high costs them a revert.
+    pub fn max_redeemable(env: Env) -> i128 {
+        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
+        let avail = strategy.available_liquidity();
+        if avail <= 0 {
+            return 0;
+        }
+        // No crunch at all: the venue can cover every share this wrapper has issued, so there is
+        // nothing to clamp and nothing to be conservative about.
+        //
+        // This early return is load-bearing, not an optimization. Applying the haircut
+        // unconditionally would cap every redemption at 99% of the position — meaning a user could
+        // never fully exit through this path even on a completely healthy venue. Caught by
+        // `max_redeemable_is_unbounded_when_liquidity_is_healthy`.
+        if avail >= Self::total_assets(env.clone()) {
+            return i128::MAX;
+        }
+        let usable = avail - (avail * LIQUIDITY_HAIRCUT_BPS / 10_000);
+        if usable <= 0 {
+            return 0;
+        }
+        let rate = storage::rate_high_water(&env);
+        math::underlying_to_shares(&env, usable, rate).unwrap_or(0)
+    }
+
+    /// **Redeem up to `shares`, taking whatever the venue can actually pay.**
+    ///
+    /// The plain [`Self::redeem`] is all-or-nothing: ask for more than the venue holds and the whole
+    /// transaction reverts, leaving the user with nothing and no information. During a liquidity
+    /// crunch — the *likely* failure mode, not the exotic one — that is the difference between
+    /// getting most of your money out and getting none of it.
+    ///
+    /// So this clamps to what is available and burns only the shares it actually redeems. The rest
+    /// of the position stays untouched and can be withdrawn as liquidity returns.
+    ///
+    /// Returns `(shares_burned, underlying_paid)`.
+    ///
+    /// ## Why clamping here is safe to authorize
+    ///
+    /// `shares` is the user's **ceiling**, not a computed figure — the same shape as every other
+    /// amount a wallet signs in this codebase. Burning fewer than authorized can only ever leave the
+    /// user with more than they asked to give up.
+    ///
+    /// `min_underlying_out` still applies to what is actually paid, so a user who would rather fail
+    /// than take a partial fill sets it to the full amount and gets exactly today's behaviour.
+    pub fn redeem_partial(
+        env: Env,
+        from: Address,
+        receiver: Address,
+        shares: i128,
+        min_underlying_out: i128,
+    ) -> (i128, i128) {
+        Self::ensure_initialized(&env); // an exit — open while paused
+        from.require_auth();
+        if shares <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let bal = tok::balance(&env, &from);
+        if bal < shares {
+            panic_with_error!(&env, Error::InsufficientBalance);
+        }
+
+        let capacity = Self::max_redeemable(env.clone());
+        let take = if shares < capacity { shares } else { capacity };
+        if take <= 0 {
+            // Nothing is withdrawable at all. Fail loudly rather than returning (0, 0), which a
+            // caller could easily mistake for success.
+            panic_with_error!(&env, Error::WithdrawShortfall);
+        }
+
+        Self::burn_internal(&env, &from, take);
+        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
+        let out = strategy.redeem(&receiver, &take);
+        if out <= 0 {
+            panic_with_error!(&env, Error::WithdrawShortfall);
+        }
+        if out < min_underlying_out {
+            panic_with_error!(&env, Error::MinOutNotMet);
+        }
+        events::redeemed(&env, &from, &receiver, take, out);
+        (take, out)
     }
 
     /// Underlying per 1e12 SR (SCALAR_12) — **the** yield oracle for everything above.
@@ -325,6 +454,43 @@ impl Sr {
     }
 
     // ================= admin =================
+
+    /// Set the TVL cap, in underlying units. `0` lifts it.
+    ///
+    /// **This gates deposits only.** `redeem` never consults it, so lowering the cap — or setting one
+    /// below current TVL — can never trap a user. That is the whole reason it is safe to hand an
+    /// admin: the worst they can do with it is stop new money coming in, which they can already do
+    /// with `pause`.
+    pub fn set_deposit_cap(env: Env, cap: i128) {
+        storage::get_admin(&env).require_auth();
+        if cap < 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        storage::set_deposit_cap(&env, cap);
+        storage::bump_instance(&env);
+        events::deposit_cap_set(&env, cap);
+    }
+
+    /// The current TVL cap in underlying. `0` = uncapped.
+    pub fn deposit_cap(env: Env) -> i128 {
+        storage::deposit_cap(&env)
+    }
+
+    /// Underlying currently deployed through this wrapper — what the cap is measured against.
+    pub fn total_assets(env: Env) -> i128 {
+        math::shares_to_underlying(&env, tok::total_supply(&env), storage::rate_high_water(&env))
+            .unwrap_or(0)
+    }
+
+    /// Underlying that could still be deposited before the cap bites. `i128::MAX` when uncapped.
+    pub fn deposit_headroom(env: Env) -> i128 {
+        let cap = storage::deposit_cap(&env);
+        if cap == 0 {
+            return i128::MAX;
+        }
+        let used = Self::total_assets(env.clone());
+        if used >= cap { 0 } else { cap - used }
+    }
 
     pub fn pause(env: Env) {
         storage::get_admin(&env).require_auth();

@@ -130,4 +130,6 @@ pub enum Error {
     MinOutNotMet = 105,
     /// An SR/PY amount rounded to zero — refuse rather than mint or burn nothing for something.
     DustAmount = 106,
+    /// A deposit would push deployed assets past the configured launch TVL cap (`tofix.md` #3).
+    DepositCapExceeded = 107,
 }

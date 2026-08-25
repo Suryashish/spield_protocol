@@ -17,7 +17,7 @@ Explorer:           https://stellar.expert/explorer/testnet
 | **Yield engine** — *this is also the YT token* | `CDR4LNBYRPNCKXVMJEJ3XMSGEBRLABDSNBY5W327LT2E65MCCWFHS5ZB` |
 | **PT/SR Market** | `CAFY2E5GSDNGL3UCYP7JZ2VZHVR2VHAVX5J3M7SBMA4KZUHRFHV4A74Z` |
 | **Fixed-Rate Vault** | `CAHWXX7DQKAJ733SL7U7IHDG5JHGKIW74JN23AY2WQDESQSV4BW2VBHV` |
-| **SR Router** | `CAEE2RSCFWRCZ7AZ4TWBRGLXMJAX2N4DZGPJBBAAU3P6KY6NTIS3OADO` |
+| **SR Router** | `CDXTGSSWYYI3D4YIOJJ32FVWZAE3QRABSDJ2OFEESO3UMG73BV4DI6IT` |
 | **PT SAC** | `CCEJSM4TFAKQ4F5XCMRRRAFHT2DYAXXX5IZMK4MX4SH6M4VT5ZO75S3K` |
 | PT classic asset | `SPLDPT5:GCCDH7PSRAB6SKZPKBGTJYKKUCPSR3SNI3GCCFLTHR2Z6E6ASN5EEAYX` |
 | USDC SAC (Blend's testnet USDC) | `CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU` |
@@ -284,3 +284,20 @@ disturbs no balances.
 5. ~~No fixed-rate vault~~ — v2 has no equivalent of v1's flagship product.
 6. ~~The `strategy` change~~ in fix #2 means the v2 strategy is no longer byte-identical to the audited
    v1 one. The diff is three lines and is documented in place, but it needs re-review.
+
+
+---
+
+## Known testnet artifacts — expected, not bugs
+
+Two things this deployment reports that would be alarming on mainnet and are deliberate here:
+
+* **`PT COUNTERFEIT: ... exceeds engine total_py by 11`.** Those 11 base units are the counterfeit PT
+  minted **on purpose** during the issuer-lockdown rehearsal, to prove the hole was real before
+  closing it. The monitor catching them to the stroop is the rehearsal's result, not a new problem.
+  A fresh deployment starts clean.
+
+* **`BLEND UTILIZATION 85.4%`.** Blend's testnet USDC reserve genuinely sits near its ceiling. This
+  is `tofix.md` #20's condition occurring naturally, which is the best argument for why
+  `Sr::redeem_partial` exists: at this utilization a large withdrawal reverts, and the partial path
+  turns that into a smaller withdrawal that succeeds.

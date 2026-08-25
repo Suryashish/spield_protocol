@@ -92,6 +92,12 @@ const CFG = {
   tolerance: BigInt(arg('tolerance', '100')),
   once: has('once'),
   webhook: arg('webhook', null),
+  // The Blend pool and its reserve asset, for the exit-liquidity probe (`tofix.md` #20).
+  pool: arg('pool', st.BLEND_POOL ?? null),
+  underlying: arg('underlying', st.USDC_SAC ?? null),
+  // Warn above this utilization, in percent. Blend's own ceiling is 95%; exits get unreliable well
+  // before that, and a watchtower that only fires AT the cliff gives operators no time to react.
+  utilWarn: Number(arg('util-warn', '85')),
 };
 
 for (const k of ['yield', 'market', 'sr', 'pt']) {
@@ -172,6 +178,7 @@ let prevTreasury = null;
 async function poll() {
   const problems = [];
   const warnings = [];
+  let blendUtil = null;
 
   const [solv, totalPy, totalAccrued, index, ytSupply, reserves, ptSupply] = await Promise.all([
     read(CFG.yield, 'solvency'),
@@ -242,14 +249,50 @@ async function poll() {
   }
   prevIndex = idx;
 
-  // 6. TREASURY MONOTONIC — revenue is cumulative; a fall means an unexpected outflow path.
+  // 6. BLEND EXIT LIQUIDITY (`tofix.md` #20)
+  //
+  // This is the check that catches the *more likely* of the two freeze modes. Backing can be
+  // perfectly intact and exits still fail, because withdrawing requires Blend to have free
+  // liquidity — if borrowers have taken the supply, `Sr::redeem` reverts and there is no partial
+  // path. Nothing on chain warns about this in advance, and no other probe here would notice: the
+  // solvency numbers look healthy right up to the moment nobody can leave.
+  //
+  // Warning rather than alarming, deliberately. High utilization is a normal state for a lending
+  // market, not a breach — it means "exits are getting unreliable, watch this", and paging on it
+  // would train operators to ignore the page. `Sr::redeem_partial` means a crunch degrades a
+  // withdrawal rather than blocking it, which is what makes a warning the right severity.
+  if (CFG.pool && CFG.underlying) {
+    try {
+      const r = await read(CFG.pool, 'get_reserve', [new Contract(CFG.underlying).address().toScVal()]);
+      // Blend's reserve exposes supplied/borrowed totals; utilization is the ratio.
+      const supplied = big(r?.data?.b_supply ?? r?.b_supply ?? 0n);
+      const borrowed = big(r?.data?.d_supply ?? r?.d_supply ?? 0n);
+      if (supplied > 0n) {
+        const utilPct = Number((borrowed * 10000n) / supplied) / 100;
+        const freeShare = 100 - utilPct;
+        if (utilPct >= CFG.utilWarn) {
+          warnings.push(
+            `BLEND UTILIZATION ${utilPct.toFixed(1)}% (warn at ${CFG.utilWarn}%) — only ${freeShare.toFixed(1)}% ` +
+            `of supply is free. Large exits through Sr::redeem will revert; users should be routed to ` +
+            `Sr::redeem_partial, and Sr::max_redeemable() is the amount that will actually succeed.`,
+          );
+        } else {
+          blendUtil = utilPct;
+        }
+      }
+    } catch (e) {
+      warnings.push(`blend utilization probe unavailable: ${String(e?.message ?? e).split('\n')[0]}`);
+    }
+  }
+
+  // 7. TREASURY MONOTONIC — revenue is cumulative; a fall means an unexpected outflow path.
   const treasury = big(await read(CFG.market, 'treasury_earned').catch(() => 0n));
   if (prevTreasury !== null && treasury < prevTreasury) {
     problems.push(`TREASURY WENT BACKWARDS: ${prevTreasury} -> ${treasury}`);
   }
   prevTreasury = treasury;
 
-  return { problems, warnings, held, needed, surplus, py, accrued, idx, yt, ptSupply, ptRes, srRes, treasury };
+  return { problems, warnings, held, needed, surplus, py, accrued, idx, yt, ptSupply, ptRes, srRes, treasury, blendUtil };
 }
 
 // ---------------------------------------------------------------- run

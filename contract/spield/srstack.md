@@ -67,48 +67,75 @@ Three properties make it safe to put in front of everything:
    unchanged and directly callable. Pausing the router removes convenience, never access — which is
    what makes it safe to pause on suspicion rather than on proof.
 
-### The one path that does not fit — measured, not assumed
+### The one path that does not fit — diagnosed on chain
 
-`buy_yt_with_usdc` is correct, fully tested, and **cannot execute against Blend's testnet pool**.
-Verified on chain 2026-08-25:
+`buy_yt_with_usdc` is correct, fully tested, and **cannot execute against Blend's deployed pool**.
+It is worth writing down exactly why, because the first three explanations were wrong.
+
+**What fails:**
 
 ```
-srmarket::buy_yt_exact_out(300000000 YT)   →  Success, sr_amount 4451632
-sr::deposit(1000000 USDC)                  →  Success, shares_out  947027
-srrouter::buy_yt_with_usdc(both together)  →  Error(Budget, ExceededLimit)
+srmarket::buy_yt_exact_out   →  Success            sr::deposit  →  Success
+both in one transaction      →  Error(Budget, ExceededLimit)
 ```
 
-Each leg is comfortable alone. Together they are not, and it is not marginal — three successive
-rounds of slimming failed to close it:
+**It is not trade size.** Simulated down the whole range — 20,000,000 face to 50,000 face, the
+latter being half a cent of exposure — every size fails identically. The cost is fixed overhead.
 
-| attempt | result |
+**It is not instructions.** Read from the network's own `ConfigSettingContractComputeV0`:
+
+```
+txMaxInstructions   400,000,000
+txMemoryLimit        41,943,040
+```
+
+Measured on chain, the busiest router path that *works* (`sell_yt_for_usdc`) uses 64.5M
+instructions — **16% of the CPU budget**. There is no CPU problem, and the several rounds of
+instruction-shaving that preceded this measurement were aimed at the wrong resource entirely.
+
+**It is memory, and memory is cumulative.** Soroban's memory budget is not a high-water mark: every
+host allocation, module instantiation and ledger read spends it and nothing is returned. So two
+operations that each fit comfortably can still sum past 40MB — which is precisely what a Blend
+`submit()` plus a `mint_py`-bearing curve trade do.
+
+Where the work goes, measured on chain:
+
+| call | instructions |
 |---|---|
-| wrap the full ceiling, unwrap the refund (two Blend round trips) | over budget |
-| wrap only what the quote needs, refund the rest as USDC (one Blend call) | over budget |
-| move pricing off chain entirely, so the router makes no view calls of its own | over budget |
-| drop even the PT read from the drain check | over budget |
+| `market.quote_buy_yt` (curve math alone) | 22.3M |
+| `market.buy_yt_exact_out` | 55.6M |
+| `market.swap_exact_sr_for_pt` | 34.9M |
+| `yield.mint_py` | 16.2M |
+| `sr.sync_rate` | 7.5M |
+| `strategy.current_rate` (a Blend read) | 5.5M |
+| `sr.deposit` | 11.5M |
 
-A Blend supply plus a `mint_py`-bearing curve trade is more than one Soroban transaction holds
-against a pool of that weight. This is a property of the **underlying pool**, not of the router: a
-lighter pool or a higher limit would run it, which is why the entry point stays rather than being
-deleted.
+The dominant memory consumer is Blend's own pool contract, which we do not control and cannot slim.
+Removing the router's drain check did not help; neither did moving pricing off chain or eliminating
+a second Blend round trip. **This is a limit of the underlying pool, not of anything in this repo.**
 
 So the dApp buys YT in **two transactions** — wrap the shortfall, then `buy_yt_exact_out` — and says
-so before the first wallet prompt. A user who already holds enough SR gets one signature. Every
-other router path fits comfortably and is used:
+so before the first wallet prompt. Note this is not a consolation prize: **a user who already holds
+SR buys YT in one signature today**, because only the Blend leg is the problem. That is a real
+argument for holding SR, which is why the wrapper has its own section.
 
-| path | instructions | memory | ledger entries |
-|---|---|---|---|
-| `buy_pt_with_usdc` | 2.5% | 12.4% | 48/100 |
-| `sell_pt_for_usdc` | 2.4% | 9.2% | 43/100 |
-| `sell_yt_for_usdc` | 3.0% | 19.1% | 54/100 |
-| `claim_yield_to_usdc` | 0.9% | 10.6% | 40/100 |
-| `redeem_py_for_usdc` | 1.0% | 10.5% | 37/100 |
+The entry point stays in the contract rather than being deleted: it is correct, tested, and a
+lighter yield source would run it unchanged.
 
-The general lesson is worth stating plainly, because the local suite could not see it: **a path that
-fits against a test fixture has not been shown to fit against the real pool.** The local Blend
-harness is dramatically lighter than the deployed one, and every measurement above the line was
-taken on chain for that reason.
+Every other router path fits with room, measured on chain:
+
+| path | instructions | % of the 400M budget |
+|---|---|---|
+| `sell_yt_for_usdc` | 64.5M | 16.1% |
+| `buy_pt_with_usdc` | 49.5M | 12.4% |
+| `sell_pt_for_usdc` | 48.7M | 12.2% |
+| `claim_yield_to_usdc` | 26.1M | 6.5% |
+| `redeem_py_for_usdc` | 25.4M | 6.4% |
+
+**The reusable lesson**, which cost four wrong turns to learn: a resource measurement taken against
+a test fixture is not a bound on the real thing, and *which* limit you are hitting is a fact to read
+off the network, not to infer. The local Blend harness reported this path at 22% of memory. On chain
+it does not run at all.
 
 **Why `buy_yt_with_usdc` is exact-output.** Not a preference — forced. The market derives the YT
 price from the live index, and wallets sign authorization entries built at *simulation*. Put an
@@ -433,13 +460,17 @@ Be clear-eyed about the gap between "works" and "shippable":
    `swapExactTokenForPt` shape. 28 tests, including explicitly-authorized ones that `mock_all_auths`
    cannot see.
 6. **No limit order book.**
-7. ~~No governance surface~~ — **done 2026-08-25.** All three contracts now expose two-step admin
+7. **Exit liquidity is surfaced, not solved.** `Sr::max_redeemable` and `Sr::redeem_partial` let a
+   user see a venue crunch coming and take what is available instead of reverting — but they do not
+   create liquidity. If Blend is fully drawn down, the remainder waits. The vault has no partial
+   path of its own at all.
+8. ~~No governance surface~~ — **done 2026-08-25.** All three contracts now expose two-step admin
    rotation and a bounded 24h upgrade timelock via `spield_shared::governance`, verified on chain
    (see `TESTNET_SR.md`). 14 dedicated tests in `governance_test.rs`.
-8. **Not audited.** New token contracts, a new interest ledger, and a new curve. The single most
+9. **Not audited.** New token contracts, a new interest ledger, and a new curve. The single most
    security-sensitive line in the codebase is now `before_yt_change`, and it has never been reviewed
    by anyone but this test suite.
-9. **The harness's Blend rate is low** (~0.4–1.9%/yr). Every yield figure above is a mechanism check,
+10. **The harness's Blend rate is low** (~0.4–1.9%/yr). Every yield figure above is a mechanism check,
    not a mainnet forecast.
 
 ---

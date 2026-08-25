@@ -280,6 +280,22 @@ impl BlendStrategy {
 
     /// The current `b_rate` sanity bound: `(last_rate, last_ts, max_apr_bps)`. View for monitoring —
     /// lets ops watch the last observed rate/time and the configured annual-growth ceiling.
+    /// **Underlying the pool can actually pay out right now** (`tofix.md` #20).
+    ///
+    /// A withdrawal does not fail because the protocol is insolvent — it fails because borrowers
+    /// have taken the supply and the pool has nothing on hand. Nothing on chain surfaced that in
+    /// advance, so an exit either worked or reverted with no way to find out first, and no way to
+    /// take a smaller amount that would have succeeded.
+    ///
+    /// Measured as the pool's own token balance, which is the honest upper bound on what it can pay:
+    /// a lending pool cannot hand out what it does not hold. It is an **upper** bound — Blend also
+    /// refuses withdrawals that would push utilization past its ceiling — so callers sizing a
+    /// withdrawal against this should take a haircut. `Sr::max_redeemable` does.
+    pub fn available_liquidity(env: Env) -> i128 {
+        let pool = Self::pool_addr(&env);
+        soroban_sdk::token::Client::new(&env, &Self::underlying(env.clone())).balance(&pool)
+    }
+
     pub fn rate_bound(env: Env) -> (i128, u64, u32) {
         let bound = Self::bound(&env);
         (bound.last_rate, bound.last_ts, bound.max_apr_bps)
