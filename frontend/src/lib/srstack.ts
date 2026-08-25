@@ -703,7 +703,51 @@ export const sellPtForUsdc = async (
 };
 
 /**
+ * Sell YT and unwrap the proceeds, as a step list.
+ *
+ * **Prefer this over {@link sellYtForUsdc}.** That one-transaction path stopped fitting on
+ * 2026-08-26: it was the heaviest router path that worked (64.5M instructions), and growing the SR
+ * and strategy contracts — to add the TVL cap and the partial-exit path, both closing real tracker
+ * items — pushed the *cumulative* memory budget over. Both legs still work perfectly alone.
+ *
+ * That is the trade, stated plainly: two features that close `tofix.md` #3 and #20 cost one
+ * convenience path a second signature. It also makes the two YT directions symmetric — buying has
+ * needed two since the beginning, for the same reason.
+ *
+ * `onProgress` reports which leg is running so the UI can show "1 of 2" rather than going quiet
+ * between two wallet prompts.
+ */
+export const sellYtToUsdc = async (
+  wallet: string,
+  ytIn: bigint,
+  onProgress?: (step: 'sell' | 'unwrap', of: number) => void,
+): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+  const quoted = await quoteSellYt(ytIn);
+  if (quoted <= 0n) {
+    throw new Error('The pool cannot fill that size right now. Try a smaller amount.');
+  }
+  const before = await safeBalance(SR_CONTRACTS.sr, wallet);
+
+  onProgress?.('sell', 2);
+  await sellYt(wallet, ytIn, (quoted * 99n) / 100n);
+
+  // Unwrap what the sale actually produced, not the quote — re-read rather than assume, since the
+  // market re-prices against the live index between the two transactions.
+  const after = await safeBalance(SR_CONTRACTS.sr, wallet);
+  const proceeds = after - before;
+  if (proceeds <= 0n) {
+    throw new Error('The sale completed but produced no SR to unwrap.');
+  }
+  onProgress?.('unwrap', 2);
+  return unwrapSr(wallet, proceeds);
+};
+
+/**
  * **Sell YT straight back to USDC, one signature.**
+ *
+ * **Does not currently execute against Blend's deployed pool** — see {@link sellYtToUsdc}. Kept
+ * because the contract entry point is correct and a lighter yield source would run it.
  *
  * The sale settles the seller's accrued interest before the balance moves — the engine's
  * `before_yt_change` hook — so selling never forfeits yield already earned. It stays claimable

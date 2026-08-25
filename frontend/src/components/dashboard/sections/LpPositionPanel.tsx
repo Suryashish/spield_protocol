@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { formatAmount, formatUsd, fromBaseUnits } from '@/lib/soroban';
-import { poolValueUsd, fromScalar12 } from '@/lib/market';
+import { poolValueUsd, fromScalar12 } from '@/lib/v2adapters';
 import { MARKET_DEPLOYED } from '@/lib/config';
 
 const usdFromHuman = (v: number) => BigInt(Math.round(v * 1e7));

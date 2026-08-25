@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useProtocol } from '@/context/ProtocolContext';
 import { getYieldHistory, sampleYield, type YieldHistory } from '@/lib/yield';
-import { impliedApyPct } from '@/lib/market';
+import { impliedApyPct } from '@/lib/v2adapters';
 import { MARKET_DEPLOYED } from '@/lib/config';
 
 const fmtPct = (frac: number | null, digits = 2): string =>

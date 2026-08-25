@@ -449,6 +449,11 @@ inherits.
    utilization. It fired on its first run: **Blend testnet USDC was at 85.4%**. This is not a
    hypothetical failure mode.
 
+   *Cost note:* these two features (with #3's cap) grew both contracts enough to push
+   `srrouter::sell_yt_for_usdc` — previously the heaviest passing path — over the transaction memory
+   budget. The dApp now sells then unwraps. Recorded in [`budget.md`](./budget.md) §4 as a trade, not
+   a surprise.
+
    *Deployment note:* the partial-exit path needs **both** `sr` and `strategy` upgraded — SR calls
    `strategy::available_liquidity`, which is new. Upgrading only SR leaves `max_redeemable` and
    `redeem_partial` reverting while every wiring check still passes. That happened once here; the

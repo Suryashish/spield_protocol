@@ -15,7 +15,7 @@ import EmptyState from './EmptyState';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { getMarketHistory, type MarketHistory } from '@/lib/marketHistory';
-import { fromScalar12, impliedApyPct, poolValueUsd } from '@/lib/market';
+import { fromScalar12, impliedApyPct, poolValueUsd } from '@/lib/v2adapters';
 import { formatAmount, formatUsd } from '@/lib/soroban';
 import { MARKET_DEPLOYED } from '@/lib/config';
 

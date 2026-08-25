@@ -532,3 +532,25 @@ export const harvest = (wallet: string, _maxPositions?: number): Promise<WriteRe
 const vaultNotDeployed = (): never => {
   throw new Error('The Spield v2 Fixed-Rate Vault is not deployed on this network.');
 };
+
+// ── Presentation helpers ─────────────────────────────────────────────────────────────────────────
+//
+// Pure functions over the shapes above — no contract access. They live here rather than in
+// `lib/market` so that **no component imports runtime code from a v1 contract module**. That was
+// already true by accident (the three helpers there happen to be pure); moving them makes it true
+// by construction, and the lint rule in `eslint.config.js` keeps it that way.
+
+/** Convert a SCALAR_12 fixed-point value to a JS number. */
+export const fromScalar12 = (v: bigint): number => Number(v) / 1e12;
+
+/** Implied APY as a percentage, e.g. 5.00. */
+export const impliedApyPct = (stats: MarketStats | null): number =>
+  stats ? fromScalar12(stats.impliedApy) * 100 : 0;
+
+/** Total pool value in USDC terms: the asset side plus PT marked at its curve price. */
+export const poolValueUsd = (stats: MarketStats | null): number => {
+  if (!stats) return 0;
+  const usdc = fromBaseUnits(stats.usdcReserve);
+  const pt = fromBaseUnits(stats.ptReserve) * fromScalar12(stats.ptPrice || 10n ** 12n);
+  return usdc + pt;
+};

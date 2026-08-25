@@ -4,7 +4,7 @@ import StatTile from './StatTile';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
 import { formatUsd } from '@/lib/soroban';
-import { poolValueUsd, impliedApyPct } from '@/lib/market';
+import { poolValueUsd, impliedApyPct } from '@/lib/v2adapters';
 import { MARKET_DEPLOYED } from '@/lib/config';
 
 /** USDC bigint (7dp) from a human USD number, for reusing formatUsd on derived values. */

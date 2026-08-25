@@ -56,19 +56,46 @@ v() {  # v <who> <contract> <fn> [args...]
 # State-changing invoke, with the same retry rationale plus one of its own: a first touch that
 # creates several ledger entries can trip a transient simulation/footprint failure.
 tx() {  # tx <who> <contract> <fn> [args...]
-  local out n=0
+  local out rc n=0
   local who="$1" id="$2"; shift 2
   while [ "$n" -lt 3 ]; do
-    # EXIT STATUS again, and here it is not merely tidier — it is a correctness requirement.
-    # `transfer` returns void, so an output-keyed retry re-submits a SUCCESSFUL transfer and moves
-    # the amount twice. That happened, and it silently doubled a YT transfer mid-suite.
-    if out=$(stellar contract invoke --id "$id" --source-account "$who" --network "$NETWORK" --send=yes -- "$@" 2>/dev/null); then
+    out=$(stellar contract invoke --id "$id" --source-account "$who" --network "$NETWORK" --send=yes -- "$@" 2>&1); rc=$?
+    if [ "$rc" -eq 0 ]; then
       printf '%s' "$(printf '%s' "$out" | tail -1 | tr -d '"' | tr -d '[:space:]')"
       return 0
     fi
-    n=$((n+1)); sleep 3
+    # ── Only retry failures that provably happened BEFORE submission ────────────────────────────
+    #
+    # A timeout is not a failure, it is an *unknown*. The transaction may well have landed and only
+    # the response got lost — we watched exactly that happen to `set_timelock`, which reported
+    # "transaction submission timeout" while having successfully set the value. Retrying on unknown
+    # therefore double-executes.
+    #
+    # It bit this suite: a `transfer` timed out after submitting, the retry ran, and bob received
+    # the same 37,500,000 YT twice — which then surfaced three sections later as "claiming consumed
+    # YT", an alarming-looking failure with nothing wrong in the contract at all.
+    #
+    # Keying on exit status was already the fix for a *previous* version of this bug
+    # (`AUDITPREP.md` §4 item 4). It is necessary and not sufficient: the status tells you the CLI
+    # failed, not whether the network did. So retry only on errors that are unambiguously
+    # pre-submission — a simulation that never got sent, or a connection that never opened.
+    case "$out" in
+      *"simulation failed"*|*"Connect"*|*"connection"*|*"error sending request"*)
+        n=$((n+1)); sleep 3 ;;
+      *)
+        # Ambiguous or genuinely failed. Do NOT retry: a silent double-execution is far worse than
+        # a visible failed assertion.
+        #
+        # Say which it is, though — because it is usually the *first*. We have repeatedly seen the
+        # CLI lose a response for a transaction that landed: `set_timelock` reported "submission
+        # timeout" having succeeded, and a `sell_pt_for_usdc` here returned nothing while the USDC
+        # delta proved it executed. An assertion that reads STATE will be correct in that case; one
+        # that reads this function's return value will not.
+        printf '\033[33m  ⚠ tx returned no result — it MAY still have landed. Check state, not this value.\033[0m\n' >&2
+        printf ''; return 1 ;;
+    esac
   done
-  printf ''
+  printf ''; return 1
 }
 
 # A brand-new YT holder has no UserInterest entry; creating it inside buy_yt_exact_out overruns the
@@ -76,6 +103,35 @@ tx() {  # tx <who> <contract> <fn> [args...]
 warm_up() { tx "$1" "$YIELD" checkpoint --user "$(stellar keys address "$1")" >/dev/null; }
 bal()    { v "$1" "$2" balance --id "$(stellar keys address "$1")"; }
 usdc()   { v "$1" "$USDC_SAC" balance --id "$(stellar keys address "$1")"; }
+
+# ── Pool-health pre-flight ───────────────────────────────────────────────────────────────────────
+#
+# This suite trades against a shared testnet pool that it also *churns* — and after several
+# consecutive runs the reserves drift far enough that ordinary liquidity refusals start looking like
+# contract failures. Measured once at 26M SR against 548M PT, at which point an 8 USDC trade was 3x
+# the SR reserve and every quote went stale before it could execute.
+#
+# So say the state out loud before asserting anything against it. A suite that goes red for
+# environmental reasons, without saying so, is a suite people learn to ignore.
+pool_health() {
+  local r ptr srr ratio
+  r=$(v "$ALICE" "$SRMARKET" reserves) || return 0
+  ptr=$(echo "$r" | tr -d '[]"' | cut -d, -f1); srr=$(echo "$r" | tr -d '[]"' | cut -d, -f2)
+  [ -z "$ptr" ] || [ -z "$srr" ] && return 0
+  echo
+  echo "POOL     pt=$ptr sr=$srr"
+  # Each side bounds a different direction: PT sales and YT buys draw the SR side, YT sales and PT
+  # buys draw the PT side. Whichever is thinner is the binding constraint on trade size.
+  if [ "$ptr" -lt 50000000 ] || [ "$srr" -lt 50000000 ]; then
+    echo "         ⚠ ONE SIDE IS UNDER 5 USDC. Trades will be refused and several checks below will"
+    echo "           fail for that reason alone. Re-seed before treating a red run as a code defect:"
+    echo "             buy PT through the router to deepen the SR side, or add_liquidity for both."
+  else
+    ratio=$(( ptr > srr ? ptr / (srr / 100 + 1) : srr / (ptr / 100 + 1) ))
+    [ "$ratio" -gt 800 ] && echo "         ⚠ heavily skewed (${ratio}:100) — expect small maximum trade sizes."
+  fi
+}
+pool_health
 
 echo "SR       $SR"
 echo "YIELD    $YIELD   (= the YT token)"
@@ -135,12 +191,25 @@ if [ "$BOB_FUNDED" = "1" ]; then
   gt "bob wrapped 50 USDC into SR" "$SR_MINTED" "0"
 fi
 if [ "$BOB_FUNDED" = "1" ]; then
-PT_QUOTE=$(v "$BOB" "$SRMARKET" quote_buy_pt --sr_in "$SR_MINTED")
-gt "quote_buy_pt returns a price" "$PT_QUOTE" "0"
-PT_OUT=$(tx "$BOB" "$SRMARKET" swap_exact_sr_for_pt --trader "$B" --sr_in "$SR_MINTED" --min_pt_out 0 --deadline_ledger 0)
-gt "bob received PT" "$PT_OUT" "0"
-gt "PT face exceeds SR spent (bought at a discount)" "$PT_OUT" "$SR_MINTED"
-echo "  bob: 50 USDC -> $SR_MINTED SR -> $PT_OUT PT face  (redeems 1:1 at expiry)"
+# Spend as much of the wrapped SR as the pool will actually take.
+#
+# A PT purchase is bounded by the pool's PT reserve, which this suite churns on every run — so a
+# hardcoded size makes an ordinary liquidity limit look like a contract failure, and after enough
+# runs the suite is permanently red for a reason that has nothing to do with the code. Same
+# treatment as the router sections below.
+SR_SPEND=$SR_MINTED
+PT_QUOTE=$(v "$BOB" "$SRMARKET" quote_buy_pt --sr_in "$SR_SPEND")
+for _ in 1 2 3 4 5 6; do
+  [ "${PT_QUOTE:-0}" -gt 0 ] 2>/dev/null && break
+  SR_SPEND=$(( SR_SPEND / 2 ))
+  [ "$SR_SPEND" -lt 100000 ] && break
+  PT_QUOTE=$(v "$BOB" "$SRMARKET" quote_buy_pt --sr_in "$SR_SPEND")
+done
+gt "quote_buy_pt returns a price (largest fillable size)" "${PT_QUOTE:-0}" "0"
+PT_OUT=$(tx "$BOB" "$SRMARKET" swap_exact_sr_for_pt --trader "$B" --sr_in "$SR_SPEND" --min_pt_out 0 --deadline_ledger 0)
+gt "bob received PT" "${PT_OUT:-0}" "0"
+gt "PT face exceeds SR spent (bought at a discount)" "${PT_OUT:-0}" "$SR_SPEND"
+echo "  bob: $SR_SPEND SR -> $PT_OUT PT face  (redeems 1:1 at expiry)"
 fi
 PT_PRICE=$(v "$BOB" "$SRMARKET" pt_price)
 echo "  PT price now $PT_PRICE  implied APY $(v "$BOB" "$SRMARKET" implied_apy)"
@@ -177,6 +246,14 @@ LEV=$(echo "scale=1; $YT_WANT / ${YT_COST:-1}" | bc)
 echo "  $((YT_WANT / 10000000)) USDC of YT face costs $YT_COST SR  => ${LEV}x leverage"
 
 SR_BEFORE=$(bal "$YTBUYER" "$SR")
+# Re-quote immediately before executing. Section 1 just traded against this same curve, so a quote
+# taken a few reads ago can already be unfillable — and an exact-output buy either fills or reverts.
+for _ in 1 2 3 4 5 6; do
+  FRESH=$(v "$YTBUYER" "$SRMARKET" quote_buy_yt --yt_out "$YT_WANT")
+  [ "${FRESH:-0}" -gt 0 ] 2>/dev/null && { YT_COST=$FRESH; break; }
+  YT_WANT=$(( YT_WANT / 2 ))
+  [ "$YT_WANT" -lt 100000 ] && break
+done
 YT_PAID=$(tx "$YTBUYER" "$SRMARKET" buy_yt_exact_out --user "$Y" --yt_out "$YT_WANT" --max_sr_in "$((YT_COST * 3))" --deadline_ledger 0)
 SR_AFTER=$(bal "$YTBUYER" "$SR")
 NET_COST=$((SR_BEFORE - SR_AFTER))
@@ -229,7 +306,17 @@ fi
 # ── 5. Sell YT back into the market ─────────────────────────────────────────────────────────────
 hdr "5. WORKFLOW: exit a YT position mid-term"
 YT_HELD_BEFORE_SALE=$(bal "$YTBUYER" "$YIELD")
+# Cap the sale at a fraction of the pool's PT reserve, not at the seller's whole balance.
+#
+# Selling YT makes the pool give up PT, so the PT reserve is the ceiling — and a quote can succeed
+# for a size the execution then refuses, because the curve moves under it. A third of the reserve
+# leaves room for that.
+POOL_PT=$(v "$YTBUYER" "$SRMARKET" reserves | tr -d '[]"' | cut -d, -f1)
 SELL_AMT=$YT_HELD_BEFORE_SALE
+if [ -n "$POOL_PT" ] && [ "$SELL_AMT" -gt "$(( POOL_PT / 3 ))" ] 2>/dev/null; then
+  SELL_AMT=$(( POOL_PT / 3 ))
+  echo "  capping the sale at a third of the PT reserve ($SELL_AMT of $YT_HELD_BEFORE_SALE held)"
+fi
 SELL_Q=$(v "$YTBUYER" "$SRMARKET" quote_sell_yt --yt_in "$SELL_AMT")
 # Same liquidity bound as the buy, from the other side: selling YT makes the pool give up PT, so
 # the PT reserve caps it. Shrink to what the pool will actually take.
@@ -328,8 +415,13 @@ chk "PT landed with the user" "$(( R_PT_AFTER - R_PT_BEFORE ))" "$R_OUT"
 # "this trade did not leave the user holding SR", not "this wallet has never held SR".
 chk "the wrap was internal — no SR reached the user" "$(( $(bal "$BOB" "$SR") - R_SR_BEFORE ))" "0"
 # Quote fidelity: what the UI showed vs what executed. Drift beyond a few bp is a UI that lies.
-if [ "$R_OUT" -ge "$R_QUOTE" ] 2>/dev/null; then ok "execution met or beat the quote ($R_OUT >= $R_QUOTE)";
-else bad "execution came in under the quote: $R_OUT < $R_QUOTE"; fi
+# A quote is a snapshot of a curve other people are also trading against, so exact equality is the
+# wrong bar on a live network. What matters is that the gap is small enough that the number the UI
+# showed was not misleading — 50bp, well inside any slippage tolerance a user would set.
+R_DRIFT=$(( (R_QUOTE - R_OUT) * 10000 / R_QUOTE ))
+if [ "$R_DRIFT" -le 50 ] 2>/dev/null; then
+  ok "execution tracked the quote within ${R_DRIFT}bp ($R_OUT vs $R_QUOTE)"
+else bad "execution drifted ${R_DRIFT}bp below the quote: $R_OUT < $R_QUOTE"; fi
 fi
 
 hdr "11. WORKFLOW: buy YT from USDC — the TWO-transaction path"
@@ -343,9 +435,10 @@ hdr "11. WORKFLOW: buy YT from USDC — the TWO-transaction path"
 # an ordinary liquidity limit into a red contract failure.
 YT_WANT=500000000
 Y_COST=$(v "$BOB" "$SRROUTER" quote_buy_yt_with_usdc --yt_out "$YT_WANT")
-for _ in 1 2 3 4; do
+for _ in 1 2 3 4 5 6 7 8; do
   [ "${Y_COST:-0}" -gt 0 ] 2>/dev/null && break
   YT_WANT=$(( YT_WANT / 2 ))
+  [ "$YT_WANT" -lt 100000 ] && break   # below a cent of face there is nothing meaningful to test
   Y_COST=$(v "$BOB" "$SRROUTER" quote_buy_yt_with_usdc --yt_out "$YT_WANT")
 done
 echo "  router quote: $YT_WANT YT costs $Y_COST USDC (all in)"
@@ -399,22 +492,67 @@ hdr "13. WORKFLOW: sell PT and YT back to plain USDC"
 # Sell from the wallet's real PT balance rather than from section 10's return value, so a skipped
 # or resized buy above does not cascade into a spurious failure here.
 S_PT=$(( $(bal "$BOB" "$PT_SAC") / 2 ))
-if [ "$S_PT" -lt 100000 ]; then
+# Shrink to what the pool will take. The suite's own trading moves the pool's depth, so by the time
+# this section runs the size that was fine at the start may no longer quote.
+S_Q_PROBE=$(v "$BOB" "$SRROUTER" quote_sell_pt_for_usdc --pt_in "$S_PT")
+for _ in 1 2 3 4 5 6; do
+  [ "${S_Q_PROBE:-0}" -gt 0 ] 2>/dev/null && break
+  S_PT=$(( S_PT / 2 ))
+  [ "$S_PT" -lt 100000 ] && break
+  S_Q_PROBE=$(v "$BOB" "$SRROUTER" quote_sell_pt_for_usdc --pt_in "$S_PT")
+done
+if [ "$S_PT" -lt 100000 ] || [ "${S_Q_PROBE:-0}" -le 0 ]; then
   echo "  bob holds too little PT to sell — skipping."
 else
 S_USDC_BEFORE=$(usdc "$BOB")
 S_Q=$(v "$BOB" "$SRROUTER" quote_sell_pt_for_usdc --pt_in "$S_PT")
 S_OUT=$(tx "$BOB" "$SRROUTER" sell_pt_for_usdc --user "$B" --pt_in "$S_PT" --min_usdc_out 0 --deadline_ledger 0)
-echo "  sold $S_PT PT -> $S_OUT USDC (quoted $S_Q)"
-gt "PT sold back to USDC" "${S_OUT:-0}" "0"
-chk "USDC landed with the user directly" "$(( $(usdc "$BOB") - S_USDC_BEFORE ))" "$S_OUT"
+# Judge this by the BALANCE, not by the return value: the CLI loses responses for transactions that
+# landed, and the user's USDC is the thing we actually care about either way.
+S_DELTA=$(( $(usdc "$BOB") - S_USDC_BEFORE ))
+echo "  sold $S_PT PT -> $S_DELTA USDC (quoted $S_Q, returned '${S_OUT:-<lost>}')"
+gt "PT sold back to USDC (measured by balance)" "$S_DELTA" "0"
+if [ -n "$S_OUT" ]; then chk "the returned figure matched the balance change" "$S_DELTA" "$S_OUT"; fi
 
+# The last hardcoded size in this suite, and it bit for the same reason as the others: the pool's
+# depth moves as the suite trades, so a fixed amount eventually stops being fillable and an ordinary
+# liquidity limit shows up as a red contract failure. Shrink to what the pool will actually take.
 SY_IN=$(( YT_WANT / 2 ))
+SY_Q=$(v "$BOB" "$SRROUTER" quote_sell_yt_for_usdc --yt_in "$SY_IN")
+for _ in 1 2 3 4 5; do
+  [ "${SY_Q:-0}" -gt 0 ] 2>/dev/null && break
+  SY_IN=$(( SY_IN / 2 ))
+  [ "$SY_IN" -lt 10000 ] && break
+  SY_Q=$(v "$BOB" "$SRROUTER" quote_sell_yt_for_usdc --yt_in "$SY_IN")
+done
+if [ "${SY_Q:-0}" -le 0 ] 2>/dev/null; then
+  echo "  the pool cannot fill any YT sale right now (SR side exhausted) — skipping"
+else
+# Two transactions, deliberately. `sell_yt_for_usdc` was the heaviest router path that fitted
+# (64.5M instructions) until the sr + strategy upgrades of 2026-08-26 grew both contracts to add
+# the TVL cap and the partial-exit path; the CUMULATIVE memory budget then tipped over. Both legs
+# still work alone, so the dApp sells then unwraps — the same shape as a YT purchase.
+#
+# Probe the one-transaction path anyway, so this is a MEASURED skip rather than an assumption that
+# rots. If a future build makes it fit again, this says so.
+if [ -n "$(v "$BOB" "$SRROUTER" sell_yt_for_usdc --user "$B" --yt_in "$SY_IN" --min_usdc_out 0 --deadline_ledger 0)" ]; then
+  ok "one-transaction YT->USDC now FITS again — the dApp can drop the second step"
+else
+  ok "one-transaction YT->USDC still over budget (expected; the dApp sells then unwraps)"
+fi
+
+SY_SR_BEFORE=$(bal "$BOB" "$SR")
 SY_USDC_BEFORE=$(usdc "$BOB")
-SY_OUT=$(tx "$BOB" "$SRROUTER" sell_yt_for_usdc --user "$B" --yt_in "$SY_IN" --min_usdc_out 0 --deadline_ledger 0)
-echo "  sold $SY_IN YT -> $SY_OUT USDC"
-gt "YT sold back to USDC" "${SY_OUT:-0}" "0"
+echo "  [1/2] selling $SY_IN YT into the pool..."
+SY_SR=$(tx "$BOB" "$SRMARKET" sell_yt_exact_in --user "$B" --yt_in "$SY_IN" --min_sr_out 0 --deadline_ledger 0)
+gt "YT sold for SR" "${SY_SR:-0}" "0"
+SY_PROCEEDS=$(( $(bal "$BOB" "$SR") - SY_SR_BEFORE ))
+chk "the SR proceeds reached the seller" "$SY_PROCEEDS" "${SY_SR:-0}"
+echo "  [2/2] unwrapping $SY_PROCEEDS SR to USDC..."
+SY_OUT=$(tx "$BOB" "$SR" redeem --from "$B" --receiver "$B" --shares "$SY_PROCEEDS" --min_underlying_out 0)
+gt "SR unwrapped to USDC" "${SY_OUT:-0}" "0"
 chk "USDC landed with the user directly" "$(( $(usdc "$BOB") - SY_USDC_BEFORE ))" "$SY_OUT"
+fi
 # Selling YT settles but does not pay — the claim must survive it.
 gt "yield still claimable after selling YT" "$(v "$BOB" "$SRROUTER" quote_claim_yield --user "$B")" "-1"
 fi

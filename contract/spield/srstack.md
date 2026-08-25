@@ -137,6 +137,11 @@ a test fixture is not a bound on the real thing, and *which* limit you are hitti
 off the network, not to infer. The local Blend harness reported this path at 22% of memory. On chain
 it does not run at all.
 
+A second path, `sell_yt_for_usdc`, later stopped fitting for a different reason — growing the `sr`
+and `strategy` contracts spent budget belonging to every path that loads them. Both cases, the live
+per-path measurements, and the rule to check before touching a shared contract are in
+[`budget.md`](./budget.md).
+
 **Why `buy_yt_with_usdc` is exact-output.** Not a preference — forced. The market derives the YT
 price from the live index, and wallets sign authorization entries built at *simulation*. Put an
 on-chain-derived figure inside the user's transfer and the entry no longer matches at execution;

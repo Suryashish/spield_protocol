@@ -33,7 +33,7 @@ import {
   buyPtWithUsdc,
   sellPtForUsdc,
   buyYtFromUsdc,
-  sellYtForUsdc,
+  sellYtToUsdc,
   redeemPyForUsdc,
   impliedApyPct,
   ptPriceHuman,
@@ -204,7 +204,10 @@ const SrTradePanel = () => {
           if (ytFace <= 0n) throw new Error('No fillable size at that budget — try less.');
           return buyYtFromUsdc(address, ytFace, (step, of) => setYtStep(of > 1 ? `${step === 'wrap' ? 1 : 2} of ${of}` : null));
         case 'sellYt':
-          return sellYtForUsdc(address, units);
+          // Two transactions — see `srstack.sellYtToUsdc`. Same shape as the buy.
+          return sellYtToUsdc(address, units, (step, of) =>
+            setYtStep(`${step === 'sell' ? 1 : 2} of ${of}`),
+          );
         case 'redeem':
           return redeemPyForUsdc(address, units);
       }
@@ -410,8 +413,9 @@ const SrTradePanel = () => {
 
           {mode === 'sellYt' && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Selling credits the yield you have already earned — it does not pay it out. It stays
-              claimable in the Yield card; the sale cannot strand it.
+              Two signatures — sell, then unwrap; a market sale and a Blend withdrawal do not fit in
+              one Stellar transaction. Selling credits the yield you have already earned rather than
+              paying it out: it stays claimable in the Yield card, and the sale cannot strand it.
             </p>
           )}
 
