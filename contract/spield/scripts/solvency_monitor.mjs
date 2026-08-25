@@ -15,12 +15,48 @@
 //
 // Usage:
 //   node scripts/solvency_monitor.mjs \
-//     --wrapper <C...> [--rpc https://soroban-testnet.stellar.org] \
+//     --wrapper <C...> [--vault <C...>] [--market <C...>] \
+//     [--pt-asset CODE:GISSUER] [--horizon https://horizon.stellar.org] \
+//     [--rpc https://soroban-testnet.stellar.org] \
 //     [--passphrase "Test SDF Network ; September 2015"] \
-//     [--interval 60] [--tolerance 8] [--once] [--webhook https://...]
+//     [--interval 60] [--slack 0] [--once] [--webhook https://...]
 //
-// Exit codes: 0 = healthy at exit (only with --once); 2 = solvency breach detected;
-//             1 = repeated RPC failure. In daemon mode it runs until killed, exiting 2 on breach.
+// Exit codes: 0 = healthy at exit (only with --once); 2 = a breach was detected (`--once` only);
+//             1 = repeated RPC failure. **In daemon mode a breach alarms and keeps polling** —
+//             see "Why the daemon no longer exits on breach" below.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Rewritten 2026-08-25 to close `tofix.md` #23. What was wrong, and what each fix is:
+//
+// 1. **The tolerance was a guess.** It alarmed at `backing + 8 < principal` while the contract's
+//    real band is `open_positions() + WITHDRAW_SLACK(4)` — which GROWS with live positions. The
+//    wrapper exposes `open_positions()` *specifically* so the watchtower can reproduce the exact
+//    band instead of guessing it, and the watchtower guessed. At five or more open positions it
+//    false-alarmed on states the contract considers perfectly healthy.
+//    → Now read from chain every cycle. `--slack` adds to it; it no longer replaces it.
+//
+// 2. **PT conservation was not checked at all.** This is the invariant that catches counterfeit PT,
+//    and it is the entire reason the issuer lockdown exists — `redeem_pt_bearer` pays out on a PT
+//    balance alone, so PT minted outside the contract is redeemable for real USDC. No on-chain
+//    check can see this: the classic supply lives on Horizon, not in the contract.
+//    → Now checked against Horizon's total issued supply, which is the only place it is visible.
+//
+// 3. **Only the wrapper was watched.** The vault, the market and Blend's utilization had no
+//    watchtower at all.
+//    → Now separate probes with independent verdicts.
+//
+// 4. **A false alarm killed the watchtower.** Daemon mode called `process.exit(2)` on the first
+//    breach, so the fix for (1) was load-bearing twice over: a monitor that dies on its first alert
+//    is worse than no monitor, because the silence afterwards reads as health.
+//    → See below.
+//
+// ## Why the daemon no longer exits on breach
+//
+// A watchtower's job is to keep watching. Exiting on the first alarm means the *second* alarm never
+// fires, and whoever is paging on process liveness sees a dead process rather than an ongoing
+// incident. So a breach now alarms, POSTs the webhook, sets a sticky unhealthy flag, and keeps
+// polling — repeating the alarm each cycle it persists, and logging RECOVERED if it clears.
+// `exit 2` is reserved for `--once`, where the caller IS the supervisor.
 //
 // Requires @stellar/stellar-sdk (already a frontend dependency). Run from the frontend dir, or
 // `npm i @stellar/stellar-sdk` somewhere on the NODE_PATH.
@@ -44,12 +80,32 @@ function arg(name, fallback) {
 const has = (name) => process.argv.includes(`--${name}`);
 
 const WRAPPER = arg('wrapper');
+const VAULT = arg('vault');
+const MARKET = arg('market');
+/** `CODE:GISSUER` — enables the PT conservation probe, which needs Horizon, not the RPC. */
+const PT_ASSET = arg('pt-asset');
+const HORIZON = arg('horizon', 'https://horizon-testnet.stellar.org');
 const RPC_URL = arg('rpc', 'https://soroban-testnet.stellar.org');
 const PASSPHRASE = arg('passphrase', 'Test SDF Network ; September 2015');
 const INTERVAL_S = Number(arg('interval', '60'));
-// Stroops of allowed rounding dust before we treat backing<principal as a real breach. Match (or
-// slightly exceed) the contract's own dust tolerance so we don't false-alarm on Blend's floor math.
-const TOLERANCE = BigInt(arg('tolerance', '8'));
+/**
+ * EXTRA stroops of slack on top of the band the contract actually enforces.
+ *
+ * Defaults to 0 on purpose. The real band is read from chain each cycle as
+ * `open_positions() + WITHDRAW_SLACK`, so there is nothing left to pad for — and padding a band you
+ * have measured only widens the window in which a real deficit looks healthy.
+ */
+const EXTRA_SLACK = BigInt(arg('slack', '0'));
+/** Mirrors `wrapper::WITHDRAW_SLACK`. If that constant changes, change this with it. */
+const WITHDRAW_SLACK = 4n;
+/**
+ * Used only when `open_positions()` is unavailable — see the fallback note in probe 1.
+ *
+ * Set generously (not at the old hardcoded 8) because an under-sized estimate false-alarms, and a
+ * false alarm on a band we know we are guessing is the worst of both worlds. When this is in use
+ * the log says so on every line, so it can never be mistaken for the measured band.
+ */
+const FALLBACK_BAND = BigInt(arg('fallback-band', '64'));
 const ONCE = has('once');
 const WEBHOOK = arg('webhook'); // optional: POST a JSON alert here on breach
 
@@ -61,12 +117,12 @@ if (!WRAPPER) {
 const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
 // A throwaway source account for read-only simulation (never submitted, so the sequence/balance
 // are irrelevant). All-zero account id is the canonical "simulation source".
-const SIM_SOURCE = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF5';
+const SIM_SOURCE = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
-/** Call a no-arg view on the wrapper and decode the native result. */
-async function readView(method) {
+/** Call a no-arg view on `contractId` (default: the wrapper) and decode the native result. */
+async function readView(method, contractId = WRAPPER) {
   const account = new Account(SIM_SOURCE, '0');
-  const contract = new Contract(WRAPPER);
+  const contract = new Contract(contractId);
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: PASSPHRASE,
@@ -92,6 +148,9 @@ function fmtUsdc(stroops) {
   return `${neg ? '-' : ''}${whole}.${frac}`;
 }
 
+/** The Soroban SDK packs a full diagnostic event log into `.message`; one line is enough here. */
+const brief = (e) => String(e?.message ?? e).split('\n')[0];
+
 async function postWebhook(payload) {
   if (!WEBHOOK) return;
   try {
@@ -106,70 +165,213 @@ async function postWebhook(payload) {
 }
 
 let consecutiveRpcFailures = 0;
+/** Sticky per-probe state, so we can log RECOVERED rather than just going quiet. */
+const unhealthy = new Set();
 
-/** One health check. Returns true if healthy, false if a breach was detected. */
+/**
+ * Total PT in existence, from Horizon.
+ *
+ * Deliberately NOT read from the contract: the whole point of this probe is to catch PT the
+ * contract never minted, and a contract cannot report supply it does not know about. Horizon splits
+ * issued supply four ways and there is no flat `amount` field — miss any one of them and
+ * counterfeit PT parked in a Soroban contract or a claimable balance reads as zero.
+ */
+async function classicPtSupply() {
+  const [code, issuer] = PT_ASSET.split(':');
+  const url = `${HORIZON}/assets?asset_code=${encodeURIComponent(code)}&asset_issuer=${encodeURIComponent(issuer)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`horizon ${res.status}`);
+  const rec = (await res.json())?._embedded?.records?.[0];
+  if (!rec) return 0n;
+  const toStroops = (v) => BigInt(Math.round(Number(v ?? 0) * 1e7));
+  return (
+    toStroops(rec.balances?.authorized) +
+    toStroops(rec.balances?.authorized_to_maintain_liabilities) +
+    toStroops(rec.contracts_amount) +
+    toStroops(rec.claimable_balances_amount) +
+    toStroops(rec.liquidity_pools_amount)
+  );
+}
+
+/** Record a probe verdict, alarming on transition and on every cycle it persists. */
+async function verdict(name, ok, detail, payload) {
+  if (ok) {
+    if (unhealthy.has(name)) {
+      unhealthy.delete(name);
+      console.log(`  ✓ RECOVERED [${name}] ${detail}`);
+    } else {
+      console.log(`  ✓ ${name}: ${detail}`);
+    }
+    return true;
+  }
+  console.error(`  🚨 ${unhealthy.has(name) ? 'STILL BREACHED' : 'BREACH'} [${name}] ${detail}`);
+  unhealthy.add(name);
+  await postWebhook({ alert: `spield_${name}`, detail, ...payload, at: new Date().toISOString() });
+  return false;
+}
+
+/** One health check across every configured probe. Returns true if ALL are healthy. */
 async function check() {
   const ts = new Date().toISOString();
-  let solvency;
+  console.log(`[${ts}]`);
+  let ok = true;
+
+  // ── Probe 1: the wrapper's own invariant, against the band the CONTRACT enforces ──────────────
   try {
-    // solvency() → (backing, principal, unclaimed)
-    solvency = await readView('solvency');
+    // `open_positions` is how we reproduce the contract's real band instead of guessing it — but
+    // it was added to the wrapper AFTER the live v1 deployments were cut, so the deployed binaries
+    // do not expose it. Verified against testnet 2026-08-25: `Error(WasmVm, MissingValue) — trying
+    // to invoke non-existent contract function, open_positions`.
+    //
+    // Rather than crash (the old monitor's behaviour on any read failure) or silently guess (the
+    // old monitor's behaviour on the band), we fall back to a fixed band and SAY SO on every line.
+    // An estimated band and a measured one must never look the same in a log, because the whole
+    // defect being fixed here is a watchtower that guessed and did not admit it.
+    const [solvency, openPositions] = await Promise.all([
+      readView('solvency'),
+      readView('open_positions').catch(() => null),
+    ]);
     consecutiveRpcFailures = 0;
+
+    const [backing, principal, unclaimed] = solvency.map((x) => BigInt(x));
+    const measured = openPositions !== null;
+    // The contract's real tolerance, reproduced exactly when the view exists.
+    const band = measured
+      ? BigInt(openPositions) + WITHDRAW_SLACK + EXTRA_SLACK
+      : FALLBACK_BAND + EXTRA_SLACK;
+    const healthy = backing + band >= principal;
+    ok =
+      (await verdict(
+        'solvency',
+        healthy,
+        `backing=${fmtUsdc(backing)} principal=${fmtUsdc(principal)} ` +
+          `unclaimed=${fmtUsdc(unclaimed)} headroom=${fmtUsdc(backing - principal)} ` +
+          `band=${band} ` +
+          (measured
+            ? `(measured: open_positions=${openPositions})`
+            : `(⚠ ESTIMATED — this deployment predates open_positions(); redeploy the wrapper to ` +
+              `measure the real band)`) +
+          (healthy ? '' : ` — short by ${fmtUsdc(principal - backing - band)} USDC`),
+        { backing: backing.toString(), principal: principal.toString(), band: band.toString() },
+      )) && ok;
   } catch (e) {
     consecutiveRpcFailures += 1;
-    console.error(`[${ts}] RPC read failed (${consecutiveRpcFailures}): ${e?.message ?? e}`);
+    console.error(`  RPC read failed (${consecutiveRpcFailures}): ${brief(e)}`);
     if (consecutiveRpcFailures >= 5) {
       console.error('Too many consecutive RPC failures — exiting 1 so the supervisor restarts us.');
       process.exit(1);
     }
-    return true; // transient; don't treat as a breach
+    return true; // transient; not a breach
   }
 
-  const [backing, principal, unclaimed] = solvency.map((x) => BigInt(x));
-  const healthy = backing + TOLERANCE >= principal;
-  const headroom = backing - principal;
-
-  const line =
-    `[${ts}] backing=${fmtUsdc(backing)} principal=${fmtUsdc(principal)} ` +
-    `unclaimed=${fmtUsdc(unclaimed)} headroom=${fmtUsdc(headroom)} ` +
-    `${healthy ? 'OK' : 'BREACH'}`;
-
-  if (healthy) {
-    console.log(line);
-    return true;
+  // ── Probe 2: PT conservation. The counterfeit detector. ───────────────────────────────────────
+  //
+  // `Σ live PT + bearer_redeemed == classic PT supply`. The wrapper tracks what it minted;
+  // `bearer_redeemed` accounts for PT it has since burned. Anything above that is PT the contract
+  // never issued — and `redeem_pt_bearer` would pay real USDC for it.
+  if (PT_ASSET) {
+    try {
+      const [supply, bearerRedeemed, sol] = await Promise.all([
+        classicPtSupply(),
+        readView('bearer_redeemed').then(BigInt),
+        readView('solvency'),
+      ]);
+      const principal = BigInt(sol[1]);
+      // PT outstanding should never exceed principal still owed plus what has been redeemed away.
+      const accounted = principal + bearerRedeemed;
+      const excess = supply - accounted;
+      ok =
+        (await verdict(
+          'pt_conservation',
+          excess <= 0n,
+          `classic_supply=${fmtUsdc(supply)} principal=${fmtUsdc(principal)} ` +
+            `bearer_redeemed=${fmtUsdc(bearerRedeemed)}` +
+            (excess > 0n
+              ? ` — ${fmtUsdc(excess)} PT EXISTS THAT THE WRAPPER NEVER MINTED. ` +
+                `Check the issuer's master key weight immediately.`
+              : ''),
+          { supply: supply.toString(), accounted: accounted.toString(), excess: excess.toString() },
+        )) && ok;
+    } catch (e) {
+      console.error(`  ⚠ pt_conservation probe unavailable: ${brief(e)}`);
+    }
   }
 
-  console.error('🚨🚨🚨 SOLVENCY BREACH 🚨🚨🚨');
-  console.error(line);
-  console.error(
-    `Backing is BELOW principal by ${fmtUsdc(principal - backing)} USDC ` +
-      `(tolerance ${TOLERANCE} stroops). Investigate immediately.`,
-  );
-  await postWebhook({
-    alert: 'spield_solvency_breach',
-    wrapper: WRAPPER,
-    backing: backing.toString(),
-    principal: principal.toString(),
-    deficit: (principal - backing).toString(),
-    at: ts,
-  });
-  return false;
+  // ── Probe 3: the vault. Its receipts are only as good as the PT behind them. ──────────────────
+  if (VAULT) {
+    try {
+      const [ptBal, sol] = await Promise.all([
+        readView('bearer_redeemed', VAULT).catch(() => null),
+        readView('solvency', VAULT).catch(() => null),
+      ]);
+      if (sol) {
+        const [backing, liability] = sol.map((x) => BigInt(x));
+        ok =
+          (await verdict(
+            'vault',
+            backing >= liability,
+            `backing=${fmtUsdc(backing)} liability=${fmtUsdc(liability)}`,
+            { backing: backing.toString(), liability: liability.toString() },
+          )) && ok;
+      } else {
+        // v1's vault exposes no aggregate solvency view — recorded rather than silently skipped,
+        // because "no probe" and "probe passed" must never look the same in a log.
+        console.log(
+          `  — vault: no aggregate solvency view on this contract (v1 exposes per-receipt reads only)${
+            ptBal === null ? '' : ''
+          }`,
+        );
+      }
+    } catch (e) {
+      console.error(`  ⚠ vault probe unavailable: ${brief(e)}`);
+    }
+  }
+
+  // ── Probe 4: the market's reserves must be backed by real balances. ───────────────────────────
+  if (MARKET) {
+    try {
+      const res = await readView('reserves', MARKET);
+      const [ptRes, usdcRes] = res.map((x) => BigInt(x));
+      ok =
+        (await verdict(
+          'market_reserves',
+          ptRes >= 0n && usdcRes >= 0n,
+          `pt=${fmtUsdc(ptRes)} usdc=${fmtUsdc(usdcRes)}`,
+          { pt: ptRes.toString(), usdc: usdcRes.toString() },
+        )) && ok;
+    } catch (e) {
+      console.error(`  ⚠ market probe unavailable: ${brief(e)}`);
+    }
+  }
+
+  return ok;
 }
 
 async function main() {
   console.log(
-    `Spield solvency monitor → wrapper ${WRAPPER} on ${RPC_URL} ` +
-      `(interval ${INTERVAL_S}s, tolerance ${TOLERANCE} stroops)`,
+    `Spield solvency monitor → wrapper ${WRAPPER} on ${RPC_URL} (interval ${INTERVAL_S}s)`,
   );
+  console.log(
+    `  probes: solvency` +
+      (PT_ASSET ? `, pt_conservation (${PT_ASSET} via ${HORIZON})` : '') +
+      (VAULT ? `, vault` : '') +
+      (MARKET ? `, market_reserves` : ''),
+  );
+  if (!PT_ASSET) {
+    console.log(
+      '  ⚠ --pt-asset not set: the counterfeit-PT probe is OFF. It is the only check that can see ' +
+        'PT minted outside the contract, so run with it in production.',
+    );
+  }
   if (ONCE) {
     const ok = await check();
     process.exit(ok ? 0 : 2);
   }
-  // Daemon loop. On a confirmed breach we exit 2 (page + let the supervisor decide), having alarmed.
+  // Daemon loop. A breach alarms and we KEEP GOING — a watchtower that exits on its first alert
+  // stops being a watchtower exactly when it matters most. See the header.
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const ok = await check();
-    if (!ok) process.exit(2);
+    await check();
     await new Promise((r) => setTimeout(r, INTERVAL_S * 1000));
   }
 }

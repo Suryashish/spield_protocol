@@ -209,7 +209,27 @@ impl Yield {
     /// behalf — it only ever moves value **to** the holder, so there is nothing to gate. That also
     /// makes it safe for a keeper to sweep dust claims.
     pub fn redeem_due_interest(env: Env, user: Address) -> (i128, i128) {
+        Self::redeem_due_interest_to(env, user.clone(), user)
+    }
+
+    /// `redeem_due_interest`, but paying the holder's SR to `receiver` instead of to themselves.
+    ///
+    /// This exists so a router can claim on the user's behalf and unwrap the proceeds to USDC in the
+    /// same transaction. Without it the router would have to claim (paying the *user*), then pull
+    /// the SR back — and the pull amount is only known on chain, which is exactly the
+    /// simulate-vs-execute authorization drift that bit us on testnet (`AUDITPREP.md` §4, item 1).
+    ///
+    /// ## Why the auth split is what it is
+    ///
+    /// Paying a holder their own yield is safe for anyone to trigger — it only ever moves value
+    /// **to** them. **Redirecting** that payment is not: it moves their value to a third party. So
+    /// the permissionless case stays permissionless, and only the redirect requires the holder's
+    /// signature. Note this deliberately checks `receiver != user` rather than trusting the caller.
+    pub fn redeem_due_interest_to(env: Env, user: Address, receiver: Address) -> (i128, i128) {
         Self::ensure_initialized(&env); // an exit — open while paused
+        if receiver != user {
+            user.require_auth();
+        }
         let index = Self::index_current(&env);
         interest::settle(&env, &user, tok::balance(&env, &user), index);
 
@@ -227,7 +247,7 @@ impl Yield {
         let sr = SrClient::new(&env, &storage::get_sr(&env));
         let me = env.current_contract_address();
         if net > 0 {
-            sr.transfer(&me, &user, &net);
+            sr.transfer(&me, &receiver, &net);
         }
         if fee > 0 {
             sr.transfer(&me, &storage::get_treasury(&env), &fee);

@@ -7,10 +7,11 @@ import {
   TrendingUp,
   Droplets,
   ArrowRightLeft,
+  Package,
   type LucideIcon, Layers } from 'lucide-react';
 
 /**
- * Sidebar groups. The nav is eight entries long, which is exactly the length
+ * Sidebar groups. The nav is nine entries long, which is past the length
  * at which a flat list stops being a list and starts being a wall — so the
  * rail states what each run of items is FOR. Purely presentational: routing,
  * page titles and the active-section lookup all still work off the flat array.
@@ -61,7 +62,16 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'v2',
     title: 'Spield v2 — PT / YT',
     subtitle:
-      'The Pendle-shaped stack: wrap USDC into SR, then trade principal (PT) and yield (YT).',
+      'Buy principal (PT) or yield (YT) straight from USDC in one transaction, and claim what you earn.',
+    group: 'trade',
+  },
+  {
+    icon: Package,
+    label: 'SR Wrapper',
+    id: 'srwrap',
+    title: 'SR Wrapper',
+    subtitle:
+      'Hold SR itself — a yield-bearing dollar with no maturity. Optional: PT and YT trades wrap for you.',
     group: 'trade',
   },
   {

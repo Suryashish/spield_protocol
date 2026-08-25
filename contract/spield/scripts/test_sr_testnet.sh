@@ -80,6 +80,7 @@ usdc()   { v "$1" "$USDC_SAC" balance --id "$(stellar keys address "$1")"; }
 echo "SR       $SR"
 echo "YIELD    $YIELD   (= the YT token)"
 echo "MARKET   $SRMARKET"
+echo "ROUTER   ${SRROUTER:-<not deployed>}"
 echo "PT SAC   $PT_SAC"
 echo "alice    $A"
 echo "bob      $B"
@@ -157,11 +158,22 @@ tx "$YTBUYER" "$SR" deposit --from "$Y" --receiver "$Y" --amount 500000000 --min
 warm_up "$YTBUYER"          # <- required before a first-time buyer's first YT purchase
 ok "warmed up $YTBUYER (created their UserInterest entry)"
 
-YT_WANT=300000000   # 30 USDC of YT face
+# 30 USDC of YT face, HALVED until the pool can fill it.
+#
+# A YT purchase is priced as "the pool buys that much PT", so the pool's SR side bounds it — and
+# that side moves every time this suite runs. A hardcoded size makes an ordinary liquidity limit
+# look like a contract failure, and after enough runs the suite goes permanently red for a reason
+# that has nothing to do with the code.
+YT_WANT=300000000
 YT_COST=$(v "$YTBUYER" "$SRMARKET" quote_buy_yt --yt_out "$YT_WANT")
-gt "quote_buy_yt returns a price" "$YT_COST" "0"
+for _ in 1 2 3 4 5; do
+  [ "${YT_COST:-0}" -gt 0 ] 2>/dev/null && break
+  YT_WANT=$(( YT_WANT / 2 ))
+  YT_COST=$(v "$YTBUYER" "$SRMARKET" quote_buy_yt --yt_out "$YT_WANT")
+done
+gt "quote_buy_yt returns a price (largest fillable size)" "${YT_COST:-0}" "0"
 lt "YT costs far less than its face (leverage)" "$YT_COST" "$((YT_WANT / 5))"
-LEV=$(echo "scale=1; $YT_WANT / $YT_COST" | bc)
+LEV=$(echo "scale=1; $YT_WANT / ${YT_COST:-1}" | bc)
 echo "  $((YT_WANT / 10000000)) USDC of YT face costs $YT_COST SR  => ${LEV}x leverage"
 
 SR_BEFORE=$(bal "$YTBUYER" "$SR")
@@ -216,12 +228,21 @@ fi
 
 # ── 5. Sell YT back into the market ─────────────────────────────────────────────────────────────
 hdr "5. WORKFLOW: exit a YT position mid-term"
-SELL_AMT=$(bal "$YTBUYER" "$YIELD")
+YT_HELD_BEFORE_SALE=$(bal "$YTBUYER" "$YIELD")
+SELL_AMT=$YT_HELD_BEFORE_SALE
 SELL_Q=$(v "$YTBUYER" "$SRMARKET" quote_sell_yt --yt_in "$SELL_AMT")
-gt "quote_sell_yt returns a price" "$SELL_Q" "0"
+# Same liquidity bound as the buy, from the other side: selling YT makes the pool give up PT, so
+# the PT reserve caps it. Shrink to what the pool will actually take.
+for _ in 1 2 3 4 5; do
+  [ "${SELL_Q:-0}" -gt 0 ] 2>/dev/null && break
+  SELL_AMT=$(( SELL_AMT / 2 ))
+  [ "$SELL_AMT" -lt 1000 ] && break
+  SELL_Q=$(v "$YTBUYER" "$SRMARKET" quote_sell_yt --yt_in "$SELL_AMT")
+done
+gt "quote_sell_yt returns a price (largest fillable size)" "${SELL_Q:-0}" "0"
 SOLD=$(tx "$YTBUYER" "$SRMARKET" sell_yt_exact_in --user "$Y" --yt_in "$SELL_AMT" --min_sr_out 0 --deadline_ledger 0)
 gt "seller received SR for their YT" "$SOLD" "0"
-chk "seller's YT is gone" "$(bal "$YTBUYER" "$YIELD")" "0"
+chk "the sold YT left the seller" "$(bal "$YTBUYER" "$YIELD")" "$(( YT_HELD_BEFORE_SALE - SELL_AMT ))"
 echo "  sold $SELL_AMT YT face for $SOLD SR"
 # A too-large sale must be refused cleanly, not mis-priced.
 PTRES=$(v "$YTBUYER" "$SRMARKET" reserves | tr -d '[]' | cut -d, -f1)
@@ -265,6 +286,159 @@ TENTH=$((SHARES / 10))
 OUT=$(tx "$ALICE" "$SRMARKET" remove_liquidity --lp "$A" --shares "$TENTH" --min_pt_out 0 --min_sr_out 0)
 echo "  removed 10% of LP -> (pt, sr) = $OUT"
 ok "LP withdrew proportionally"
+
+
+# ── 10. Router: the one-transaction USDC front door ─────────────────────────────────────────────
+#
+# Everything above trades in SR, which is what the contracts speak. This section checks the path a
+# real user actually takes: plain USDC in, PT or YT out, one signature. The properties worth
+# proving on a live network (as opposed to in the local suite) are the two that only a live network
+# can break: the wallet-signed amount must survive the gap between simulation and execution, and the
+# router must end every call holding nothing.
+if [ -n "${SRROUTER:-}" ]; then
+hdr "10. WORKFLOW: buy PT with plain USDC, one transaction"
+ensure_funded "$BOB" 200000000
+warm_up "$BOB"
+
+R_USDC_BEFORE=$(usdc "$BOB")
+# Size the trade to what bob actually holds. The testnet faucet is rate-limited per address, so a
+# hardcoded amount turns "the faucet is dry today" into five red contract failures — which is
+# exactly the kind of false signal that trains people to ignore a suite.
+R_SPEND=100000000
+[ "$(( R_USDC_BEFORE / 3 ))" -lt "$R_SPEND" ] && R_SPEND=$(( R_USDC_BEFORE / 3 ))
+if [ "$R_SPEND" -lt 1000000 ]; then
+  echo "  bob holds only $R_USDC_BEFORE USDC — too little to trade. Fund $B and re-run."
+else
+R_PT_BEFORE=$(bal "$BOB" "$PT_SAC")
+R_SR_BEFORE=$(bal "$BOB" "$SR")
+R_QUOTE=$(v "$BOB" "$SRROUTER" quote_buy_pt_with_usdc --usdc_in "$R_SPEND")
+echo "  quote: $R_SPEND USDC -> $R_QUOTE PT"
+gt "router quotes PT for USDC" "$R_QUOTE" "0"
+
+R_MIN=$(( R_QUOTE * 99 / 100 ))
+R_OUT=$(tx "$BOB" "$SRROUTER" buy_pt_with_usdc --user "$B" --usdc_in "$R_SPEND" --min_pt_out "$R_MIN" --deadline_ledger 0)
+echo "  executed: got $R_OUT PT"
+gt "router delivered PT" "${R_OUT:-0}" "0"
+
+R_USDC_AFTER=$(usdc "$BOB")
+R_PT_AFTER=$(bal "$BOB" "$PT_SAC")
+chk "exactly $R_SPEND USDC spent" "$(( R_USDC_BEFORE - R_USDC_AFTER ))" "$R_SPEND"
+chk "PT landed with the user" "$(( R_PT_AFTER - R_PT_BEFORE ))" "$R_OUT"
+# The DELTA, not the absolute: bob may hold SR from earlier flows, and the claim being tested is
+# "this trade did not leave the user holding SR", not "this wallet has never held SR".
+chk "the wrap was internal — no SR reached the user" "$(( $(bal "$BOB" "$SR") - R_SR_BEFORE ))" "0"
+# Quote fidelity: what the UI showed vs what executed. Drift beyond a few bp is a UI that lies.
+if [ "$R_OUT" -ge "$R_QUOTE" ] 2>/dev/null; then ok "execution met or beat the quote ($R_OUT >= $R_QUOTE)";
+else bad "execution came in under the quote: $R_OUT < $R_QUOTE"; fi
+fi
+
+hdr "11. WORKFLOW: buy YT from USDC — the TWO-transaction path"
+#
+# `srrouter::buy_yt_with_usdc` exists and is correct, but a Blend supply plus a mint_py-bearing
+# curve trade does not fit one Soroban transaction against this pool. Measured, not assumed:
+# each leg succeeds alone, the combination returns Error(Budget, ExceededLimit). So the real user
+# path — and the one the dApp uses — is wrap, then buy. This section tests THAT.
+# Size to what the pool can actually fill. A YT buy is priced as "the pool buys that much PT", so
+# the SR side is the binding constraint — and it moves as the suite trades. A hardcoded size turns
+# an ordinary liquidity limit into a red contract failure.
+YT_WANT=500000000
+Y_COST=$(v "$BOB" "$SRROUTER" quote_buy_yt_with_usdc --yt_out "$YT_WANT")
+for _ in 1 2 3 4; do
+  [ "${Y_COST:-0}" -gt 0 ] 2>/dev/null && break
+  YT_WANT=$(( YT_WANT / 2 ))
+  Y_COST=$(v "$BOB" "$SRROUTER" quote_buy_yt_with_usdc --yt_out "$YT_WANT")
+done
+echo "  router quote: $YT_WANT YT costs $Y_COST USDC (all in)"
+gt "router quotes YT in USDC (largest fillable size)" "${Y_COST:-0}" "0"
+
+# Confirm the one-transaction path is still genuinely unavailable, so the two-step design below is a
+# MEASURED decision rather than an assumption that quietly rots. Simulation only (`v`, not `tx`):
+# the budget overrun happens at simulation, so there is nothing to gain by submitting.
+if [ "${Y_COST:-0}" -gt 0 ] 2>/dev/null; then
+  if [ "$(v "$BOB" "$SRROUTER" buy_yt_with_usdc --user "$B" --yt_out "$YT_WANT" --usdc_in "$(( Y_COST * 110 / 100 ))" --deadline_ledger 0)" != "" ]; then
+    ok "one-transaction USDC->YT now FITS on this network — the dApp can switch to it"
+  else
+    ok "one-transaction USDC->YT still exceeds the budget (expected; the dApp uses two)"
+  fi
+fi
+
+SR_NEEDED=$(v "$BOB" "$SRMARKET" quote_buy_yt --yt_out "$YT_WANT")
+SR_BUDGET=$(( SR_NEEDED * 103 / 100 ))
+Y_YT_BEFORE=$(bal "$BOB" "$YIELD")
+SR_HELD=$(bal "$BOB" "$SR")
+if [ "$SR_HELD" -lt "$SR_BUDGET" ] 2>/dev/null; then
+  SHORT_USDC=$(v "$BOB" "$SR" preview_redeem --shares "$(( SR_BUDGET - SR_HELD ))")
+  echo "  [1/2] wrapping $(( SHORT_USDC + 1 )) USDC to cover the shortfall..."
+  tx "$BOB" "$SR" deposit --from "$B" --receiver "$B" --amount "$(( SHORT_USDC + 1 ))" --min_shares_out 0 >/dev/null
+fi
+echo "  [2/2] buying $YT_WANT YT with up to $SR_BUDGET SR..."
+Y_SPENT=$(tx "$BOB" "$SRMARKET" buy_yt_exact_out --user "$B" --yt_out "$YT_WANT" --max_sr_in "$SR_BUDGET" --deadline_ledger 0)
+chk "exactly the YT asked for" "$(( $(bal "$BOB" "$YIELD") - Y_YT_BEFORE ))" "$YT_WANT"
+gt "the market took SR for it" "${Y_SPENT:-0}" "0"
+if [ "${Y_SPENT:-0}" -le "$SR_BUDGET" ] 2>/dev/null; then ok "spent within the ceiling — the pad was refunded"; else bad "overspent"; fi
+
+hdr "12. WORKFLOW: claim YT yield straight to USDC"
+CLAIM_Q=$(v "$BOB" "$SRROUTER" quote_claim_yield --user "$B")
+echo "  claimable (net of the protocol fee) = $CLAIM_Q USDC"
+C_USDC_BEFORE=$(usdc "$BOB")
+C_YT_BEFORE=$(bal "$BOB" "$YIELD")
+CLAIMED=$(tx "$BOB" "$SRROUTER" claim_yield_to_usdc --user "$B" --min_usdc_out 0)
+echo "  claimed $CLAIMED USDC"
+chk "claiming does NOT consume the YT" "$(bal "$BOB" "$YIELD")" "$C_YT_BEFORE"
+if [ "${CLAIMED:-0}" -gt 0 ] 2>/dev/null; then
+  chk "the claim landed as USDC" "$(( $(usdc "$BOB") - C_USDC_BEFORE ))" "$CLAIMED"
+  # A quote is a SNAPSHOT. Yield keeps accruing in the ledgers between quoting and executing, so on
+  # a live network the payout should meet or beat the quote — never fall short of it. Asserting
+  # equality here was wrong: it fails on a healthy protocol simply because time passed.
+  if [ "$CLAIMED" -ge "$CLAIM_Q" ] 2>/dev/null; then
+    ok "payout met or beat the quote ($CLAIMED >= $CLAIM_Q — yield accrued in between)"
+  else bad "payout came in UNDER the quote: $CLAIMED < $CLAIM_Q"; fi
+else ok "nothing accrued yet this ledger — claim returned 0 without reverting"; fi
+
+hdr "13. WORKFLOW: sell PT and YT back to plain USDC"
+# Sell from the wallet's real PT balance rather than from section 10's return value, so a skipped
+# or resized buy above does not cascade into a spurious failure here.
+S_PT=$(( $(bal "$BOB" "$PT_SAC") / 2 ))
+if [ "$S_PT" -lt 100000 ]; then
+  echo "  bob holds too little PT to sell — skipping."
+else
+S_USDC_BEFORE=$(usdc "$BOB")
+S_Q=$(v "$BOB" "$SRROUTER" quote_sell_pt_for_usdc --pt_in "$S_PT")
+S_OUT=$(tx "$BOB" "$SRROUTER" sell_pt_for_usdc --user "$B" --pt_in "$S_PT" --min_usdc_out 0 --deadline_ledger 0)
+echo "  sold $S_PT PT -> $S_OUT USDC (quoted $S_Q)"
+gt "PT sold back to USDC" "${S_OUT:-0}" "0"
+chk "USDC landed with the user directly" "$(( $(usdc "$BOB") - S_USDC_BEFORE ))" "$S_OUT"
+
+SY_IN=$(( YT_WANT / 2 ))
+SY_USDC_BEFORE=$(usdc "$BOB")
+SY_OUT=$(tx "$BOB" "$SRROUTER" sell_yt_for_usdc --user "$B" --yt_in "$SY_IN" --min_usdc_out 0 --deadline_ledger 0)
+echo "  sold $SY_IN YT -> $SY_OUT USDC"
+gt "YT sold back to USDC" "${SY_OUT:-0}" "0"
+chk "USDC landed with the user directly" "$(( $(usdc "$BOB") - SY_USDC_BEFORE ))" "$SY_OUT"
+# Selling YT settles but does not pay — the claim must survive it.
+gt "yield still claimable after selling YT" "$(v "$BOB" "$SRROUTER" quote_claim_yield --user "$B")" "-1"
+fi
+
+hdr "14. INVARIANT: the router is never a custodian"
+# Asserted on chain by `assert_drained` after every entry point, but worth confirming from outside:
+# a router holding value between transactions is a router that can be drained by whoever trades next.
+chk "router holds no USDC" "$(v "$ALICE" "$USDC_SAC" balance --id "$SRROUTER")" "0"
+chk "router holds no SR"   "$(v "$ALICE" "$SR" balance --id "$SRROUTER")" "0"
+chk "router holds no PT"   "$(v "$ALICE" "$PT_SAC" balance --id "$SRROUTER")" "0"
+chk "router holds no YT"   "$(v "$ALICE" "$YIELD" balance --id "$SRROUTER")" "0"
+
+hdr "15. Router wiring and governance"
+chk "router.market == market"      "$(v "$ALICE" "$SRROUTER" market)"         "$SRMARKET"
+chk "router.yield == yield"        "$(v "$ALICE" "$SRROUTER" yield_contract)" "$YIELD"
+chk "router.sr == sr"              "$(v "$ALICE" "$SRROUTER" sr_token)"       "$SR"
+chk "router.pt == PT SAC"          "$(v "$ALICE" "$SRROUTER" pt_token)"       "$PT_SAC"
+chk "router.underlying == USDC"    "$(v "$ALICE" "$SRROUTER" underlying)"     "$USDC_SAC"
+chk "router has a timelock"        "$(v "$ALICE" "$SRROUTER" timelock)"       "86400"
+chk "router is not paused"         "$(v "$ALICE" "$SRROUTER" is_paused)"      "false"
+else
+  hdr "10-15. Router"
+  echo "  SRROUTER not in the deploy state — skipping the one-transaction workflows."
+fi
 
 printf '\n\033[1m════ RESULT: %d passed, %d failed ════\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -3,6 +3,7 @@ import {
   addr,
   i128,
   u32,
+  fromBaseUnits,
   readContract,
   toBaseUnits,
   writeContract,
@@ -519,3 +520,289 @@ export const daysToExpiry = (s: SrMarketStats | null): number => {
 
 export const isMatured = (s: SrMarketStats | null): boolean =>
   s ? Math.floor(Date.now() / 1000) >= s.expiry : false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Router — the one-transaction USDC front door
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Everything above this line deals in SR, because that is what the core contracts speak. Everything
+// below deals in USDC, because that is what users have. The router is the translation, and it is
+// the default path for every buy and sell in the UI.
+//
+// Three properties the UI depends on, all enforced on chain:
+//
+// 1. **The router never holds funds.** Each entry point ends with its balance of USDC/SR/PT/YT back
+//    at zero, asserted in the contract. So there is no "stuck in the router" state to design for.
+// 2. **Exact-input on the way in and out, exact-OUTPUT on YT.** `buy_yt_with_usdc` names the YT you
+//    want and a USDC ceiling; the change comes back. This is forced, not a preference — see
+//    {@link buyYtFromUsdc}.
+// 3. **Quotes are produced by the same composition that executes**, so what the panel shows is what
+//    the transaction does, to within index drift of a ledger or two.
+
+/** True when the router is deployed and wired on this network. */
+export const ROUTER_AVAILABLE = Boolean(
+  SR_DEPLOYED && SR_CONTRACTS?.router && !SR_CONTRACTS.router.startsWith('__'),
+);
+
+/** Floor applied to `min_*_out` on router exits, in bps below the quote. */
+const EXIT_SLIPPAGE_BPS = 100n;
+
+const routerNotDeployed = (): never => {
+  throw new Error('The Spield v2 router is not deployed on this network.');
+};
+
+const routerQuote = async (fn: string, arg: bigint): Promise<bigint> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return 0n;
+  try {
+    return toBig(await readContract(SR_CONTRACTS.router, fn, [i128(arg)]));
+  } catch {
+    return 0n;
+  }
+};
+
+/** PT received for spending `usdcIn` USDC, wrap included. */
+export const quoteBuyPtWithUsdc = (usdcIn: bigint) =>
+  routerQuote('quote_buy_pt_with_usdc', usdcIn);
+
+/** USDC needed to buy exactly `ytOut` of YT face, wrap included. */
+export const quoteBuyYtWithUsdc = (ytOut: bigint) =>
+  routerQuote('quote_buy_yt_with_usdc', ytOut);
+
+/** USDC received for selling `ptIn` PT, unwrap included. */
+export const quoteSellPtForUsdc = (ptIn: bigint) =>
+  routerQuote('quote_sell_pt_for_usdc', ptIn);
+
+/** USDC received for selling `ytIn` of YT face, unwrap included. */
+export const quoteSellYtForUsdc = (ytIn: bigint) =>
+  routerQuote('quote_sell_yt_for_usdc', ytIn);
+
+/** USDC paid by redeeming `pyAmount` of face — par, no curve, no slippage. */
+export const quoteRedeemPyForUsdc = (pyAmount: bigint) =>
+  routerQuote('quote_redeem_py_for_usdc', pyAmount);
+
+/** USDC a yield claim would pay right now, net of the protocol's yield fee. */
+export const quoteClaimYieldUsdc = async (owner: string): Promise<bigint> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return 0n;
+  try {
+    return toBig(await readContract(SR_CONTRACTS.router, 'quote_claim_yield', [addr(owner)]));
+  } catch {
+    return 0n;
+  }
+};
+
+/**
+ * **Buy PT with plain USDC, one signature.** Requires a PT trustline — the user receives PT.
+ *
+ * `amount` is a human string. The floor is derived from the live quote so the user is protected
+ * across the *whole* route: a bad wrap rate and a bad swap price both land in the same number.
+ */
+export const buyPtWithUsdc = async (
+  wallet: string,
+  amount: string,
+): Promise<WriteResult> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
+  const units = toBaseUnits(amount);
+  const quoted = await quoteBuyPtWithUsdc(units);
+  if (quoted <= 0n) {
+    throw new Error('No quote available — the pool cannot fill that size right now.');
+  }
+  const minOut = quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n;
+  return writeContract(wallet, SR_CONTRACTS.router, 'buy_pt_with_usdc', [
+    addr(wallet),
+    i128(units),
+    i128(minOut),
+    u32(0),
+  ]);
+};
+
+/**
+ * **Buy YT starting from plain USDC — in two transactions, deliberately.**
+ *
+ * Everything else in this file is one signature. YT is not, and the reason is a hard measured limit
+ * rather than a design choice:
+ *
+ * ```text
+ * srmarket.buy_yt_exact_out alone   →  Success
+ * sr.deposit alone                  →  Success
+ * both in one transaction           →  Error(Budget, ExceededLimit)      (testnet, 2026-08-25)
+ * ```
+ *
+ * A Blend supply plus a `mint_py`-bearing curve trade exceeds one Soroban transaction against a
+ * pool of Blend's weight. `srrouter.buy_yt_with_usdc` exists, is correct and is fully tested — it
+ * simply cannot execute here, so wiring the UI to it would ship a button that always fails.
+ *
+ * So: wrap only what the trade needs, then buy. The user signs twice and the outcome is identical.
+ * If they already hold enough SR, step one is skipped and it *is* one signature.
+ *
+ * `onProgress` reports which leg is running so the UI can say "1 of 2" instead of going quiet
+ * between two wallet prompts — which reads as a hang.
+ */
+export const buyYtFromUsdc = async (
+  wallet: string,
+  ytOut: bigint,
+  onProgress?: (step: 'wrap' | 'buy', of: number) => void,
+): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+
+  const srNeeded = await quoteBuyYt(ytOut);
+  if (srNeeded <= 0n) {
+    throw new Error(
+      'No quote available — the pool cannot fill that size right now. Try a smaller amount.',
+    );
+  }
+  // Pad, because the market re-prices against the live index at execution and the refund makes
+  // over-padding free. Under-padding costs the trade.
+  const srBudget = srNeeded + (srNeeded * YT_MAX_IN_PAD_BPS) / 10_000n + 1n;
+
+  const held = await safeBalance(SR_CONTRACTS.sr, wallet);
+  const steps = held >= srBudget ? 1 : 2;
+
+  if (held < srBudget) {
+    onProgress?.('wrap', steps);
+    // Wrap the shortfall, converted at the current rate and rounded up so one stroop of drift
+    // cannot leave us a stroop short after signing.
+    const rate = await getExchangeRate();
+    const shortfallUsdc = srToUsdc(srBudget - held, rate) + 1n;
+    await wrapUsdc(wallet, fromBaseUnits(shortfallUsdc).toString());
+  }
+
+  onProgress?.('buy', steps);
+  return writeContract(wallet, SR_CONTRACTS.market, 'buy_yt_exact_out', [
+    addr(wallet),
+    i128(ytOut),
+    i128(srBudget),
+    u32(0),
+  ]);
+};
+
+/**
+ * USDC a two-step YT buy will cost, all in. Composes the market's SR quote with the wrapper's rate,
+ * so it is the same arithmetic {@link buyYtFromUsdc} performs.
+ */
+export const quoteBuyYtFromUsdc = async (ytOut: bigint): Promise<bigint> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return 0n;
+  const sr = await quoteBuyYt(ytOut);
+  if (sr <= 0n) return 0n;
+  return srToUsdc(sr, await getExchangeRate());
+};
+
+/** **Sell PT straight back to USDC, one signature.** */
+export const sellPtForUsdc = async (
+  wallet: string,
+  ptIn: bigint,
+): Promise<WriteResult> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
+  const quoted = await quoteSellPtForUsdc(ptIn);
+  const minOut = quoted > 0n ? quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n : 0n;
+  return writeContract(wallet, SR_CONTRACTS.router, 'sell_pt_for_usdc', [
+    addr(wallet),
+    i128(ptIn),
+    i128(minOut),
+    u32(0),
+  ]);
+};
+
+/**
+ * **Sell YT straight back to USDC, one signature.**
+ *
+ * The sale settles the seller's accrued interest before the balance moves — the engine's
+ * `before_yt_change` hook — so selling never forfeits yield already earned. It stays claimable
+ * afterwards via {@link claimYieldToUsdc}, which the UI should say out loud.
+ */
+export const sellYtForUsdc = async (
+  wallet: string,
+  ytIn: bigint,
+): Promise<WriteResult> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
+  const quoted = await quoteSellYtForUsdc(ytIn);
+  const minOut = quoted > 0n ? quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n : 0n;
+  return writeContract(wallet, SR_CONTRACTS.router, 'sell_yt_for_usdc', [
+    addr(wallet),
+    i128(ytIn),
+    i128(minOut),
+    u32(0),
+  ]);
+};
+
+/**
+ * **Redeem principal to USDC at face, one signature.**
+ *
+ * * **After maturity** this is the exit: PT alone, par value, no curve and no liquidity needed. The
+ *   market refuses to trade past expiry, so {@link sellPtForUsdc} stops working exactly where this
+ *   starts mattering — the UI must switch over at maturity.
+ * * **Before maturity** the same call is a *recombine*: it burns both PT and YT and pays face. No
+ *   spread, but it needs both legs, so only offer it when the user holds both.
+ */
+export const redeemPyForUsdc = async (
+  wallet: string,
+  pyAmount: bigint,
+): Promise<WriteResult> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
+  const quoted = await quoteRedeemPyForUsdc(pyAmount);
+  const minOut = quoted > 0n ? quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n : 0n;
+  return writeContract(wallet, SR_CONTRACTS.router, 'redeem_py_for_usdc', [
+    addr(wallet),
+    i128(pyAmount),
+    i128(minOut),
+  ]);
+};
+
+/**
+ * **Claim accrued YT yield straight to USDC, one signature.**
+ *
+ * This is what makes YT legible: holding it earns SR continuously, and without this the holder has
+ * to claim SR, then unwrap it, then work out which of the two numbers was their actual return.
+ * Claiming does not consume the YT — the position keeps earning.
+ */
+export const claimYieldToUsdc = (wallet: string): Promise<WriteResult> => {
+  if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
+  return writeContract(wallet, SR_CONTRACTS.router, 'claim_yield_to_usdc', [
+    addr(wallet),
+    i128(0n),
+  ]);
+};
+
+/**
+ * Solve "how much YT face can I get for `usdcBudget`?" — the inverse of
+ * {@link quoteBuyYtFromUsdc}.
+ *
+ * The purchase is exact-*output* by necessity (see {@link buyYtFromUsdc}), but users think in
+ * "I want to spend $100". Rather than push that mismatch onto them, we invert the quote here.
+ *
+ * Cost is very nearly linear in face over any size a single user trades, so a scaled secant
+ * converges in two or three probes; we cap it at five and accept the last under-budget candidate.
+ * Every iteration is a free simulation, and returning slightly *under* budget is the safe
+ * direction — the padded ceiling absorbs the difference and the remainder is refunded.
+ *
+ * Returns `0n` when the pool cannot fill anything at that budget.
+ */
+export const solveYtFaceForUsdc = async (usdcBudget: bigint): Promise<bigint> => {
+  if (!ROUTER_AVAILABLE || usdcBudget <= 0n) return 0n;
+
+  // Opening guess: a 90-day 5% pool prices YT near 1.2% of face, so ~80x is the right order of
+  // magnitude. Being wrong is cheap — the first probe corrects it.
+  let face = usdcBudget * 80n;
+  let best = 0n;
+
+  for (let i = 0; i < 5; i += 1) {
+    const cost = await quoteBuyYtFromUsdc(face);
+    if (cost <= 0n) {
+      // Too big for the pool to fill. Halve and retry rather than giving up: the user's budget may
+      // simply exceed available liquidity, and a smaller fill is still a useful answer.
+      face /= 2n;
+      if (face <= 0n) return best;
+      continue;
+    }
+    if (cost <= usdcBudget) {
+      best = face;
+      // Within 0.5% of the budget is close enough to stop probing.
+      if (usdcBudget - cost <= usdcBudget / 200n) return face;
+    }
+    const next = (face * usdcBudget) / cost;
+    if (next <= 0n) return best;
+    // Damp the very first correction; an opening guess far off can otherwise overshoot into a size
+    // the pool cannot quote at all, wasting a probe.
+    face = i === 0 ? (face + next) / 2n : next;
+  }
+  return best;
+};

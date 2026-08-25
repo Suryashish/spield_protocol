@@ -74,6 +74,77 @@ Everything else in the table above this section is unchanged.
 
 ---
 
+### Re-verified again 2026-08-25 — every item re-tested, and why nothing is removed yet
+
+The ask this round was to delete what is solved. So all **20 acceptance tests in this document were
+re-run individually**, and the result is unambiguous:
+
+```
+still-broken: 20   now-fixed: 0
+```
+
+Every one still passes — i.e. still asserts the broken behaviour. `contracts/{wrapper,vault,market}`
+remain byte-for-byte unchanged, so no v1 item can have closed, and removing any of them would be
+recording a fix that does not exist.
+
+That leaves the items whose remaining work was **never a v1 code change**. Those were chased down to
+the live network rather than to the source tree, and both turned up something:
+
+**#13 — the mainnet issuer is still unlocked.** Read from Horizon on 2026-08-25:
+
+```
+GA4R5M7ZWOQZWIYCW246YC5WJ4QHT3H74CAUSTCEUUWIELCWI7IP3MKB
+  signer: GA4R5M7ZWOQZ... weight 1     *** UNLOCKED ***
+```
+
+The testnet rehearsal bullet **is** now closed — done end to end, both directions verified (see the
+2026-08-25 table above). But bullet 2 is not merely outstanding, it is *measurably* outstanding: v1's
+mainnet PT issuer can mint counterfeit PT today. Harmless only because that deployment has never
+been seeded — which makes "never seed it without locking first" a hard precondition, not a
+preference. **This is an operator action on mainnet with irreversible consequences (it burns the
+issuer identity permanently), so it has deliberately not been performed here.**
+
+**A third finding, from the deploy script rather than the contracts.** A resumed deploy aborted with
+`the issuer is NOT locked`, naming `GDTM2UMJ…` (weight 1) — while the asset actually in use,
+`SPLDPT5:GCCDH7PS…`, was correctly locked (weight 0). The lockdown **burns the issuer identity**, so
+the `spield_sr_issuer` key had been regenerated and no longer resolved to the account that issued
+anything. The fail-closed behaviour was right; the account it checked was not. Fixed by reading the
+issuer from the recorded `PT_ASSET_ID` rather than reconstructing it from a key name — the same
+defect class as `AUDITPREP.md` §4 item 3, one layer up.
+
+**#23 — the monitor is rewritten, but two of its probes cannot run against the live v1 binary.**
+`scripts/solvency_monitor.mjs` now fixes all four sub-defects in the script itself: it reads the
+band from chain (`open_positions() + WITHDRAW_SLACK`) instead of guessing 8; it adds the PT
+conservation probe; it adds vault and market probes; and daemon mode alarms and **keeps polling**
+rather than `exit(2)`-ing itself to death on the first alert.
+
+Then it was pointed at the live testnet wrapper, which answered:
+
+```
+Error(WasmVm, MissingValue) — trying to invoke non-existent contract function, open_positions
+Error(WasmVm, MissingValue) — trying to invoke non-existent contract function, bearer_redeemed
+```
+
+Both views exist in `contracts/wrapper/src/lib.rs` (lines 709 and 717) and neither exists in the
+**deployed** binary — the live deployments were cut before they were added. So the fix is written and
+cannot yet be exercised. The monitor now degrades explicitly rather than crashing or lying:
+
+```
+✓ solvency: backing=345.4875221 principal=345.4400376 headroom=0.0474845
+  band=64 (⚠ ESTIMATED — this deployment predates open_positions(); redeploy the wrapper
+           to measure the real band)
+```
+
+An estimated band and a measured one must never look the same in a log, since a watchtower that
+guessed silently is the exact defect being fixed. **What is left on #23 is now one line: redeploy the
+wrapper so the two views exist.**
+
+(Fixing this also surfaced a latent bug in the old monitor: its simulation source account literal
+was not a valid strkey, so *every* read failed with `accountId is invalid`. The v1 monitor could
+never have run as written.)
+
+---
+
 ## What is left
 
 | # | Item | Area | Sev | What is left |
@@ -84,8 +155,8 @@ Everything else in the table above this section is unchanged.
 | [20](#20-p1--a-blend-liquidity-crunch-halts-exits-and-the-vault-has-no-partial-path) | Blend liquidity crunch halts exits | strategy / vault | **P1** | **Partial-redeem path + a utilization watchtower + disclosure** |
 | [21](#21-p1--vault-yt-yield-is-unclaimable-after-maturity-and-live-yt-legs-are-pruned) | Vault YT yield unclaimable after maturity | vault | **P1** | **Let `harvest` run post-maturity; stop pruning live YT legs** |
 | [22](#22-p1--vault-seed-capital-and-surplus-inventory-are-one-way) | Seed capital + surplus inventory are one-way | vault | **P1** | **Add a liability-gated sweep** |
-| [23](#23-p1--the-solvency-monitor-does-not-enforce-the-invariant-the-contract-enforces) | Monitor doesn't track the real band, or conservation | ops | **P1** | **Read `open_positions()`; add the PT/YT conservation check** |
-| [13](#13-p1--issuer-lockdown--rehearsal-only) | Issuer lockdown | deploy | P1 | Code shipped — **rehearse on testnet, confirm `✓ VERIFIED`** |
+| [23](#23-p1--the-solvency-monitor-does-not-enforce-the-invariant-the-contract-enforces) | Monitor doesn't track the real band, or conservation | ops | **P1** | Script rewritten 2026-08-25 — **redeploy the wrapper so `open_positions()` / `bearer_redeemed()` exist** |
+| [13](#13-p1--issuer-lockdown--rehearsal-only) | Issuer lockdown | deploy | P1 | Testnet rehearsal **done** — **mainnet issuer measured UNLOCKED; lock it before seeding** |
 | [24](#24-p1--vaultinitialize-does-not-cross-check-its-underlying-either) | Vault init doesn't cross-check `underlying` | vault | P1 | **Same cross-check, one contract over** |
 | [15](#15-p1--a-raw-yt-transfer-strands-the-recipients-claim) | A raw YT transfer strands the recipient's claim | wrapper / dApp | P1 | **Still unenforced — the SDK has no split+transfer helper** |
 | [25](#25-p1--the-solvency-dust-band-ratchets-with-lifetime-users-not-live-dust) | Dust band ratchets with lifetime users | wrapper | P1 | **Close a position when its principal is gone** |

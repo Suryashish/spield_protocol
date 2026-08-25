@@ -13,9 +13,9 @@ use crate::{Yield, YieldClient, MAX_YIELD_FEE_BPS};
 use blend_contract_sdk::{pool, testutils::BlendFixture};
 use sep_40_oracle::testutils::{Asset, MockPriceOracleClient, MockPriceOracleWASM};
 use soroban_sdk::{
-    testutils::{Address as _, BytesN as _, Ledger as _},
+    testutils::{Address as _, BytesN as _, Ledger as _, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
-    vec, Address, BytesN, Env, String, Symbol, Vec,
+    vec, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 use spield_sr::{Sr, SrClient};
 use spield_strategy::{BlendStrategy, BlendStrategyClient};
@@ -1388,4 +1388,80 @@ fn interest_math_does_not_overflow_at_extreme_size() {
     let (held, needed, _) = w.y().solvency();
     assert!(held + 10 >= needed);
     std::println!("10M USDC face over 360d: claim {} SR computed without overflow", claim);
+}
+
+// ===========================================================================
+// redeem_due_interest_to — the router's hook into the interest ledger
+// ===========================================================================
+
+/// Paying a holder their own yield moves value only *to* them, so it stays permissionless — a
+/// keeper can sweep dust claims for anyone. Redirecting that payment moves their value to a third
+/// party, so it must not.
+#[test]
+fn redirecting_a_holders_yield_requires_the_holder_but_self_claim_does_not() {
+    let w = setup(90 * DAY, 500);
+    let (u, sr) = w.user_with_sr(10_000 * USDC);
+    w.y().mint_py(&u, &u, &sr);
+    w.advance(30 * DAY);
+
+    let stranger = Address::generate(&w.env);
+
+    // Self-claim, triggered by a stranger who signs only for themselves: allowed.
+    let (net, _fee) = w
+        .y()
+        .mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &w.yield_c,
+                fn_name: "redeem_due_interest",
+                args: (u.clone(),).into_val(&w.env),
+                sub_invokes: &[],
+            },
+        }])
+        .redeem_due_interest(&u);
+    assert!(net > 0, "a keeper could not settle a holder's own claim");
+    assert_eq!(w.sr().balance(&u), net, "the SR went to the holder");
+
+    // Redirect, same signer: refused.
+    w.advance(30 * DAY);
+    let attempt = w
+        .y()
+        .mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &w.yield_c,
+                fn_name: "redeem_due_interest_to",
+                args: (u.clone(), stranger.clone()).into_val(&w.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_redeem_due_interest_to(&u, &stranger);
+    assert!(attempt.is_err(), "a stranger redirected another holder's yield to themselves");
+}
+
+/// The redirect must be economically identical to a self-claim — same gross, same fee, same net.
+/// If routing changed the arithmetic, the convenient path would quietly cost more.
+#[test]
+fn redirecting_yield_pays_exactly_what_a_self_claim_would() {
+    let w = setup(90 * DAY, 500);
+    let (a, sr_a) = w.user_with_sr(10_000 * USDC);
+    let (b, sr_b) = w.user_with_sr(10_000 * USDC);
+    w.y().mint_py(&a, &a, &sr_a);
+    w.y().mint_py(&b, &b, &sr_b);
+    w.advance(45 * DAY);
+
+    let sink = Address::generate(&w.env);
+    let treasury_before = w.sr().balance(&w.treasury);
+    let (net_a, fee_a) = w.y().redeem_due_interest(&a);
+    let fee_from_a = w.sr().balance(&w.treasury) - treasury_before;
+
+    let treasury_mid = w.sr().balance(&w.treasury);
+    let (net_b, fee_b) = w.y().redeem_due_interest_to(&b, &sink);
+    let fee_from_b = w.sr().balance(&w.treasury) - treasury_mid;
+
+    assert_eq!(net_a, net_b, "the redirect changed the holder's net");
+    assert_eq!(fee_a, fee_b, "the redirect changed the protocol's fee");
+    assert_eq!(fee_from_a, fee_from_b, "the treasury was paid differently");
+    assert_eq!(w.sr().balance(&sink), net_b, "the redirected SR landed at the receiver");
+    assert_eq!(w.sr().balance(&b), 0, "and not at the holder");
 }

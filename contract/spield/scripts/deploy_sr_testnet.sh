@@ -113,8 +113,13 @@ if [ -n "$REDEPLOY" ]; then
   for p in "${PARTS[@]}"; do
     case "$p" in
       srmarket|market) CLEAR_KEYS="$CLEAR_KEYS SRMARKET SRMARKET_INIT POOL_SEEDED" ;;
+      # The router is the one component that IS safely replaceable in isolation: it holds no funds,
+      # has no privileges over anything, and derives its whole topology from the market at
+      # `initialize`. Swapping it strands nothing.
+      srrouter|router) CLEAR_KEYS="$CLEAR_KEYS SRROUTER SRROUTER_INIT" ;;
+      srvault|vault) CLEAR_KEYS="$CLEAR_KEYS SRVAULT SRVAULT_INIT VAULT_SEEDED" ;;
       sr|yield) echo "ERROR: REDEPLOY=$p cannot work in isolation (see comment). Use FRESH=1."; exit 1 ;;
-      *) echo "ERROR: unknown REDEPLOY component '$p'. Supported: srmarket."; exit 1 ;;
+      *) echo "ERROR: unknown REDEPLOY component '$p'. Supported: srmarket, srrouter, srvault."; exit 1 ;;
     esac
   done
   CLEAR_KEYS="$CLEAR_KEYS DEPLOY_COMPLETE"
@@ -128,8 +133,9 @@ if [ -n "$REDEPLOY" ]; then
 fi
 
 # Declared so `set -u` is happy before the state file is sourced.
-SR=""; STRATEGY=""; YIELD=""; SRMARKET=""; SRVAULT=""; PT_SAC=""
+SR=""; STRATEGY=""; YIELD=""; SRMARKET=""; SRVAULT=""; SRROUTER=""; PT_SAC=""
 STRATEGY_INIT=""; SR_INIT=""; YIELD_INIT=""; SRMARKET_INIT=""; SRVAULT_INIT=""; VAULT_SEEDED=""
+SRROUTER_INIT=""
 PT_ADMIN_SET=""; PT_TRUSTLINE=""; POOL_SEEDED=""; ISSUER_LOCKED=""
 SAVED_EXPIRY=""; DEPLOY_COMPLETE=""
 
@@ -221,6 +227,31 @@ TREASURY_ADDR=$(stellar keys address "$TREASURY_KEY")
 PT_CODE="${PT_CODE:-SPLDPT2}"
 PT_ASSET="$PT_CODE:$ISSUER_ADDR"
 
+# ── Trust the RECORDED asset over the reconstructed one ──────────────────────────────────────────
+#
+# On a resumed run the deployment's real PT asset is whatever `PT_ASSET_ID` says, and that is not
+# necessarily `$PT_CODE:$(stellar keys address $ISSUER)`. The lockdown **burns the issuer identity**,
+# so `spield_sr_issuer` gets regenerated afterwards and the key name then resolves to a brand-new,
+# unlocked account that never issued anything.
+#
+# Caught on 2026-08-25: a resume aborted with "the issuer is NOT locked" naming
+# GDTM2UMJ… (weight 1) while the asset actually in use, SPLDPT5:GCCDH7PS…, was correctly locked
+# (weight 0). The fail-closed behaviour was right; the account it was checking was not.
+#
+# This is the same defect class as `AUDITPREP.md` §4 item 3 — an asset identity reconstructed from
+# parts instead of read from where it was recorded. Reconstruct only when there is nothing recorded.
+if [ -n "${PT_ASSET_ID:-}" ]; then
+  PT_ASSET="$PT_ASSET_ID"
+  RECORDED_ISSUER="${PT_ASSET_ID#*:}"
+  if [ "$RECORDED_ISSUER" != "$ISSUER_ADDR" ]; then
+    echo "==> NOTE: using the RECORDED PT issuer $RECORDED_ISSUER"
+    echo "          (the '$ISSUER' key now resolves to $ISSUER_ADDR — expected after a lockdown,"
+    echo "           which burns the identity. The recorded asset is the one the contracts use.)"
+    ISSUER_ADDR="$RECORDED_ISSUER"
+  fi
+  PT_CODE="${PT_ASSET_ID%%:*}"
+fi
+
 echo "==> Deployer ($SOURCE): $ADMIN_ADDR"
 echo "==> PT issuer ($ISSUER): $ISSUER_ADDR"
 echo "==> Treasury:            $TREASURY_ADDR"
@@ -250,6 +281,7 @@ STRAT_WASM=$(pick_wasm "$WASM_DIR/spield_strategy")
 YIELD_WASM=$(pick_wasm "$WASM_DIR/spield_yield")
 MARKET_WASM=$(pick_wasm "$WASM_DIR/spield_srmarket")
 VAULT_WASM=$(pick_wasm "$WASM_DIR/spield_srvault")
+ROUTER_WASM=$(pick_wasm "$WASM_DIR/spield_srrouter")
 for f in "$SR_WASM" "$STRAT_WASM" "$YIELD_WASM" "$MARKET_WASM" "$VAULT_WASM"; do
   [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
 done
@@ -444,6 +476,24 @@ if [ "${VAULT_SEED_AMOUNT:-0}" -gt 0 ] && [ -z "$VAULT_SEEDED" ]; then
 elif [ -n "$VAULT_SEEDED" ]; then echo "    vault already seeded — skipping."
 else echo "    (VAULT_SEED_AMOUNT=0 — vault deployed but has no coupon capacity yet)"; fi
 
+
+# ─── [7c] SR Router — the one-transaction USDC front door ─────────────────────────────────────────
+# Deployed LAST on purpose: it is the only contract here that is pure convenience. Everything below
+# it works without it, so if this step fails the protocol is still fully usable — users just need
+# three signatures instead of one. It holds no funds, has no privileges over any other contract,
+# and like the market and vault it DISCOVERS its own wiring from a single address.
+if [ -z "$SRROUTER" ]; then
+  echo "==> [7c] Deploying the SR Router..."
+  save_state SRROUTER "$(stellar contract deploy --wasm "$ROUTER_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR")"
+  echo "    srrouter = $SRROUTER"
+else echo "==> [7c] Router already deployed ($SRROUTER) — skipping."; fi
+
+if [ -z "$SRROUTER_INIT" ]; then
+  echo "    initializing router against the market..."
+  invoke_retry "$SRROUTER" initialize --market "$SRMARKET"
+  save_state SRROUTER_INIT 1; echo "    ✓ router initialized"
+else echo "    router already initialized — skipping."; fi
+
 # ─── [8/9] On-chain verification ─────────────────────────────────────────────────────────────────
 # Read every binding back FROM CHAIN. The contract makes a mismatch impossible to construct, but a
 # stale state file pointing at the wrong deployment is still possible — this is what catches it.
@@ -464,6 +514,12 @@ expect "vault.yield_contract == yield"  "$(read_view "$SRVAULT" yield_contract)"
 expect "vault.pt_token == PT SAC"       "$(read_view "$SRVAULT" pt_token)"  "$PT_SAC"
 expect "vault.underlying == USDC"       "$(read_view "$SRVAULT" underlying)" "$USDC_SAC"
 expect "vault.maturity == expiry"       "$(read_view "$SRVAULT" maturity)"  "$EXPIRY"
+expect "router.market == market"        "$(read_view "$SRROUTER" market)"        "$SRMARKET"
+expect "router.yield_contract == yield" "$(read_view "$SRROUTER" yield_contract)" "$YIELD"
+expect "router.sr_token == sr"          "$(read_view "$SRROUTER" sr_token)"      "$SR"
+expect "router.pt_token == PT SAC"      "$(read_view "$SRROUTER" pt_token)"      "$PT_SAC"
+expect "router.underlying == USDC"      "$(read_view "$SRROUTER" underlying)"    "$USDC_SAC"
+expect "router.expiry == expiry"        "$(read_view "$SRROUTER" expiry)"        "$EXPIRY"
 
 SR_RATE=$(read_view "$SR" exchange_rate)
 echo "    ✓ sr.exchange_rate = $SR_RATE (live Blend b_rate)"
@@ -512,6 +568,7 @@ cat <<EOF
   Yield engine  ( = YT )     $YIELD
   PT/SR Market               $SRMARKET
   Fixed-Rate Vault           $SRVAULT
+  SR Router (USDC frontdoor) $SRROUTER
   PT SAC                     $PT_SAC
   PT classic asset           $PT_ASSET
   USDC SAC                   $USDC_SAC
@@ -527,6 +584,7 @@ cat <<EOF
     YIELD_ID    = "$YIELD"
     SRMARKET_ID = "$SRMARKET"
     SRVAULT_ID  = "$SRVAULT"
+    SRROUTER_ID = "$SRROUTER"
     PT_SAC      = "$PT_SAC"
     USDC_SAC    = "$USDC_SAC"
 ═══════════════════════════════════════════════════════════════════════════════

@@ -31,7 +31,9 @@ import PositionsPanel from '@/components/dashboard/sections/PositionsPanel';
 import SolvencyCard from '@/components/dashboard/sections/SolvencyCard';
 import MarketChart from '@/components/dashboard/sections/MarketChart';
 import TradePanel from '@/components/dashboard/sections/TradePanel';
-import SrPanel from '@/components/dashboard/sections/SrPanel';
+import SrTradePanel from '@/components/dashboard/sections/SrTradePanel';
+import SrWrapPanel from '@/components/dashboard/sections/SrWrapPanel';
+import SrYieldPanel from '@/components/dashboard/sections/SrYieldPanel';
 import SrPortfolioPanel from '@/components/dashboard/sections/SrPortfolioPanel';
 import LpPanel from '@/components/dashboard/sections/LpPanel';
 import LpStatsStrip from '@/components/dashboard/sections/LpStatsStrip';
@@ -247,17 +249,39 @@ const SolvencySection = () => (
 /**
  * Spield v2 — the SR stack. Kept as its own section rather than folded into the v1 pages because
  * the model is genuinely different: SR is the entry token, YT is a contract rather than a SAC, and
- * there is no vault. Mixing the two would make both harder to read.
+ * the maturity structure has no v1 analogue. Mixing the two would make both harder to read.
+ *
+ * The layout follows the user's actual sequence: take a position, see what you hold, take the yield
+ * it threw off. Wrapping is deliberately **not** here — it moved to its own section, because
+ * requiring it as step one was the thing that made this page hard to approach. Trades wrap
+ * internally now; the wrapper page is for people who want SR itself.
  */
 const V2Section = () => (
   <div className="space-y-6">
     <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
       <div className="lg:col-span-5">
-        <SrPanel />
+        <SrTradePanel />
       </div>
       <div className="lg:col-span-7">
         <SrPortfolioPanel />
       </div>
+    </div>
+    <SrYieldPanel />
+  </div>
+);
+
+/**
+ * The SR wrapper, on its own page. Separate from trading on purpose: it is a different job (hold a
+ * yield-bearing dollar) rather than a prerequisite for one, and folding it into the trade panel is
+ * what made v2 read as a two-step protocol when it is not.
+ */
+const SrWrapSection = () => (
+  <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+    <div className="lg:col-span-5">
+      <SrWrapPanel />
+    </div>
+    <div className="lg:col-span-7">
+      <SrPortfolioPanel />
     </div>
   </div>
 );
@@ -270,6 +294,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   deposit: DepositSection,
   markets: MarketsSection,
   v2: V2Section,
+  srwrap: SrWrapSection,
   liquidity: LiquiditySection,
   bridge: BridgeSection,
   solvency: SolvencySection,

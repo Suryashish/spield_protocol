@@ -80,6 +80,13 @@ type SrContractSet = {
   market: string;
   /** Fixed-Rate Vault — deposit USDC, get a guaranteed payout at maturity, backed by PT. */
   vault: string;
+  /**
+   * SR Router — the one-transaction USDC front door. Every USDC↔PT/YT flow in the UI goes through
+   * this; the SR hop still exists underneath and stays separately callable for users who want to
+   * hold the wrapper itself. The router holds no funds and has no privileges over the contracts it
+   * composes, so a UI that routed around it would still work — it would just cost three signatures.
+   */
+  router: string;
   /** PT Stellar Asset Contract. */
   pt: string;
   /** PT classic asset as `CODE:ISSUER` — required verbatim to open a trustline. */
@@ -134,6 +141,7 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
       yieldEngine: 'CDR4LNBYRPNCKXVMJEJ3XMSGEBRLABDSNBY5W327LT2E65MCCWFHS5ZB',
       market: 'CAFY2E5GSDNGL3UCYP7JZ2VZHVR2VHAVX5J3M7SBMA4KZUHRFHV4A74Z',
       vault: 'CAHWXX7DQKAJ733SL7U7IHDG5JHGKIW74JN23AY2WQDESQSV4BW2VBHV',
+      router: 'CAEE2RSCFWRCZ7AZ4TWBRGLXMJAX2N4DZGPJBBAAU3P6KY6NTIS3OADO',
       pt: 'CCEJSM4TFAKQ4F5XCMRRRAFHT2DYAXXX5IZMK4MX4SH6M4VT5ZO75S3K',
       ptAsset: 'SPLDPT5:GCCDH7PSRAB6SKZPKBGTJYKKUCPSR3SNI3GCCFLTHR2Z6E6ASN5EEAYX',
       usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
@@ -195,6 +203,8 @@ export const SR_CONTRACTS = profile.sr
       market: env('VITE_SR_MARKET', profile.sr.market),
       /** Fixed-Rate Vault. */
       vault: env('VITE_SR_VAULT', profile.sr.vault),
+      /** SR Router — the one-transaction USDC front door for every PT/YT trade. */
+      router: env('VITE_SR_ROUTER', profile.sr.router),
       pt: env('VITE_SR_PT', profile.sr.pt),
       /** `CODE:ISSUER` for the PT trustline. Use verbatim; do not rebuild it from parts. */
       ptAsset: env('VITE_SR_PT_ASSET', profile.sr.ptAsset),
