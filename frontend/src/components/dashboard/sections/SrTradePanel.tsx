@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { cn } from '@/lib/utils';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
+import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { fromBaseUnits, toBaseUnits } from '@/lib/soroban';
 import { setupSrPtTrustline } from '@/lib/horizon';
@@ -28,13 +29,11 @@ import {
   quoteSellPtForUsdc,
   quoteBuyYtFromUsdc,
   quoteSellYtForUsdc,
-  quoteRedeemPyForUsdc,
   solveYtFaceForUsdc,
   buyPtWithUsdc,
   sellPtForUsdc,
   buyYtFromUsdc,
   sellYtToUsdc,
-  redeemPyForUsdc,
   impliedApyPct,
   ptPriceHuman,
   daysToExpiry,
@@ -43,14 +42,13 @@ import {
   type SrPortfolio,
 } from '@/lib/srstack';
 
-type Mode = 'buyPt' | 'sellPt' | 'buyYt' | 'sellYt' | 'redeem';
+type Mode = 'buyPt' | 'sellPt' | 'buyYt' | 'sellYt';
 
 const MODES: { id: Mode; label: string; hint: string }[] = [
   { id: 'buyPt', label: 'Earn fixed', hint: 'USDC → PT' },
   { id: 'buyYt', label: 'Long yield', hint: 'USDC → YT' },
   { id: 'sellPt', label: 'Sell PT', hint: 'PT → USDC' },
   { id: 'sellYt', label: 'Sell YT', hint: 'YT → USDC' },
-  { id: 'redeem', label: 'Redeem', hint: 'PT → USDC at par' },
 ];
 
 const fmtTok = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
@@ -77,13 +75,18 @@ const fmtTok = (n: number) => n.toLocaleString(undefined, { maximumFractionDigit
  *   before the first prompt is the difference between "as expected" and "why is it asking again".
  * * **Only PT needs a trustline.** Buying YT delivers no PT, so we do not make long-yield buyers
  *   trust an asset they will never hold.
- * * **At maturity the market closes and redemption opens.** These are different code paths, and the
- *   panel switches over rather than letting a matured user press a button that cannot work.
+ * * **At maturity the market closes**, and this panel has nothing left to offer. It carried a
+ *   "Redeem" tab until 2026-08-26, but that called `router.redeem_py_for_usdc` — the identical
+ *   function the Deposit panel's Redeem mode calls, and the same one the positions list offered
+ *   twice more. Redemption settles at **par**, which makes it the opposite of everything else here;
+ *   it belongs beside minting, not beside pricing. So the tab is gone and a matured user is pointed
+ *   at Deposit rather than left on a page where every control is disabled.
  * * **Selling YT credits yield without paying it.** The claim survives the sale. Said out loud,
  *   because a balance going to zero looks like a loss otherwise.
  */
 const SrTradePanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
+  const { navigate } = useNav();
   const { run, busy } = useTxAction();
 
   const [rawMode, setMode] = useState<Mode>('buyPt');
@@ -117,10 +120,7 @@ const SrTradePanel = () => {
 
   const matured = isMatured(stats);
 
-  // At maturity the market stops trading and `redeem_py_for_usdc` becomes the only exit. Derived
-  // rather than pushed into state by an effect: maturity is a fact about the series, not a user
-  // choice, so writing it back into `mode` would just be a second source of truth to keep in sync.
-  const mode: Mode = matured ? 'redeem' : rawMode;
+  const mode: Mode = rawMode;
 
   const parsed = Number(amount);
   const amountValid = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
@@ -141,12 +141,6 @@ const SrTradePanel = () => {
   const deliversPt = mode === 'buyPt';
   const needsTrustline =
     deliversPt && isConnected && onCorrectNetwork && portfolio?.hasPtTrustline === false;
-
-  // A pre-maturity redeem is a recombine: it burns BOTH legs, so it needs both.
-  const recombine = mode === 'redeem' && !matured;
-  const redeemCap = recombine
-    ? (portfolio && portfolio.pt < portfolio.yt ? portfolio.pt : portfolio?.yt) ?? 0n
-    : (portfolio?.pt ?? 0n);
 
   // Live quote, debounced.
   useEffect(() => {
@@ -169,7 +163,6 @@ const SrTradePanel = () => {
         face = await solveYtFaceForUsdc(units);
         q = face > 0n ? await quoteBuyYtFromUsdc(face) : 0n;
       } else if (mode === 'sellYt') q = await quoteSellYtForUsdc(units);
-      else if (mode === 'redeem') q = await quoteRedeemPyForUsdc(units);
       if (!cancelled) {
         setQuote(q);
         setYtFace(face);
@@ -191,7 +184,6 @@ const SrTradePanel = () => {
       sellPt: 'Selling PT for USDC',
       buyYt: 'Buying YT with USDC',
       sellYt: 'Selling YT for USDC',
-      redeem: recombine ? 'Redeeming PT + YT at par' : 'Redeeming PT at par',
     }[mode];
 
     await run(label, async () => {
@@ -208,8 +200,6 @@ const SrTradePanel = () => {
           return sellYtToUsdc(address, units, (step, of) =>
             setYtStep(`${step === 'sell' ? 1 : 2} of ${of}`),
           );
-        case 'redeem':
-          return redeemPyForUsdc(address, units);
       }
     });
     setAmount('');
@@ -308,7 +298,7 @@ const SrTradePanel = () => {
         {/* Mode picker */}
         <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/50 p-1">
           {MODES.map((m) => {
-            const disabled = matured && m.id !== 'redeem';
+            const disabled = matured;
             return (
               <button
                 key={m.id}
@@ -335,30 +325,30 @@ const SrTradePanel = () => {
           })}
         </div>
 
+        {/* Maturity is the one state this panel cannot serve at all: the market refuses to trade
+            past expiry, and redemption moved to Deposit (it settles at par, which is the opposite of
+            everything here). Point the way out rather than leaving a page of disabled tabs. */}
         {matured && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
-            <span>
-              This series has matured, so the market is closed. PT now redeems at par with no
-              slippage and no liquidity needed — and any yield you accrued is still claimable below.
-            </span>
+          <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+              <span>
+                This series has matured, so the market is closed. Your PT is not stuck — it now
+                redeems at <strong>par</strong>, with no slippage and no liquidity required.
+              </span>
+            </div>
+            <Button size="sm" className="w-full" onClick={() => navigate('deposit')}>
+              Redeem at par in Deposit
+            </Button>
           </div>
         )}
 
         <AmountField
-          label={
-            mode === 'buyYt'
-              ? 'You spend (USDC)'
-              : mode === 'redeem'
-                ? `You redeem (${recombine ? 'PT + YT' : 'PT'})`
-                : `You pay (${payToken})`
-          }
+          label={mode === 'buyYt' ? 'You spend (USDC)' : `You pay (${payToken})`}
           value={amount}
           onChange={setAmount}
-          balance={String(mode === 'redeem' ? fromBaseUnits(redeemCap) : payBalanceHuman)}
-          onMax={() =>
-            setAmount(String(mode === 'redeem' ? fromBaseUnits(redeemCap) : payBalanceHuman))
-          }
+          balance={String(payBalanceHuman)}
+          onMax={() => setAmount(String(payBalanceHuman))}
         />
 
         <div className="flex justify-center">
@@ -368,9 +358,7 @@ const SrTradePanel = () => {
         {/* Output preview */}
         <div className="rounded-lg border bg-muted/30 p-3 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">
-              You receive ({mode === 'redeem' ? 'USDC' : getToken})
-            </span>
+            <span className="text-muted-foreground">You receive ({getToken})</span>
             <span className="font-medium tabular-nums">
               {quoting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -396,13 +384,6 @@ const SrTradePanel = () => {
             </p>
           )}
 
-          {mode === 'redeem' && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {recombine
-                ? 'Before maturity this burns both legs and returns face value — no spread, but it needs equal PT and YT.'
-                : 'Par value, paid from the engine. No curve, no slippage, no liquidity required.'}
-            </p>
-          )}
 
           {mode === 'buyYt' && (
             <p className="mt-2 text-xs text-muted-foreground">
@@ -427,15 +408,8 @@ const SrTradePanel = () => {
           )}
         </div>
 
-        {overBalance && mode !== 'redeem' && (
+        {overBalance && (
           <p className="text-xs text-destructive">That is more {payToken} than this wallet holds.</p>
-        )}
-        {mode === 'redeem' && amountValid && toBaseUnits(amount) > redeemCap && (
-          <p className="text-xs text-destructive">
-            {recombine
-              ? 'A pre-maturity redeem burns both legs, so it is capped by whichever of your PT and YT is smaller.'
-              : 'That is more PT than this wallet holds.'}
-          </p>
         )}
 
         {/* Actions */}
@@ -463,7 +437,8 @@ const SrTradePanel = () => {
                 !amountValid ||
                 quoting ||
                 noFill ||
-                (mode === 'redeem' ? toBaseUnits(amount) > redeemCap : overBalance || matured)
+                overBalance ||
+                matured
               }
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}

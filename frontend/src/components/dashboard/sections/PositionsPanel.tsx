@@ -6,7 +6,6 @@ import {
   RefreshCw,
   Sparkles,
   Unlock,
-  Combine,
   ArrowRight,
 } from 'lucide-react';
 
@@ -17,38 +16,23 @@ import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
 import { useNav } from '@/context/NavContext';
-import { useTxAction } from '@/lib/useTxAction';
 import { type PositionValue } from '@/lib/spield';
-import { combineAndRedeem, redeemPt } from '@/lib/v2adapters';
-import { formatAmount, formatUsd, fromBaseUnits } from '@/lib/soroban';
+import { formatAmount, formatUsd } from '@/lib/soroban';
 import { VAULT_DEPLOYED } from '@/lib/config';
 
 /** Whether the protocol-wide maturity has passed (PT redeemable 1:1). */
 const isMatured = (maturity: number | null) =>
   maturity != null && Math.floor(Date.now() / 1000) >= maturity;
 
+// No wallet or tx hooks: this row performs no writes any more, it routes to the pages that do.
 const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean }) => {
-  const { address } = useWallet();
-  const { run, busy } = useTxAction();
+  const { navigate } = useNav();
 
   const claimable = pos.claimableYield;
-  const { navigate } = useNav();
   const hasClaim = claimable > 0n;
   const hasPt = pos.ptAmount > 0n;
   const hasBoth = pos.ptAmount > 0n && pos.ytAmount > 0n;
 
-  const onRedeem = () =>
-    address &&
-    run('Redeem PT', () =>
-      redeemPt(address, pos.positionId, String(fromBaseUnits(pos.ptAmount))),
-    );
-  const onCombine = () => {
-    if (!address) return;
-    const amt = pos.ptAmount < pos.ytAmount ? pos.ptAmount : pos.ytAmount;
-    run('Combine & redeem', () =>
-      combineAndRedeem(address, pos.positionId, String(fromBaseUnits(amt))),
-    );
-  };
 
   return (
     <div className="well rounded-xl p-4">
@@ -101,10 +85,13 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
         </div>
       </div>
 
-      {/* Actions — redemption only.
-          Claiming used to sit here too, calling the same contract function as the Yield page while
-          showing strictly less: no USDC figure, no fee split, no index. Two buttons for one action
-          is a choice the user should not have to make, so this links to the better one. */}
+      {/* This panel shows what you hold and points at where each action lives. It carried three
+          buttons — Claim, Combine, Redeem PT — and every one of them called a function that a
+          dedicated page already exposes with more information. "Combine" and "Redeem PT" were the
+          same call twice over: `combineAndRedeem` was a literal alias of `redeemPt`, and the engine
+          decides which legs to burn from expiry, not from which button was pressed.
+          A position view that also happens to be a control panel is how you end up with three
+          buttons for one operation. */}
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           size="sm"
@@ -117,28 +104,28 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
           {hasClaim ? 'Claim in Yield' : 'No yield yet'}
         </Button>
 
+        {/* Just "Redeem", and inert until the series matures.
+            It read "Combine & redeem" before, which put the word *combine* back in a second place
+            and made the button's meaning depend on what the wallet happened to hold. A position row
+            should state one thing: this redeems at maturity. The early exit still exists — it is
+            the Combine tab on the Deposit card — and the disabled tooltip says so, so nothing is
+            hidden, it is just not competing for attention here. */}
         <Button
           size="sm"
           variant="outline"
-          disabled={busy || !hasBoth}
-          onClick={onCombine}
+          disabled={!matured || !hasPt}
+          onClick={() => navigate('deposit')}
           className="h-8 flex-1 gap-1.5 text-[12.5px] font-medium"
-          title="Burn equal PT + YT to redeem principal early (auto-claims yield first)"
-        >
-          <Combine size={13} />
-          Combine
-        </Button>
-
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy || !hasPt || !matured}
-          onClick={onRedeem}
-          className="h-8 flex-1 gap-1.5 text-[12.5px] font-medium"
-          title={matured ? 'Redeem PT 1:1 for USDC' : 'Available at maturity'}
+          title={
+            matured
+              ? 'Redeem PT for its face value in USDC'
+              : hasBoth
+                ? 'Available at maturity. To exit early, use Combine on the Deposit card — it burns equal PT + YT and pays face.'
+                : 'Available at maturity. To exit early, sell your PT on the market.'
+          }
         >
           <Unlock size={13} />
-          Redeem PT
+          {matured ? 'Redeem' : 'Redeem at maturity'}
         </Button>
       </div>
     </div>
