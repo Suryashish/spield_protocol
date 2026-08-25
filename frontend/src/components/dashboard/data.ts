@@ -114,7 +114,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Bridge',
     id: 'bridge',
     title: 'Bridge Assets',
-    subtitle: 'Cross-chain swap assets to and from Stellar via Allbridge Core.',
+    subtitle: 'Bridge native USDC from supported EVM networks to Stellar via Circle CCTP V2.',
     group: 'trade',
   },
   {

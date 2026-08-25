@@ -21,7 +21,7 @@ export default defineConfig({
   },
   build: {
     // esbuild minify (default) is fast; keep it. Bump the warn limit so the huge
-    // dApp chunk (Stellar SDK, ethers, Reown, Allbridge, recharts) doesn't spam
+    // dApp chunk (Stellar SDK, ethers, Reown, CCTP, recharts) doesn't spam
     // the build log.
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

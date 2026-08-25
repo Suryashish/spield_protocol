@@ -1,8 +1,3 @@
-// Installs the global `Buffer` the Allbridge/Solana bridge SDKs need. It's a
-// side-effect import at the top of this module, so it runs before any provider
-// below (which may pull in the bridge SDK) initializes.
-import '@/lib/polyfills';
-
 import { Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 
 import { NAV_ITEMS } from '@/components/dashboard/data';

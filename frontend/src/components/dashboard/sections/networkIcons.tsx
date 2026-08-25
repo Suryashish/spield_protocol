@@ -1,9 +1,9 @@
 import { useState } from 'react';
 
 /**
- * Network icons for the bridge, keyed by Allbridge `chainSymbol`.
+ * Network icons for the bridge, keyed by the local CCTP source symbol.
  *
- * The Allbridge SDK exposes no logo URLs, so we map each supported chain to a CDN
+ * We map each supported chain to a CDN
  * SVG (Spot/Cryptocurrency-icons style) plus a branded fallback (colored disc with
  * the chain's initials) for when the image is missing or fails to load. This keeps
  * the bridge visually consistent without bundling image assets.
@@ -27,9 +27,12 @@ const ICONS: Record<string, IconMeta> = {
   BSC: { src: cdn('bnb'), short: 'BNB', color: '#F3BA2F' },
   POL: { src: cdn('matic'), short: 'POL', color: '#8247E5' },
   ARB: { src: cdn('arb'), short: 'ARB', color: '#28A0F0' },
+  AVAX: { src: cdn('avax'), short: 'AVA', color: '#E84142' },
   AVA: { src: cdn('avax'), short: 'AVA', color: '#E84142' },
   CEL: { src: cdn('celo'), short: 'CEL', color: '#FCFF52' },
   OPT: { src: cdn('op'), short: 'OP', color: '#FF0420' },
+  OP: { src: cdn('op'), short: 'OP', color: '#FF0420' },
+  BASE: { short: 'BAS', color: '#0052FF' },
   BAS: { short: 'BAS', color: '#0052FF' },
   SOL: { src: cdn('sol'), short: 'SOL', color: '#9945FF' },
   TRX: { src: cdn('trx'), short: 'TRX', color: '#EF0027' },
@@ -38,6 +41,8 @@ const ICONS: Record<string, IconMeta> = {
   STLR: { src: cdn('xlm'), short: 'XLM', color: '#08B5E5' },
   SNC: { short: 'SNC', color: '#FE6601' },
   UNI: { src: cdn('uni'), short: 'UNI', color: '#FF007A' },
+  LINEA: { short: 'LIN', color: '#121212' },
+  ARC: { short: 'ARC', color: '#17212B' },
   LIN: { short: 'LIN', color: '#121212' },
   ALG: { src: cdn('algo'), short: 'ALG', color: '#000000' },
   STX: { src: cdn('stx'), short: 'STX', color: '#5546FF' },
