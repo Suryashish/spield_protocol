@@ -30,7 +30,6 @@ import { useToast } from '@/context/ToastContext';
 import { useWallet } from '@/context/WalletContext';
 import { useBridgeHistory, type BridgeTransfer } from '@/lib/bridgeHistory';
 import {
-  DEFAULT_CCTP_ENVIRONMENT,
   FAST_FINALITY_THRESHOLD,
   MAX_BURN_UNITS,
   STANDARD_FINALITY_THRESHOLD,
@@ -58,7 +57,7 @@ import {
   type SourceGasQuote,
   type TransferMode,
 } from '@/lib/cctp';
-import type { NetworkKey } from '@/lib/config';
+import { NETWORK_KEY } from '@/lib/config';
 import { activeWallet, shortenAddress, signWithWallet } from '@/lib/stellar';
 import AmountField from './AmountField';
 import { NetworkIcon } from './networkIcons';
@@ -125,11 +124,7 @@ const BridgePanel = ({
   const provider = reown.evmProvider ?? (!reown.configured ? injectedProvider : undefined);
   const sourceAddress = reown.evmAddress ?? injectedAddress;
   const recipient = stellarWallet.address?.trim() ?? '';
-  const bridgeEnvironment: NetworkKey = stellarWallet.network === 'TESTNET'
-    ? 'testnet'
-    : stellarWallet.network === 'PUBLIC'
-      ? 'mainnet'
-      : DEFAULT_CCTP_ENVIRONMENT;
+  const bridgeEnvironment = NETWORK_KEY;
   const config = getCctpConfig(bridgeEnvironment);
   const availableSources = useMemo(
     () => bridgeEnvironment === 'testnet'
@@ -163,6 +158,8 @@ const BridgePanel = ({
     ? FAST_FINALITY_THRESHOLD
     : STANDARD_FINALITY_THRESHOLD;
   const validRecipient = isValidStellarRecipient(recipient);
+  const stellarNetworkMatches = !stellarWallet.network ||
+    stellarWallet.network === config.stellarNetwork;
   const validAmount = amountUnits > 0n && amountUnits <= MAX_BURN_UNITS;
   const overBalance = balance !== null && amountUnits > balance;
   const exactKnownGasCost = (sourceGas.approvalCost ?? 0n) + (sourceGas.burnCost ?? 0n);
@@ -577,6 +574,7 @@ const BridgePanel = ({
     sourceAddress &&
     provider &&
     validRecipient &&
+    stellarNetworkMatches &&
     validAmount &&
     !overBalance &&
     feeStatus === 'ready' &&
@@ -588,15 +586,17 @@ const BridgePanel = ({
     ? 'Connect a source wallet to bridge'
     : !stellarWallet.address
       ? 'Connect a Stellar wallet to bridge'
-      : amountUnits > MAX_BURN_UNITS
-        ? 'Maximum transfer is 10,000,000 USDC'
-        : sourceGasInsufficient
-          ? `Add ${source.nativeSymbol} for gas`
-          : feeStatus === 'loading'
-            ? 'Loading live Circle fee…'
-            : feeStatus === 'error'
-              ? 'Circle fee quote unavailable'
-              : stepLabel(step);
+      : !stellarNetworkMatches
+        ? `Stellar wallet must use ${config.stellarNetwork}`
+        : amountUnits > MAX_BURN_UNITS
+          ? 'Maximum transfer is 10,000,000 USDC'
+          : sourceGasInsufficient
+            ? `Add ${source.nativeSymbol} for gas`
+            : feeStatus === 'loading'
+              ? 'Loading live Circle fee…'
+              : feeStatus === 'error'
+                ? 'Circle fee quote unavailable'
+                : stepLabel(step);
 
   const sourceGasLabel = sourceGas.status === 'loading'
     ? 'Calculating…'
@@ -747,7 +747,7 @@ const BridgePanel = ({
               <div className="min-w-0 leading-tight">
                 <div className="truncate font-mono text-sm">{shortenAddress(recipient, 6, 6)}</div>
                 <div className="text-[10px] text-muted-foreground">
-                  Connected wallet · {bridgeEnvironment === 'testnet' ? 'Testnet' : 'Mainnet'}
+                  Connected wallet · {stellarWallet.network ?? config.stellarNetwork}
                 </div>
               </div>
             ) : (
@@ -1031,6 +1031,7 @@ const TransferHistory = ({ transfers, onClear }: { transfers: BridgeTransfer[]; 
 
 const BridgeSection = () => {
   const { transfers, track, update, clear } = useBridgeHistory();
+  const activeTransfers = transfers.filter((transfer) => transfer.environment === NETWORK_KEY);
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
@@ -1053,7 +1054,10 @@ const BridgeSection = () => {
               Circle CCTP on Stellar <ExternalLink size={11} />
             </a>
           </div>
-          <TransferHistory transfers={transfers} onClear={clear} />
+          <TransferHistory
+            transfers={activeTransfers}
+            onClear={() => clear(NETWORK_KEY)}
+          />
         </div>
       </div>
     </div>

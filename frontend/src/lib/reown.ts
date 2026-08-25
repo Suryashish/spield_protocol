@@ -1,11 +1,9 @@
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import {
-  arcTestnet,
   arbitrum,
   arbitrumSepolia,
   avalanche,
-  avalancheFuji,
   base,
   baseSepolia,
   lineaSepolia,
@@ -13,12 +11,11 @@ import {
   optimism,
   optimismSepolia,
   polygon,
-  polygonAmoy,
   sepolia,
   unichainSepolia,
 } from '@reown/appkit/networks';
 
-import { REOWN_PROJECT_ID } from './config';
+import { NETWORK_KEY, REOWN_PROJECT_ID } from './config';
 
 /**
  * Reown AppKit — the EVM wallet connector used only for the CCTP bridge. The app's
@@ -34,23 +31,11 @@ export const isReownConfigured = REOWN_PROJECT_ID.length > 0;
 if (isReownConfigured) {
   createAppKit({
     adapters: [new EthersAdapter()],
-    networks: [
-      mainnet,
-      base,
-      arbitrum,
-      optimism,
-      polygon,
-      avalanche,
-      sepolia,
-      avalancheFuji,
-      optimismSepolia,
-      arbitrumSepolia,
-      baseSepolia,
-      polygonAmoy,
-      unichainSepolia,
-      lineaSepolia,
-      arcTestnet,
-    ],
+    // Never expose chains from the opposite environment in the wallet modal.
+    // Testnet contains only Fast-capable routes because Standard is disabled there.
+    networks: NETWORK_KEY === 'mainnet'
+      ? [mainnet, base, arbitrum, optimism, polygon, avalanche]
+      : [sepolia, optimismSepolia, arbitrumSepolia, baseSepolia, unichainSepolia, lineaSepolia],
     projectId: REOWN_PROJECT_ID,
     metadata: {
       name: 'Spield',

@@ -175,9 +175,8 @@ const DEFAULTS: Record<NetworkKey, Pick<CctpConfig, 'messenger' | 'forwarder' | 
   },
 };
 
-/** Build/env-selected fallback used until a connected wallet reports its network. */
-export const DEFAULT_CCTP_ENVIRONMENT: NetworkKey =
-  env('VITE_CCTP_NETWORK', NETWORK_KEY).toLowerCase() === 'mainnet' ? 'mainnet' : 'testnet';
+/** CCTP is locked to the same build-time network as every other protocol module. */
+export const DEFAULT_CCTP_ENVIRONMENT: NetworkKey = NETWORK_KEY;
 
 const activeOverride = (
   environment: NetworkKey,

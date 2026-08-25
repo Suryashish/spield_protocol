@@ -92,7 +92,11 @@ export const useBridgeHistory = () => {
     ));
   }, []);
 
-  const clear = useCallback(() => setTransfers([]), []);
+  const clear = useCallback((environment?: NetworkKey) => {
+    setTransfers((current) => environment
+      ? current.filter((transfer) => transfer.environment !== environment)
+      : []);
+  }, []);
 
   return { transfers, track, update, clear };
 };
