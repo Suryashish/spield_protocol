@@ -47,27 +47,28 @@ type Side = 'buy' | 'sell';
 type Asset = 'pt' | 'yt';
 
 /**
- * The picker is two questions, not four buttons.
+ * The picker is two questions, not four buttons: **which asset**, then **which direction**.
  *
- * It used to be a flat list — "Earn fixed", "Long yield", "Sell PT", "Sell YT" — in a three-column
- * grid holding four items, so it wrapped 3+1 and looked broken. Worse, the naming was inconsistent:
- * two entries described a *strategy* and two described a *transaction*, which left no way to see at
- * a glance that they were the same two assets in opposite directions.
+ * It began as a flat list — "Earn fixed", "Long yield", "Sell PT", "Sell YT" — four items in a
+ * three-column grid, so it wrapped 3+1 and looked broken. The naming was inconsistent too: two
+ * entries described a *strategy* and two a *transaction*, which left no way to see that they were
+ * the same two assets in opposite directions.
  *
- * Splitting it into **side** then **asset** matches how the decision is actually made — am I
- * entering or exiting, and on which leg — and every row is now even.
+ * Asset first is the right order because **PT and YT are different products**, not two settings of
+ * one. Choosing between a fixed-rate bond and a leveraged yield claim is the real decision; buying
+ * or selling is what you then do about it. Leading with buy/sell asked the smaller question first.
  *
- * The strategy language is not lost, it moves to the sub-label where it belongs: the reason to buy
- * PT rather than YT is what "Fixed return" vs "Leveraged yield" was carrying all along.
+ * The strategy language is not lost — it lives in the direction row's sub-label, which is where it
+ * belongs, because the reason to buy PT is not the reason to sell it.
  */
-const SIDES: { id: Side; label: string }[] = [
-  { id: 'buy', label: 'Buy' },
-  { id: 'sell', label: 'Sell' },
+const ASSETS: { id: Asset; label: string; blurb: string }[] = [
+  { id: 'pt', label: 'PT', blurb: 'Fixed-rate principal' },
+  { id: 'yt', label: 'YT', blurb: 'Variable yield' },
 ];
 
-const ASSETS: { id: Asset; label: string; hint: Record<Side, string> }[] = [
-  { id: 'pt', label: 'PT', hint: { buy: 'Lock a fixed return', sell: 'Exit before maturity' } },
-  { id: 'yt', label: 'YT', hint: { buy: 'Leveraged on yield', sell: 'Take yield off the table' } },
+const SIDES: { id: Side; label: string; hint: Record<Asset, string> }[] = [
+  { id: 'buy', label: 'Buy', hint: { pt: 'Lock a fixed return', yt: 'Leveraged on yield' } },
+  { id: 'sell', label: 'Sell', hint: { pt: 'Exit before maturity', yt: 'Take yield off the table' } },
 ];
 
 const modeOf = (side: Side, asset: Asset): Mode =>
@@ -335,48 +336,10 @@ const SrTradePanel = () => {
           </span>
         </div>
 
-        {/* ── Side ──────────────────────────────────────────────────────────────────────────
-            The primary question, so it gets the primary control: full width, two even halves, and
-            a coloured active state so the direction of the trade is readable without focusing. */}
-        <div
-          className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1"
-          role="tablist"
-          aria-label="Trade side"
-        >
-          {SIDES.map((sd) => {
-            const active = side === sd.id;
-            return (
-              <button
-                key={sd.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                disabled={matured}
-                onClick={() => {
-                  setSide(sd.id);
-                  resetEntry();
-                }}
-                className={cn(
-                  'rounded-md px-3 py-2 text-sm font-semibold transition',
-                  active
-                    ? sd.id === 'buy'
-                      ? 'bg-background text-emerald-500 shadow-sm'
-                      : 'bg-background text-amber-500 shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                  matured && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
-                )}
-              >
-                {sd.label}
-              </button>
-            );
-          })}
-        </div>
-
         {/* ── Asset ─────────────────────────────────────────────────────────────────────────
-            The secondary question. Same two options either way — which is the point: PT and YT are
-            one pair traded in two directions, and the old flat list made that impossible to see.
-            The sub-label carries the *reason* to pick one over the other, and it changes with the
-            side, because the reason to buy PT is not the reason to sell it. */}
+            The primary question, because PT and YT are different products — a fixed-rate bond and
+            a leveraged claim on the variable rate. Which one you want is the real decision; what
+            you then do about it is the smaller one below. */}
         <div
           className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1"
           role="tablist"
@@ -396,17 +359,56 @@ const SrTradePanel = () => {
                   resetEntry();
                 }}
                 className={cn(
-                  'rounded-md px-2 py-1.5 text-left transition',
+                  'rounded-md px-3 py-2 transition',
                   active
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
                   matured && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
                 )}
               >
+                <span className="block text-sm font-semibold">{a.label}</span>
+                <span className="block text-[10px] opacity-70">{a.blurb}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Direction ─────────────────────────────────────────────────────────────────────
+            Same two options whichever asset is selected — which is the point: one pair, traded
+            both ways. Colour-coded because direction is the thing you want to be certain of at a
+            glance, and the sub-label gives the *reason*, which differs per asset. */}
+        <div
+          className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1"
+          role="tablist"
+          aria-label="Direction"
+        >
+          {SIDES.map((sd) => {
+            const active = side === sd.id;
+            return (
+              <button
+                key={sd.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                disabled={matured}
+                onClick={() => {
+                  setSide(sd.id);
+                  resetEntry();
+                }}
+                className={cn(
+                  'rounded-md px-2 py-1.5 text-left transition',
+                  active
+                    ? sd.id === 'buy'
+                      ? 'bg-background text-emerald-500 shadow-sm'
+                      : 'bg-background text-amber-500 shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                  matured && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
+                )}
+              >
                 <span className="block text-xs font-medium">
-                  {side === 'buy' ? 'Buy' : 'Sell'} {a.label}
+                  {sd.label} {asset.toUpperCase()}
                 </span>
-                <span className="block text-[10px] opacity-70">{a.hint[side]}</span>
+                <span className="block text-[10px] opacity-70">{sd.hint[asset]}</span>
               </button>
             );
           })}
