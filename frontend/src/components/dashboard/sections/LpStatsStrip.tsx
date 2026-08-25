@@ -45,8 +45,8 @@ const LpStatsStrip = () => {
       />
       <StatTile
         label="Swap Fee"
-        value={MARKET_DEPLOYED && m ? `${(m.feeBps / 100).toFixed(2)}%` : '—'}
-        sub="Earned by LPs per trade"
+        value={MARKET_DEPLOYED && m && m.feeBps > 0 ? `${m.feeBps.toFixed(2)} bps` : '—'}
+        sub="LPs keep 80% · shrinks toward expiry"
         icon={Percent}
         loading={loading}
       />

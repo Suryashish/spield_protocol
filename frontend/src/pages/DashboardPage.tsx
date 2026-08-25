@@ -253,17 +253,13 @@ const SolvencySection = () => (
 /**
  * **Yield** — what YT has earned, and the position that earned it.
  *
- * This page used to be "Spield v2" and carried a trading panel too. Once the whole dashboard moved
- * onto the SR contracts that made it a second Markets page, so the trading panel moved to Markets
- * (where the chart already lived) and this page kept the job nothing else covers: seeing accrued
- * yield and taking it, without giving up the position.
+ * This page used to be "Spield v2" and carried a trading panel and a portfolio panel too. Once the
+ * whole dashboard moved onto the SR contracts, the trading panel became a second Markets page (so it
+ * moved there, where the chart already lived) and the portfolio panel repeated both this card's
+ * claimable figure and the Solvency page's numbers. What is left is the job nothing else covers:
+ * seeing accrued yield and taking it, without giving up the position.
  */
-const YieldSection = () => (
-  <div className="space-y-6">
-    <SrYieldPanel />
-    <SrPortfolioPanel />
-  </div>
-);
+const YieldSection = () => <SrYieldPanel />;
 
 /**
  * The SR wrapper, on its own page. Separate from trading on purpose: it is a different job (hold a

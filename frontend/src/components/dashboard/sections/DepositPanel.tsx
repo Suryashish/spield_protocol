@@ -218,7 +218,11 @@ const DepositPanel = () => {
           </button>
         )}
 
-        {/* Cross-link: already hold PT/YT? Trade them or LP on the Markets AMM. */}
+        {/* Cross-link to Markets.
+            This used to read "already hold PT? trade it", which only covered the exit. The commoner
+            reason to go to Markets is the *entry*: this page splits at par (1 USDC -> 1 PT + 1 YT,
+            no curve), while Markets buys PT at a discount — and that discount IS the fixed return.
+            A user who does not know the difference will pick whichever page they landed on. */}
         {MARKET_DEPLOYED && (
           <button
             type="button"
@@ -228,8 +232,10 @@ const DepositPanel = () => {
             <span className="flex min-w-0 items-start gap-2 text-muted-foreground">
               <TrendingUp size={13} className="mt-px shrink-0 text-brand-text" />
               <span>
-                Already hold PT? <span className="font-medium text-foreground">Trade it</span> or earn
-                fees by providing liquidity.
+                This page splits at <span className="font-medium text-foreground">par</span> — you
+                get both legs and no discount. To{' '}
+                <span className="font-medium text-foreground">buy PT below par</span> and lock that
+                gap as a fixed return, or to sell either leg, use the market.
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-1 font-medium text-brand-text">

@@ -1,11 +1,4 @@
-import {
-  Wallet2,
-  Lock,
-  TrendingUp,
-  Sparkles,
-  Layers,
-  CalendarClock,
-} from 'lucide-react';
+import { Wallet2, Layers, Sparkles, CalendarClock } from 'lucide-react';
 
 import StatTile from './StatTile';
 import { useProtocol } from '@/context/ProtocolContext';
@@ -29,58 +22,49 @@ const maturityLabel = (maturity: number | null): { value: string; sub: string } 
 /**
  * Deposit summary strip — the at-a-glance header for the Deposit page.
  *
- * Surfaces the six figures a depositor checks before minting: how much USDC is
- * available to deposit, the PT (principal) and YT (yield) they already hold, the
- * principal locked across their positions, any yield ready to claim, and when PT
- * matures — so the panel and the positions list below can stay focused on actions.
+ * Four tiles, not six. It carried "Principal Locked" and "Claimable Yield" as well, which repeated
+ * the Overview and Yield pages **verbatim** — same label, same figure, same source. A number shown
+ * in three places is not three times as useful; it is one number and two chances to wonder whether
+ * they disagree.
+ *
+ * What is left is what a depositor actually checks before minting: how much USDC they can spend,
+ * what they already hold on each leg, and when the series matures.
  */
 const DepositStatsStrip = () => {
   const { isConnected } = useWallet();
-  const { balances, totalPrincipal, totalClaimable, maturity, loading } = useProtocol();
+  const { balances, maturity, loading } = useProtocol();
   const mat = maturityLabel(maturity);
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <StatTile
         label="USDC Balance"
         value={isConnected ? formatUsd(balances.usdc) : '—'}
         sub={isConnected ? 'Available to deposit' : 'Connect your wallet'}
-        tone="usdc"
         icon={Wallet2}
         loading={loading}
       />
       <StatTile
         label="PT Held"
         value={isConnected ? formatAmount(balances.pt) : '—'}
-        sub="Principal · redeems 1:1"
-        tone="brand"
-        icon={Lock}
+        sub="Redeems 1:1 at maturity"
+        icon={Layers}
         loading={loading}
       />
       <StatTile
         label="YT Held"
         value={isConnected ? formatAmount(balances.yt) : '—'}
-        sub="Yield token · variable"
-        tone="ember"
-        icon={TrendingUp}
-        loading={loading}
-      />
-      <StatTile
-        label="Principal Locked"
-        value={isConnected ? formatUsd(totalPrincipal) : '—'}
-        sub={isConnected ? 'Across your positions' : 'Connect your wallet'}
-        icon={Layers}
-        loading={loading}
-      />
-      <StatTile
-        label="Claimable Yield"
-        value={isConnected ? formatUsd(totalClaimable, 6) : '—'}
-        sub={isConnected ? 'Ready to claim now' : 'Connect your wallet'}
-        tone={isConnected && totalClaimable > 0n ? 'positive' : 'default'}
+        sub="Earns the variable rate"
         icon={Sparkles}
         loading={loading}
       />
-      <StatTile label="Maturity" value={mat.value} sub={mat.sub} icon={CalendarClock} loading={loading} />
+      <StatTile
+        label="Maturity"
+        value={mat.value}
+        sub={mat.sub}
+        icon={CalendarClock}
+        loading={loading}
+      />
     </div>
   );
 };

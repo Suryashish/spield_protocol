@@ -5,6 +5,8 @@ import '@/lib/polyfills';
 
 import { Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 
+import { NAV_ITEMS } from '@/components/dashboard/data';
+
 import DashboardPage from '@/pages/DashboardPage';
 import { WalletProvider } from '@/context/WalletContext';
 import { ProtocolProvider } from '@/context/ProtocolContext';
@@ -63,15 +65,16 @@ export default function DashboardApp() {
           <ProtocolProvider>
             <Routes>
               <Route path="/" element={<RedirectPreservingQuery to="/overview" />} />
-              <Route path="/overview" element={<DashboardPage />} />
-              <Route path="/vault" element={<DashboardPage />} />
-              <Route path="/deposit" element={<DashboardPage />} />
-              <Route path="/markets" element={<DashboardPage />} />
-              <Route path="/v2" element={<DashboardPage />} />
-              <Route path="/liquidity" element={<DashboardPage />} />
-              <Route path="/bridge" element={<DashboardPage />} />
-              <Route path="/solvency" element={<DashboardPage />} />
-              <Route path="/activity" element={<DashboardPage />} />
+
+              {/* Derived from NAV_ITEMS, not hand-listed.
+                  These were nine literal <Route> lines, which meant a new nav entry needed an edit
+                  in two files. Adding "SR Wrapper" and forgetting this one made the sidebar link
+                  bounce straight back to Overview via the catch-all below — a dead nav item with no
+                  error to explain it. Generating them removes the second edit, so the sidebar and
+                  the router cannot disagree again. */}
+              {NAV_ITEMS.map((item) => (
+                <Route key={item.id} path={`/${item.id}`} element={<DashboardPage />} />
+              ))}
 
               {/* Legacy links from when the app lived at spield.live/dashboard. */}
               <Route path="/dashboard/*" element={<LegacyDashboardRedirect />} />

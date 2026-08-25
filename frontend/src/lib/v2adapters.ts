@@ -220,9 +220,14 @@ export const getOwnerReceipts = async (owner: string, maxScan = 64): Promise<Rec
  * the curve itself prices against, so the dashboard and the AMM agree by construction instead of by
  * two independent conversions that can drift apart.
  *
- * `feeBps` is reported as the treasury's share of each swap fee. v1's fee was a single flat number;
- * v2's total fee is time-scaled (`exp(lnFeeRoot × yearsToExpiry)`) and so has no constant bps
- * value to show. The split is the stable, meaningful number.
+ * `feeBps` is **measured**, not configured. v1's fee was a flat constant; v2's is time-scaled
+ * (`exp(lnFeeRoot × yearsToExpiry)`), so there is no stored number to read — it shrinks every day
+ * toward zero at expiry. We price a small notional through `fee_preview` and derive the effective
+ * rate from what the curve actually charges.
+ *
+ * Reporting the *configured* treasury share here instead — as this did until 2026-08-26 — put
+ * "20.00%" on a tile labelled "Swap Fee, earned by LPs". The real figure was 6.03 bps, LPs keep 80%
+ * of it rather than all, and the number was wrong by a factor of ~330.
  */
 export const getMarketStats = async (): Promise<MarketStats | null> => {
   const s = await getSrMarketStats();
@@ -233,9 +238,30 @@ export const getMarketStats = async (): Promise<MarketStats | null> => {
     totalShares: s.totalShares,
     ptPrice: s.ptPrice,
     impliedApy: s.impliedApy,
-    feeBps: s.treasuryFeeShareBps,
+    feeBps: await effectiveFeeBps(),
     maturity: s.expiry,
   };
+};
+
+/**
+ * The swap fee the curve is charging right now, in bps.
+ *
+ * Priced on a deliberately small notional (0.1 USDC) so the answer is the *rate* rather than the
+ * rate plus price impact, and so it still quotes when the pool is thin. Returns 0 when the pool
+ * cannot quote at all, which the tile renders as "—" rather than as a free market.
+ */
+const effectiveFeeBps = async (): Promise<number> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return 0;
+  const NOTIONAL = 1_000_000n;
+  try {
+    const fee = toBig(
+      await readContract(SR_CONTRACTS.market, 'fee_preview', [i128(NOTIONAL)]),
+    );
+    if (fee <= 0n) return 0;
+    return Number((fee * 10_000n * 100n) / NOTIONAL) / 100;
+  } catch {
+    return 0;
+  }
 };
 
 /** The wallet's LP position, with the SR leg valued in USDC. */

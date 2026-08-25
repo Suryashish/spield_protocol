@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   Coins,
   Layers,
-  Loader2,
   Lock,
   RefreshCw,
   Sparkles,
@@ -20,7 +19,7 @@ import { useWallet } from '@/context/WalletContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { type PositionValue } from '@/lib/spield';
-import { claimYield, combineAndRedeem, redeemPt } from '@/lib/v2adapters';
+import { combineAndRedeem, redeemPt } from '@/lib/v2adapters';
 import { formatAmount, formatUsd, fromBaseUnits } from '@/lib/soroban';
 import { VAULT_DEPLOYED } from '@/lib/config';
 
@@ -33,11 +32,11 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
   const { run, busy } = useTxAction();
 
   const claimable = pos.claimableYield;
+  const { navigate } = useNav();
   const hasClaim = claimable > 0n;
   const hasPt = pos.ptAmount > 0n;
   const hasBoth = pos.ptAmount > 0n && pos.ytAmount > 0n;
 
-  const onClaim = () => address && run('Claim yield', () => claimYield(address, pos.positionId));
   const onRedeem = () =>
     address &&
     run('Redeem PT', () =>
@@ -102,17 +101,20 @@ const PositionRow = ({ pos, matured }: { pos: PositionValue; matured: boolean })
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Actions — redemption only.
+          Claiming used to sit here too, calling the same contract function as the Yield page while
+          showing strictly less: no USDC figure, no fee split, no index. Two buttons for one action
+          is a choice the user should not have to make, so this links to the better one. */}
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           size="sm"
           variant={hasClaim ? 'default' : 'outline'}
-          disabled={busy || !hasClaim}
-          onClick={onClaim}
+          disabled={!hasClaim}
+          onClick={() => navigate('v2')}
           className="h-8 flex-1 gap-1.5 text-[12.5px] font-medium"
         >
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          Claim
+          <Sparkles size={13} />
+          {hasClaim ? 'Claim in Yield' : 'No yield yet'}
         </Button>
 
         <Button
