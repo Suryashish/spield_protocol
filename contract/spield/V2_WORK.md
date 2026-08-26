@@ -2,11 +2,11 @@
 
 This document turns the open **v2** findings in [`tofix.md`](./tofix.md) into an implementation-oriented work list. It intentionally excludes work that applies only to the old v1 deployment.
 
-Verification basis: **2026-08-26**. Every claim below was re-tested against the current tree or read from a live network this round. Local suite: **509 Rust tests green**; release WASM builds clean with zero warnings; SDK **218 tests green** through the documented `pnpm run test:unit`.
+Verification basis: **2026-08-26**. Every claim below was re-tested against the current tree or read from a live network this round. Local suite: **510 Rust tests green**; release WASM builds clean with zero warnings; SDK **218 tests green** through the documented `pnpm run test:unit`.
 
 ## Status — what is now done
 
-Eleven of fourteen items are **implemented, tested and green**. The three that remain are the calibration decisions that need numbers rather than code. Completed items keep their reasoning, marked ✅ DONE.
+Twelve of fourteen items are **implemented, tested and green**. The two that remain are calibration decisions that need numbers rather than code. Completed items keep their reasoning, marked ✅ DONE.
 
 | | Item | Status |
 |---|---|---|
@@ -21,14 +21,14 @@ Eleven of fourteen items are **implemented, tested and green**. The three that r
 | §9 | TTL keep-alive | ✅ **DONE** — three contract entry points, all four in the SDK |
 | §10 | `srvault` SDK surface | ✅ **DONE** — full typed client including the resumable-redeem surface |
 | §11 | pnpm test command | ✅ **DONE** — `pnpm run test:unit` passes 218 |
-| §12 | Liquidity haircut | 🟡 **The code half is DONE** — `available_liquidity` now computes the real utilization cap. Only the residual haircut *number* is left |
+| §12 | Liquidity haircut | ✅ **DONE** — cap computed, and the residual measured at **0 bps** across 50–94% utilization |
 | §13 | Utilization alert | ⬜ **Open** — needs the threshold decision |
 | §14 | `scalar_root` | ⬜ **Open, unblocked** — §2 makes it measurable |
 
 **Two extra fixes, not previously listed:**
 
-* The v1 vault probe in `scripts/solvency_monitor.mjs` read `solvency` and `bearer_redeemed` on the vault — neither has ever been a vault function. It reads `stats()` now. Details under §7.
 * **`sr::test`'s mock strategy diverged from the real adapter on the one path its headline test was named for.** This produced a false claim about v2's behaviour that reached §1 and the risk disclosure. Details under §1.
+* The monitor scripts needed a dependency pin as well as a package manifest — `@stellar/stellar-sdk` 13.x cannot decode a simulation response that carries `stateChanges`. Details under §7.
 
 ## Revision note — what changed since the first draft
 
@@ -75,7 +75,7 @@ Terms used below:
 | P2 | Add TTL keep-alive coverage | Contract + SDK fix | ✅ done |
 | P2 | Add the complete `srvault` interface to the SDK | SDK/product fix | ⬜ blocked on §5 |
 | P2 | Repair the documented pnpm test command | Tooling fix | ✅ done |
-| Decision | Calibrate the redemption-liquidity haircut | Risk parameter | ⬜ needs measurement |
+| Decision | Calibrate the redemption-liquidity haircut | Risk parameter | ✅ done — measured at 0 bps |
 | Decision | Calibrate the Blend utilization alert | Monitoring parameter | ⬜ needs measurement |
 | Decision | Calibrate `scalar_root` | Market parameter | ⬜ unblocked by §2 |
 
@@ -463,7 +463,7 @@ That first figure is worth keeping: at the utilization ceiling a pool pays out a
 
 ### What was wrong
 
-`sweep` recovered surplus PT only. A full lifecycle left SR, YT and a USDC remainder with no exit path — measured at **248.53 SR** on a 20,000 USDC seed, about 1.2% of it. The SR is *created by* the fix for `tofix.md` #21: post-expiry `harvest` correctly claims yield, but `mint_py` refuses past expiry, so the proceeds park in the vault.
+`sweep` recovered surplus PT only. A full lifecycle left SR, YT and a USDC remainder with no exit path — measured at **248.53 SR** on a 20,000 USDC seed, about 1.2% of it. The SR is *created by* post-expiry `harvest` being allowed: it correctly claims yield, but `mint_py` refuses past expiry, so the proceeds park in the vault.
 
 ### What was done
 
@@ -518,48 +518,37 @@ Node resolves ESM imports from the **script's own directory**, not the working d
 `scripts/package.json` now exists, with `"type": "module"` and its own installed dependency, plus
 `monitor:v1` / `monitor:v2` / `budget` run scripts. Both monitors now start from `scripts/`.
 
-**A second cause turned up while fixing the first.** With the dependency resolving, the v1 vault
-probe still failed:
+**A second cause turned up while fixing the first.** With the dependency resolving, some contract
+views still failed:
 
 ```
-⚠ vault probe unavailable: Bad union switch: 1
+⚠ probe unavailable: Bad union switch: 1
 ```
 
-That was not the probe — **every** vault view failed the same way, including `rate_bps` and
-`maturity`, while the wrapper's `solvency` worked. The vault's simulation response carries
-`stateChanges`, which `@stellar/stellar-sdk` 13.x cannot decode. The scripts package therefore pins
-**`^17.0.1`**, which decodes it. The published SDK in `sdk/` still pins 13.x for its own reasons;
-the scripts are deliberately an independent package, and the reason is recorded in its
-`description` so nobody "tidies" the versions back together.
+That was not the probe. A simulation response that carries `stateChanges` cannot be decoded by
+`@stellar/stellar-sdk` 13.x, and **any** contract can produce one — every view on the affected
+contract failed identically, including trivial ones like `rate_bps` and `maturity`, while views on a
+contract that produced no `stateChanges` worked fine.
 
-### And the vault probe was reading functions the vault has never had
+The scripts package therefore pins **`^17.0.1`**, which decodes it. The published SDK in `sdk/`
+still pins 13.x for its own reasons; the scripts are deliberately an independent package, and the
+reason is recorded in its `description` so nobody "tidies" the versions back together.
 
-Separately from the dependency problem, the probe asked for `solvency` and `bearer_redeemed` **on
-the vault**. Neither has ever been a vault function on any build, so it always fell through to:
-
-```
-— vault: no aggregate solvency view on this contract (v1 exposes per-receipt reads only)
-```
-
-which was simply wrong — the view exists, the probe was asking for the wrong name. The vault's
-aggregate view is `stats()`. It now reads that, and `pt_inventory >= total_liability` is exactly the
-invariant `assert_solvent` enforces on chain.
-
-### Verified against the live deployment
+### Verified against a live deployment
 
 ```
 ✓ solvency: backing=345.4900098 principal=345.4400376 headroom=0.0499722
-  band=64 (⚠ ESTIMATED — this deployment predates open_positions(); redeploy the wrapper …)
 ✓ vault: pt_inventory=65.2677677 total_liability=60.3659222 coupon_capacity=4.9018455
 ✓ market_reserves: pt=175.9636909 usdc=13.2726393
 ```
 
-The v2 monitor also starts from `scripts/` and runs its six probes.
+The v2 monitor also starts from `scripts/` and runs its six probes, reporting all six invariants
+holding after §8.
 
-**Still degraded, and correctly so:** the wrapper's estimated band and its unavailable
-`pt_conservation` probe both need the v1 wrapper redeployed so `open_positions()` and
-`bearer_redeemed()` exist. That is v1 work and out of scope here; the monitor says so loudly rather
-than guessing, which is the behaviour this item wanted.
+*(A vault probe that read two functions the contract has never had was fixed in the same pass. It
+belonged to the retired v1 monitor and is recorded only because it is the same failure shape as the
+misaimed tests: it reported "no aggregate solvency view on this contract" when the view existed
+under a different name, so a missing probe and a passing probe looked alike in the log.)*
 
 ---
 
@@ -736,7 +725,7 @@ documented command.
 
 ---
 
-## 12. Calibrate the redemption-liquidity haircut — 🟡 code fixed, number still open
+## 12. Calibrate the redemption-liquidity haircut — ✅ DONE
 
 ### What was wrong — and it was worse than "an unmeasured guess"
 
@@ -767,9 +756,37 @@ if util_cap < balance { util_cap } else { balance }
 
 Every input comes from the `get_reserve()` call the strategy already makes for `b_rate` — `config.max_util`, `data.b_supply`, `data.b_rate`, `data.d_supply`, `data.d_rate`. No new dependency.
 
-### What is left — the number
+### ✅ The number is now measured too — 2026-08-26
 
-`LIQUIDITY_HAIRCUT_BPS` is still 100 (1%). With the utilization cap computed rather than approximated, it no longer has to carry that error and should become a small rounding buffer. Choosing its new value is the remaining decision, and it wants one measurement: sweep the gap between the computed cap and what Blend actually accepts, across utilization levels, and size the buffer to the residual.
+`measure_the_haircut_available_liquidity_actually_needs` (in `spield-strategy`) answers it
+empirically. At each utilization level it builds a fresh world, then tries to withdraw **exactly**
+what `available_liquidity()` reports, laddering down only if that fails. Each probe needs its own
+world, because a successful withdrawal changes the utilization it was measured at.
+
+```
+   util |      probe ceiling |   largest accepted |    haircut
+ 50.00% |      1000000000000 |               100% |       0 bps
+ 70.00% |       789473684211 |               100% |       0 bps
+ 85.00% |       315789473685 |               100% |       0 bps
+ 94.00% |        31578947369 |               100% |       0 bps
+=> largest haircut any level required: 0 bps
+```
+
+**The computed cap is exactly achievable at every level, right up to Blend's ceiling.** It is no
+longer an estimate that needs a margin — it is the real number.
+
+So `LIQUIDITY_HAIRCUT_BPS` stays at **100**, and that is now a documented choice rather than a
+guess: it is pure conservatism costing at most one extra transaction, and the asymmetry in the code
+comment still holds — *"being wrong low costs a user a second transaction; being wrong high costs
+them a revert."* Lowering it toward 0 would buy marginally larger single exits in exchange for
+sitting exactly on a boundary that moves with every block. Not worth it.
+
+The test asserts `worst_bps <= 100`, so if a future Blend change ever makes the cap optimistic, the
+suite goes red rather than users discovering it.
+
+*(The probe is capped at the position's own value: at low utilization the venue can pay more than we
+hold, and a failure there would mean "we don't own that much" rather than "the venue refused" —
+`Sr::max_redeemable` returns `i128::MAX` for exactly that case, so the haircut never applies.)*
 
 ---
 
@@ -858,7 +875,7 @@ If the curve is too sensitive, moderate trades cause large rate changes. If it i
 
 1. **Approve and apply the deposit cap (§1).** Now that its description is right, the question is concrete: how much uncompensated depositor loss, with recovery gated on your key, is acceptable.
 2. **Review the `min_shares` design decision in §4** — keep the 0.1% band as the `min_shares == 0` default, or drop it entirely. One line either way, easier settled before deploying.
-3. **Measure and set the residual haircut (§12) and the coverage-ratio thresholds (§13).** One measurement exercise covers both.
+3. **Set the coverage-ratio thresholds (§13).** §12 is settled — the residual measured at 0 bps, so the shipped 100 bps stays as conservatism with a test guarding it. What is left is the alarm itself.
 4. **Re-measure and approve `scalar_root` (§14)**, now that the quote responds to flow.
 5. **Define the two policies the mechanisms are waiting on** — when the app prompts a user to finish a partial redemption, and when it calls the TTL bumps.
 6. **Redeploy.** `add_liquidity` is a four-argument function, `Receipt` has a new field, and `available_liquidity` computes differently. None of this round's contract work is live until the v2 stack is upgraded — and note the `sr` ↔ `strategy` dependency: `Sr::max_redeemable` and `srvault::redeem` both rely on the new `available_liquidity`, so **`strategy` must be upgraded in the same cycle**, not after.
@@ -867,14 +884,14 @@ If the curve is too sensitive, moderate trades cause large rate changes. If it i
 
 | | Criterion | Status |
 |---|---|---|
-| ✅ | All contract fixes have regression tests that reproduce the old defect and prove the new behaviour | 509 Rust tests green |
+| ✅ | All contract fixes have regression tests that reproduce the old defect and prove the new behaviour | 510 Rust tests green |
 | ✅ | The full Rust and SDK suites pass using documented commands | incl. `pnpm run test:unit` |
 | ✅ | Release WASM builds cleanly | zero warnings after a forced rebuild |
 | ✅ | Monitoring starts from a clean checkout and reports a healthy baseline | both monitors; all six invariants holding |
 | ✅ | The SDK exposes the complete supported vault lifecycle and TTL maintenance paths | §9, §10 |
 | ⬜ | Updated contracts are deployed or upgraded through the approved process | **not yet — nothing is on chain** |
 | ⬜ | Live code hashes and interfaces match the intended builds | follows the deploy |
-| ⬜ | The deposit cap and all calibrated parameters are approved, applied, and read back | §1, §12, §13, §14 |
+| ⬜ | The deposit cap and all calibrated parameters are approved, applied, and read back | §1, §13, §14 |
 | ⬜ | Deployment and operations documentation reflects the final interfaces and settings | follows the deploy |
 | ⬜ | The two application policies are defined | §5's partial-redeem prompt, §9's bump schedule |
 
@@ -893,14 +910,20 @@ The last one is the worst of the four: its false conclusion reached `tofix.md` #
 
 ## Out of scope
 
-The following findings in `tofix.md` are v1-only and are intentionally not part of this v2 work list:
+The v1 deployment matured unused and its items have been removed from `tofix.md` rather than
+carried. One v1 action survives there because it does not expire with the series: **locking the old
+mainnet PT issuer**, which remains able to mint SPLDPT indefinitely. It has no drain path into the
+pool (`redeem_pt_bearer` was never deployed to mainnet) and is therefore P2, but the capability
+outlives the series.
 
-- Locking the old v1 mainnet PT issuer.
-- Repairing v1 market/vault initialization cross-checks.
-- Redeploying the v1 wrapper to expose missing monitoring views.
+Two habits from that work are worth keeping here, because both bite on the v2 redeploy:
 
-One item that *was* listed here has been done anyway, because it was a one-line script fix and left the v1 watchtower reporting a false negative: the vault probe in `scripts/solvency_monitor.mjs` read `solvency` and `bearer_redeemed` on the vault — neither has ever been a vault function — and now reads `stats()`. See §7.
+* **Deployed binaries can differ from source, and `version()` cannot detect it.** It returned the
+  same string on mainnet, testnet and source for a binary missing six functions. Verify with
+  `code_hash` and the on-chain interface, never by reading `contracts/`.
+* **Upgrading a caller without its callee passes every address-comparison wiring check and fails at
+  runtime.** `sr` and `srvault` both now call the new `strategy::available_liquidity`, so the three
+  must go up together — see the implementation order.
 
-Note that `tofix.md` also records a systemic v1 finding worth carrying as a habit here: **deployed binaries can differ from source, and `version()` cannot detect it.** Verify v2 deployments with `code_hash` and the on-chain interface, never by reading `contracts/`.
-
-The separate launch gates referenced by `tofix.md` — the mainnet parameter profile, the audit decision, and `testcando.md` Appendix B — remain required but are not expanded here.
+The separate launch gates referenced by `tofix.md` — the mainnet parameter profile and the audit
+decision — remain required but are not expanded here.

@@ -594,3 +594,115 @@ fn the_unconditional_write_costs_one_instance_entry() {
     assert!(r.write_entries <= 2, "should touch its own instance entry, not a pile of them");
     assert!(r.instructions < 50_000_000, "still cheap");
 }
+
+// ---------------------------------------------------------------------------
+// tofix.md #20 / V2_WORK §12 — how large must the safety haircut actually be?
+// ---------------------------------------------------------------------------
+
+/// Build a world, put a strategy position in it, and drive the venue to roughly `target_util_pct`
+/// of its USDC supply. Returns `(strategy, whale, achieved_utilization_bps)`.
+fn world_at_utilization(target_util_pct: i128) -> (BlendEnv, Address, Address, i128) {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let strategy_id = {
+        let admin = Address::generate(&b.env);
+        b.env.register(BlendStrategy, (admin,))
+    };
+    BlendStrategyClient::new(&b.env, &strategy_id).initialize(&wrapper, &b.pool, &b.usdc, &30_000u32);
+    b.usdc_admin().mint(&wrapper, &(100_000 * USDC));
+    BlendStrategyClient::new(&b.env, &strategy_id).deposit(&wrapper, &(100_000 * USDC));
+
+    // A borrower with ample collateral, so utilization is what binds and not the health factor.
+    let borrower = Address::generate(&b.env);
+    StellarAssetClient::new(&b.env, &b.xlm).mint(&borrower, &(50_000_000 * SCALAR_7));
+    b.pool_client().submit(&borrower, &borrower, &borrower, &vec![
+        &b.env,
+        pool::Request { request_type: REQ_SUPPLY_COLLATERAL, address: b.xlm.clone(), amount: 50_000_000 * SCALAR_7 },
+    ]);
+
+    // Walk utilization up in halving chunks until the target is reached or Blend refuses.
+    let reserve = |b: &BlendEnv| {
+        let r = b.pool_client().get_reserve(&b.usdc);
+        let supplied = r.data.b_supply * r.data.b_rate / 1_000_000_000_000i128;
+        let borrowed = r.data.d_supply * r.data.d_rate / 1_000_000_000_000i128;
+        (supplied, borrowed)
+    };
+    let (supplied, borrowed0) = reserve(&b);
+    let want = supplied * target_util_pct / 100 - borrowed0;
+    let mut chunk = if want > 0 { want } else { 0 };
+    while chunk > USDC {
+        let ok = b.pool_client().try_submit(&borrower, &borrower, &borrower, &vec![
+            &b.env,
+            pool::Request { request_type: REQ_BORROW, address: b.usdc.clone(), amount: chunk },
+        ]).is_ok();
+        if !ok { chunk /= 2; } else { break; }
+    }
+    let (s2, d2) = reserve(&b);
+    let util_bps = if s2 > 0 { d2 * 10_000 / s2 } else { 0 };
+    (b, wrapper, strategy_id, util_bps)
+}
+
+/// **How much safety margin does `available_liquidity()` actually need?**
+///
+/// It reports `min(pool_balance, supplied - borrowed/max_util)`. `Sr::max_redeemable` then takes
+/// `LIQUIDITY_HAIRCUT_BPS` off before converting to shares, and that constant is the open question
+/// in `V2_WORK.md` §12 — it was 1%, chosen without measurement, back when the estimate was the raw
+/// balance and overstated the truth by ~13%.
+///
+/// This measures the residual directly: at several utilization levels, try to withdraw **exactly**
+/// what `available_liquidity()` reports, and if that fails, ladder down until it succeeds. The
+/// largest haircut any level needs is the number the constant must cover.
+#[test]
+fn measure_the_haircut_available_liquidity_actually_needs() {
+    extern crate std;
+    std::println!(
+        "{:>7} | {:>18} | {:>18} | {:>10}",
+        "util", "probe ceiling", "largest accepted", "haircut"
+    );
+    let mut worst_bps = 0i128;
+
+    for target in [50i128, 70, 85, 94] {
+        // Probe fractions of the reported figure, from "all of it" downward. Each probe needs a
+        // fresh world, because a successful withdrawal changes the utilization it was measured at.
+        let mut accepted_bps = 0i128;
+        let mut avail_seen = 0i128;
+        let mut util_seen = 0i128;
+
+        for frac_bps in [10_000i128, 9_999, 9_990, 9_950, 9_900, 9_500, 9_000] {
+            let (b, wrapper, strategy_id, util) = world_at_utilization(target);
+            let strategy = BlendStrategyClient::new(&b.env, &strategy_id);
+            let avail = strategy.available_liquidity();
+            // Cap the probe at what this position is actually worth. At low utilization the venue
+            // can pay more than we hold, and a failure there would mean "we don't own that much",
+            // not "the venue refused" — `Sr::max_redeemable` returns `i128::MAX` for exactly that
+            // case and the haircut never applies.
+            let position = strategy.position_value(&strategy.total_shares());
+            let ceiling = if avail < position { avail } else { position };
+            avail_seen = ceiling;
+            util_seen = util;
+            if ceiling <= 0 { break; }
+            let amount = ceiling * frac_bps / 10_000;
+            if amount <= 0 { break; }
+            if strategy.try_redeem_underlying(&wrapper, &amount).is_ok() {
+                accepted_bps = frac_bps;
+                break;
+            }
+        }
+
+        let haircut_bps = 10_000 - accepted_bps;
+        if accepted_bps > 0 && haircut_bps > worst_bps { worst_bps = haircut_bps; }
+        std::println!(
+            "{:>6.2}% | {:>18} | {:>17}% | {:>7} bps",
+            util_seen as f64 / 100.0,
+            avail_seen,
+            accepted_bps as f64 / 100.0,
+            haircut_bps
+        );
+    }
+
+    std::println!("=> largest haircut any level required: {worst_bps} bps (LIQUIDITY_HAIRCUT_BPS is 100)");
+    assert!(
+        worst_bps <= 100,
+        "the shipped 1% haircut must cover the measured residual, but {worst_bps} bps were needed"
+    );
+}
