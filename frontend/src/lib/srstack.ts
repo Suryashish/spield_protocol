@@ -3,6 +3,7 @@ import {
   addr,
   i128,
   u32,
+  u64,
   fromBaseUnits,
   readContract,
   toBaseUnits,
@@ -464,16 +465,30 @@ export const claimYield = (wallet: string): Promise<WriteResult> => {
   return writeContract(wallet, SR_CONTRACTS.yieldEngine, 'redeem_due_interest', [addr(wallet)]);
 };
 
+/**
+ * Add liquidity to the PT/SR pool.
+ *
+ * `minShares` is the caller's own tolerance and it changes which check applies:
+ *
+ * - `0n` (the default) keeps the pool's fixed ~0.1% ratio band. Safe, but any swap landing between
+ *   your quote and your transaction moves the ratio and reverts the add.
+ * - a positive value replaces that band with your bound: the contract mints `min(byPt, bySr)` and
+ *   reverts `SlippageExceeded` (#81) below `minShares`. Use this for a pre-quoted deposit that must
+ *   survive intervening flow — but size it deliberately, because the over-supplied leg is donated
+ *   to the pool rather than refunded.
+ */
 export const addLiquidity = (
   wallet: string,
   ptIn: bigint,
   srIn: bigint,
+  minShares: bigint = 0n,
 ): Promise<WriteResult> => {
   if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
   return writeContract(wallet, SR_CONTRACTS.market, 'add_liquidity', [
     addr(wallet),
     i128(ptIn),
     i128(srIn),
+    i128(minShares),
   ]);
 };
 
@@ -489,6 +504,188 @@ export const removeLiquidity = (
     i128(0n),
   ]);
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixed-rate vault (srvault)
+//
+// Deposit USDC, lock today's rate, receive a receipt promising `payout` at maturity. The vault
+// holds PT as bearer inventory, so the promise is backed by bond face rather than by a claim on
+// anyone's position.
+//
+// **Redemption is resumable.** During a venue liquidity crunch a `redeem` collects what it can,
+// banks it against the receipt, and returns; the holder is paid in full only once `collected`
+// reaches `payout`. Call it again as liquidity returns. `vaultRedeemRemaining` says how much is
+// still outstanding, and `receipt.collected` how much is already secured.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SrVaultStats {
+  ptInventory: bigint;
+  ytInventory: bigint;
+  totalLiability: bigint;
+  couponCapacity: bigint;
+  /** USDC banked against partially-redeemed receipts. Reserved — never swept. */
+  totalCollected: bigint;
+  rateBps: number;
+  maturity: number;
+  openReceipts: number;
+}
+
+export interface SrVaultReceipt {
+  owner: string;
+  principal: bigint;
+  payout: bigint;
+  rateBps: number;
+  maturity: number;
+  open: boolean;
+  /** USDC already collected toward `payout`. Non-zero only mid-way through a crunched exit. */
+  collected: bigint;
+}
+
+const VAULT_DEPLOYED = (): boolean => Boolean(SR_DEPLOYED && SR_CONTRACTS?.vault);
+
+export const SR_VAULT_AVAILABLE = VAULT_DEPLOYED();
+
+export const getVaultStats = async (): Promise<SrVaultStats | null> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return null;
+  try {
+    const s = (await readContract(SR_CONTRACTS.vault, 'stats', [])) as Record<string, unknown>;
+    return {
+      ptInventory: BigInt((s.pt_inventory as string) ?? 0),
+      ytInventory: BigInt((s.yt_inventory as string) ?? 0),
+      totalLiability: BigInt((s.total_liability as string) ?? 0),
+      couponCapacity: BigInt((s.coupon_capacity as string) ?? 0),
+      totalCollected: BigInt((s.total_collected as string) ?? 0),
+      rateBps: Number(s.rate_bps ?? 0),
+      maturity: Number(s.maturity ?? 0),
+      openReceipts: Number(s.open_receipts ?? 0),
+    };
+  } catch {
+    return null;
+  }
+};
+
+/** `(payout, coupon, rateBps)` for a prospective deposit. Read-only. */
+export const quoteVaultDeposit = async (
+  usdcAmount: bigint,
+): Promise<{ payout: bigint; coupon: bigint; rateBps: number } | null> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return null;
+  try {
+    const q = (await readContract(SR_CONTRACTS.vault, 'quote', [i128(usdcAmount)])) as unknown[];
+    return { payout: BigInt(q[0] as string), coupon: BigInt(q[1] as string), rateBps: Number(q[2]) };
+  } catch {
+    return null;
+  }
+};
+
+export const getVaultReceipt = async (receiptId: bigint): Promise<SrVaultReceipt | null> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return null;
+  try {
+    const r = (await readContract(SR_CONTRACTS.vault, 'get_receipt', [
+      u64(receiptId),
+    ])) as Record<string, unknown>;
+    return {
+      owner: String(r.owner),
+      principal: BigInt((r.principal as string) ?? 0),
+      payout: BigInt((r.payout as string) ?? 0),
+      rateBps: Number(r.rate_bps ?? 0),
+      maturity: Number(r.maturity ?? 0),
+      open: Boolean(r.open),
+      collected: BigInt((r.collected as string) ?? 0),
+    };
+  } catch {
+    return null;
+  }
+};
+
+/** USDC a receipt still needs before it can be paid. `0n` = ready (or already closed). */
+export const vaultRedeemRemaining = async (receiptId: bigint): Promise<bigint> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return 0n;
+  try {
+    return BigInt(
+      (await readContract(SR_CONTRACTS.vault, 'redeem_remaining', [u64(receiptId)])) as string,
+    );
+  } catch {
+    return 0n;
+  }
+};
+
+/** Deposit USDC and receive a receipt. Returns the write result; the id is in the event. */
+export const vaultDeposit = (wallet: string, usdcAmount: bigint): Promise<WriteResult> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.vault, 'deposit', [addr(wallet), i128(usdcAmount)]);
+};
+
+/**
+ * Redeem a matured receipt.
+ *
+ * May be **partial** under a venue liquidity crunch: the call banks what it collected and leaves
+ * the receipt open. Check {@link vaultRedeemRemaining} afterwards and call again as liquidity
+ * returns — progress is never lost.
+ */
+export const vaultRedeem = (wallet: string, receiptId: bigint): Promise<WriteResult> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.vault, 'redeem', [u64(receiptId)]);
+};
+
+/** Claim the vault's YT yield and reinvest it as fresh PT capacity. Permissionless upkeep. */
+export const vaultHarvest = (wallet: string): Promise<WriteResult> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.vault, 'harvest', []);
+};
+
+/** Keep a long-dated receipt's storage entry alive. Permissionless. */
+export const bumpVaultReceipt = (wallet: string, receiptId: bigint): Promise<WriteResult> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.vault, 'bump_receipt', [u64(receiptId)]);
+};
+
+/** What an admin sweep would release right now: `(sr, yt, usdc)`. Read-only. */
+export const getVaultSurplus = async (): Promise<{ sr: bigint; yt: bigint; usdc: bigint } | null> => {
+  if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return null;
+  try {
+    const v = (await readContract(SR_CONTRACTS.vault, 'surplus', [])) as unknown[];
+    return { sr: BigInt(v[0] as string), yt: BigInt(v[1] as string), usdc: BigInt(v[2] as string) };
+  } catch {
+    return null;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TTL keep-alive
+//
+// Soroban archives a persistent entry whose TTL lapses, and an archived entry needs an off-chain
+// restore to recover. Every entry below is bumped whenever it is *written*, so these matter only
+// for a holder who opens a position and then does nothing — which for SR, whose wrapper has no
+// maturity at all, is the ordinary case rather than the edge case.
+//
+// All four are permissionless: they extend an entry and never move value, so anyone (including a
+// keeper) may call them on anyone's behalf. Each no-ops when the address holds nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Keep an SR holder's balance entry alive. */
+export const bumpSrHolder = (wallet: string, holder: string = wallet): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.sr, 'bump_holder', [addr(holder)]);
+};
+
+/** Keep a YT holder's interest record *and* balance entry alive. */
+export const bumpYieldHolder = (wallet: string, holder: string = wallet): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.yieldEngine, 'bump_holder', [addr(holder)]);
+};
+
+/** Keep an LP's share entry alive. */
+export const bumpLpPosition = (wallet: string, lp: string = wallet): Promise<WriteResult> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return notDeployed();
+  return writeContract(wallet, SR_CONTRACTS.market, 'bump_lp', [addr(lp)]);
+};
+
+/**
+ * Bump every entry this wallet could own, in one go. Cheap and idempotent — the calls that find
+ * nothing simply do nothing — so it is the sensible thing to run when a dormant user returns.
+ */
+export const bumpAll = async (wallet: string): Promise<WriteResult[]> =>
+  Promise.all([bumpSrHolder(wallet), bumpYieldHolder(wallet), bumpLpPosition(wallet)]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Display helpers

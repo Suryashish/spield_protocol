@@ -61,6 +61,9 @@ pub struct SrVaultStats {
     pub total_liability: i128,
     /// `pt_inventory - total_liability`: spare PT available to back new coupons.
     pub coupon_capacity: i128,
+    /// USDC banked against partially-redeemed receipts. Reserved: it backs those payouts in place
+    /// of the PT that was burned to obtain it, and no sweep may touch it.
+    pub total_collected: i128,
     pub rate_bps: u32,
     pub maturity: u64,
     pub open_receipts: u64,
@@ -190,7 +193,7 @@ impl SrVault {
         storage::save_receipt(
             &env,
             id,
-            &Receipt { owner: user.clone(), principal: amount, payout, rate_bps: rate, maturity, open: true },
+            &Receipt { owner: user.clone(), principal: amount, payout, rate_bps: rate, maturity, open: true, collected: 0 },
         );
         storage::set_total_liability(&env, liability);
         storage::set_open_receipts(&env, storage::open_receipts(&env) + 1);
@@ -221,34 +224,77 @@ impl SrVault {
         if env.ledger().timestamp() < r.maturity {
             panic_with_error!(&env, Error::VaultNotMatured);
         }
-        // Burn the payout PLUS the rounding buffer. Both are reserved at deposit time.
-        let inventory = Self::pt_inventory(&env);
-        let to_burn = if inventory >= r.payout + REDEEM_DUST { r.payout + REDEEM_DUST } else { r.payout };
-        if inventory < to_burn {
-            panic_with_error!(&env, Error::InsufficientCapacity);
-        }
 
         let me = env.current_contract_address();
         let yield_addr = storage::get_yield(&env);
-
-        // Past expiry `redeem_py` needs PT only — the vault's YT is untouched and keeps whatever
-        // yield it already accrued.
-        Self::authorize_pt_burn(&env, to_burn);
-        let sr_out = YieldClient::new(&env, &yield_addr).redeem_py(&me, &me, &to_burn);
-
-        // Unwrap to the VAULT first, then pay the holder EXACTLY what was promised. Redeeming
-        // straight to the holder would hand them whatever the flooring produced — which is a
-        // stroop short of the promise. The tiny remainder stays as vault inventory.
         let sr_addr = storage::get_sr(&env);
-        let got = SrClient::new(&env, &sr_addr).redeem(&me, &me, &sr_out, &0i128);
-        if got < r.payout {
-            // The strategy genuinely returned less than the promise (a Blend liquidity crunch, not
-            // rounding). Refuse rather than short the holder: the receipt stays open and retryable.
-            panic_with_error!(&env, Error::WithdrawShortfall);
+        let underlying = storage::get_underlying(&env);
+
+        // How much of the promise is still unfunded.
+        let remaining = r.payout - r.collected;
+        if remaining > 0 {
+            // **Size the burn to what the venue can actually pay.**
+            //
+            // The naive shape — burn the whole payout, then hope `Sr::redeem` covers it — is what
+            // `tofix.md` #20 is about: during a liquidity crunch it reverts, the holder gets
+            // nothing, and no progress is kept. Sizing first means the withdrawal we attempt is one
+            // the venue can satisfy, so a crunch costs the holder extra transactions rather than
+            // the whole exit.
+            //
+            // Redeeming to the VAULT (not the holder) and paying out separately is deliberate: it
+            // keeps the flooring remainder as vault inventory and pays exactly what was promised.
+            let sr = SrClient::new(&env, &sr_addr);
+            // `max_redeemable` returns `i128::MAX` on a healthy venue, and `preview_redeem`
+            // answers 0 for an amount it cannot convert — so `cap == 0` means "no constraint",
+            // not "nothing available". Treat it as unconstrained explicitly rather than relying
+            // on the comparison below happening to do the right thing.
+            let cap = sr.preview_redeem(&sr.max_redeemable());
+            let take = if cap > 0 && cap < remaining { cap } else { remaining };
+
+            // Never burn more PT face than the vault holds. The buffer is only reserved on the
+            // final leg, where the flooring actually bites.
+            let inventory = Self::pt_inventory(&env);
+            // The rounding buffer is only reserved on the closing leg, where the flooring in
+            // `redeem_py` -> `Sr::redeem` actually bites; a partial leg banks whatever it gets.
+            let final_leg = take >= remaining;
+            let mut to_burn = if final_leg { take + REDEEM_DUST } else { take };
+            if to_burn > inventory {
+                to_burn = inventory;
+            }
+            if to_burn <= 0 {
+                panic_with_error!(&env, Error::InsufficientCapacity);
+            }
+
+            Self::authorize_pt_burn(&env, to_burn);
+            let sr_out = YieldClient::new(&env, &yield_addr).redeem_py(&me, &me, &to_burn);
+            let got = sr.redeem(&me, &me, &sr_out, &0i128);
+            if got <= 0 {
+                // The venue paid nothing at all. Refuse rather than record phantom progress.
+                panic_with_error!(&env, Error::WithdrawShortfall);
+            }
+
+            // Bank it. `collected` is capped at `payout` so a generous flooring can never let a
+            // receipt claim more than it is owed; any excess simply stays as vault inventory.
+            let banked = if r.collected + got > r.payout { r.payout - r.collected } else { got };
+            r.collected += banked;
+            storage::set_total_collected(&env, storage::total_collected(&env) + banked);
+
+            if r.collected < r.payout {
+                // Partial. Keep the receipt open and retryable; the USDC stays reserved.
+                storage::save_receipt(&env, receipt_id, &r);
+                storage::bump_instance(&env);
+                events::redeemed_partial(&env, &r.owner, receipt_id, banked, r.payout - r.collected);
+                Self::assert_solvent(&env);
+                return banked;
+            }
         }
-        token::Client::new(&env, &storage::get_underlying(&env)).transfer(&me, &r.owner, &r.payout);
+
+        // Fully funded: pay exactly what was promised and close.
+        token::Client::new(&env, &underlying).transfer(&me, &r.owner, &r.payout);
         let paid = r.payout;
 
+        storage::set_total_collected(&env, storage::total_collected(&env) - r.collected);
+        r.collected = 0;
         r.open = false;
         storage::save_receipt(&env, receipt_id, &r);
         storage::set_total_liability(&env, storage::total_liability(&env) - r.payout);
@@ -258,6 +304,17 @@ impl SrVault {
         events::redeemed(&env, &r.owner, receipt_id, paid);
         Self::assert_solvent(&env);
         paid
+    }
+
+    /// How much more USDC a receipt still needs before it can be paid. `0` = ready (or closed).
+    pub fn redeem_remaining(env: Env, receipt_id: u64) -> i128 {
+        match storage::get_receipt(&env, receipt_id) {
+            Ok(r) if r.open => {
+                let rem = r.payout - r.collected;
+                if rem > 0 { rem } else { 0 }
+            }
+            _ => 0,
+        }
     }
 
     // ================= inventory management =================
@@ -309,8 +366,13 @@ impl SrVault {
         }
         // Reserve the per-receipt redemption buffer as well, so a sweep can never make an open
         // receipt unredeemable by a stroop.
-        let reserved = storage::total_liability(&env)
-            + storage::open_receipts(&env) as i128 * REDEEM_DUST;
+        //
+        // Only the **uncollected** part of the liability still needs PT behind it: whatever a
+        // partial redemption already banked is held as USDC instead (`tofix.md` #20), and is
+        // reserved separately by `sweep_surplus`. Subtracting it here is what stops a partial
+        // redemption from making previously sweepable PT look reserved twice over.
+        let uncollected = storage::total_liability(&env) - storage::total_collected(&env);
+        let reserved = uncollected + storage::open_receipts(&env) as i128 * REDEEM_DUST;
         let capacity = Self::pt_inventory(&env) - reserved;
         if pt_amount > capacity {
             panic_with_error!(&env, Error::InsufficientCapacity);
@@ -323,19 +385,102 @@ impl SrVault {
         pt_amount
     }
 
+    /// Recover surplus **SR, YT and USDC** to `to`, at or after expiry (`tofix.md` #22).
+    ///
+    /// `sweep` handles the PT leg. This handles everything else the vault ends up holding, which
+    /// the PT-only sweep left permanently stranded — measured at **248.53 SR** on a 20,000 USDC
+    /// seed, about 1.2% of it, plus the USDC flooring remainder.
+    ///
+    /// ## Why this is gated at expiry and `sweep` is not
+    ///
+    /// PT face is directly comparable to a payout, so surplus PT can be identified — and released —
+    /// at any time. The other three legs cannot:
+    ///
+    /// * **YT** is what *earns* the yield that funds future coupons. Before expiry it has real
+    ///   forward value that `assert_solvent` cannot see, because that invariant compares PT face
+    ///   against liability and says nothing about future capacity. A pre-expiry YT sweep would
+    ///   quietly degrade the vault's ability to meet later payouts while every check still passed.
+    /// * **SR** resting in the vault before expiry is transient — `harvest` reinvests it in the
+    ///   same call. It only accumulates *after* expiry, when `mint_py` refuses and the claimed
+    ///   yield has nowhere to go.
+    /// * **USDC** is the redemption flooring remainder, and before every receipt is settled it is
+    ///   indistinguishable from cash a partial redemption has banked.
+    ///
+    /// At/after expiry all three of those objections lapse: nothing further accrues, and what is
+    /// left over and above open payouts is genuinely surplus.
+    ///
+    /// **`total_collected` is reserved unconditionally.** That USDC belongs to partially-redeemed
+    /// receipts, and this returns 0 for it rather than dipping in.
+    ///
+    /// Returns `(sr_out, yt_out, usdc_out)`. Admin only.
+    pub fn sweep_surplus(env: Env, to: Address) -> (i128, i128, i128) {
+        Self::ensure_initialized(&env);
+        storage::get_admin(&env).require_auth();
+        if env.ledger().timestamp() < storage::get_maturity(&env) {
+            panic_with_error!(&env, Error::VaultNotMatured);
+        }
+
+        let me = env.current_contract_address();
+        let sr_addr = storage::get_sr(&env);
+        let underlying = storage::get_underlying(&env);
+
+        // USDC: everything except what partial redemptions have banked for their holders.
+        let usdc_held = token::Client::new(&env, &underlying).balance(&me);
+        let usdc_out = usdc_held - storage::total_collected(&env);
+        let usdc_out = if usdc_out > 0 { usdc_out } else { 0 };
+
+        let sr_out = SrClient::new(&env, &sr_addr).balance(&me);
+        let yt_out = Self::yt_inventory(&env);
+
+        if sr_out > 0 {
+            SrClient::new(&env, &sr_addr).transfer(&me, &to, &sr_out);
+        }
+        if yt_out > 0 {
+            YieldClient::new(&env, &storage::get_yield(&env)).transfer(&me, &to, &yt_out);
+        }
+        if usdc_out > 0 {
+            token::Client::new(&env, &underlying).transfer(&me, &to, &usdc_out);
+        }
+
+        storage::bump_instance(&env);
+        events::surplus_swept(&env, &to, sr_out, yt_out, usdc_out);
+        // PT is untouched here, so the invariant cannot have moved — assert anyway, cheaply, so a
+        // future edit to this function cannot quietly break it.
+        Self::assert_solvent(&env);
+        (sr_out, yt_out, usdc_out)
+    }
+
+    /// What [`Self::sweep_surplus`] would release right now, without moving anything.
+    pub fn surplus(env: Env) -> (i128, i128, i128) {
+        if !storage::is_initialized(&env) {
+            return (0, 0, 0);
+        }
+        let me = env.current_contract_address();
+        let usdc = token::Client::new(&env, &storage::get_underlying(&env)).balance(&me)
+            - storage::total_collected(&env);
+        (
+            SrClient::new(&env, &storage::get_sr(&env)).balance(&me),
+            Self::yt_inventory(&env),
+            if usdc > 0 { usdc } else { 0 },
+        )
+    }
+
     // ================= views =================
 
     pub fn stats(env: Env) -> SrVaultStats {
         let liability = storage::total_liability(&env);
+        let collected = storage::total_collected(&env);
         let pt = Self::pt_inventory(&env);
         // Net of the reserved redemption buffer, so this number matches what `deposit` and `sweep`
-        // will actually allow rather than overstating it by a few stroops.
-        let reserved = liability + storage::open_receipts(&env) as i128 * REDEEM_DUST;
+        // will actually allow rather than overstating it by a few stroops. Only the uncollected
+        // part of the liability still needs PT behind it — see `sweep`.
+        let reserved = (liability - collected) + storage::open_receipts(&env) as i128 * REDEEM_DUST;
         SrVaultStats {
             pt_inventory: pt,
             yt_inventory: Self::yt_inventory(&env),
             total_liability: liability,
             coupon_capacity: if pt > reserved { pt - reserved } else { 0 },
+            total_collected: collected,
             rate_bps: storage::rate_bps(&env),
             maturity: storage::get_maturity(&env),
             open_receipts: storage::open_receipts(&env),
@@ -463,8 +608,14 @@ impl SrVault {
 
     /// **The invariant.** PT redeems 1:1 at expiry, so holding at least as much PT face as the sum
     /// of open payouts means every receipt is payable no matter what happens in between.
+    /// **The invariant.** Every open payout must be covered.
+    ///
+    /// `total_collected` is in here because a partially-redeemed receipt has had PT burned to
+    /// obtain USDC (`tofix.md` #20): that portion of its backing is now cash sitting in the vault
+    /// rather than bond face. Comparing PT alone against liability would trip on the vault's own
+    /// correct behaviour the moment any receipt is partially collected.
     fn assert_solvent(env: &Env) {
-        if Self::pt_inventory(env) < storage::total_liability(env) {
+        if Self::pt_inventory(env) + storage::total_collected(env) < storage::total_liability(env) {
             panic_with_error!(env, Error::SolvencyViolation);
         }
     }
@@ -533,6 +684,7 @@ pub trait YieldContract {
     fn mint_py(env: Env, from: Address, receiver: Address, sr_in: i128) -> i128;
     fn redeem_py(env: Env, from: Address, receiver: Address, py_amount: i128) -> i128;
     fn redeem_due_interest(env: Env, user: Address) -> (i128, i128);
+    fn transfer(env: Env, from: Address, to: Address, amount: i128);
 }
 
 /// SR's surface.
@@ -542,4 +694,11 @@ pub trait SrToken {
     fn balance(env: Env, id: Address) -> i128;
     fn deposit(env: Env, from: Address, receiver: Address, amount: i128, min_shares_out: i128) -> i128;
     fn redeem(env: Env, from: Address, receiver: Address, shares: i128, min_underlying_out: i128) -> i128;
+    /// The largest redemption the venue can currently satisfy, in SR shares. `i128::MAX` when
+    /// liquidity comfortably covers everything — `redeem` sizes its burn against this so a
+    /// liquidity crunch costs the holder extra transactions rather than the whole exit.
+    fn transfer(env: Env, from: Address, to: Address, amount: i128);
+    fn max_redeemable(env: Env) -> i128;
+    /// Underlying that `shares` SR would release at the current rate. Panic-free (`0` = no quote).
+    fn preview_redeem(env: Env, shares: i128) -> i128;
 }

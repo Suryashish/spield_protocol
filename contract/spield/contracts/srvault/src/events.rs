@@ -43,6 +43,29 @@ pub struct Redeemed {
     pub paid: i128,
 }
 
+/// A redeem that could only collect part of its payout (`tofix.md` #20). The receipt stays open;
+/// `still_owed` is what a later call must still gather before the holder is paid.
+#[contractevent]
+#[derive(Clone)]
+pub struct RedeemedPartial {
+    #[topic]
+    pub owner: Address,
+    pub receipt_id: u64,
+    pub collected: i128,
+    pub still_owed: i128,
+}
+
+/// Surplus SR / YT / USDC returned to the admin at or after expiry (`tofix.md` #22).
+#[contractevent]
+#[derive(Clone)]
+pub struct SurplusSwept {
+    #[topic]
+    pub to: Address,
+    pub sr_amount: i128,
+    pub yt_amount: i128,
+    pub usdc_amount: i128,
+}
+
 #[contractevent]
 #[derive(Clone)]
 pub struct Harvested {
@@ -76,8 +99,14 @@ pub fn deposited(env: &Env, user: &Address, receipt_id: u64, principal: i128, pa
 pub fn redeemed(env: &Env, owner: &Address, receipt_id: u64, paid: i128) {
     Redeemed { owner: owner.clone(), receipt_id, paid }.publish(env);
 }
+pub fn redeemed_partial(env: &Env, owner: &Address, receipt_id: u64, collected: i128, still_owed: i128) {
+    RedeemedPartial { owner: owner.clone(), receipt_id, collected, still_owed }.publish(env);
+}
 pub fn harvested(env: &Env, sr_claimed: i128, py_minted: i128) {
     Harvested { sr_claimed, py_minted }.publish(env);
+}
+pub fn surplus_swept(env: &Env, to: &Address, sr_amount: i128, yt_amount: i128, usdc_amount: i128) {
+    SurplusSwept { to: to.clone(), sr_amount, yt_amount, usdc_amount }.publish(env);
 }
 pub fn swept(env: &Env, to: &Address, pt_amount: i128) {
     Swept { to: to.clone(), pt_amount }.publish(env);

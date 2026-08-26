@@ -78,8 +78,15 @@ impl MockStrategy {
         shares
     }
 
+    /// **Resolves the rate through `current_rate`, because the real adapter does.**
+    ///
+    /// This used to read `MK::Rate` straight from storage, which made the mock survive a dip that
+    /// bricks `spield-strategy::redeem` — and `a_guarded_strategy_still_bricks_sr_on_a_rate_dip`
+    /// asserted that survival as if it were a property of SR. It is not; it was a property of the
+    /// mock. `spield-strategy::redeem` opens with `let rate = Self::current_rate(env.clone());`,
+    /// and `check_rate_bound_timed` errors on **any** downward move.
     pub fn redeem(env: Env, to: Address, shares: i128) -> i128 {
-        let rate: i128 = env.storage().instance().get(&MK::Rate).unwrap();
+        let rate: i128 = Self::current_rate(env.clone());
         let underlying: Address = env.storage().instance().get(&MK::Underlying).unwrap();
         let amount = math::shares_to_underlying(&env, shares, rate).unwrap();
         soroban_sdk::token::Client::new(&env, &underlying).transfer(
@@ -107,11 +114,39 @@ impl MockStrategy {
             .transfer(&env.current_contract_address(), &to, &amount);
     }
 
+    /// Deliberately does **not** consult `current_rate` — the real `redeem_underlying` withdraws a
+    /// stated amount and infers the shares burned from the position delta, so it survives a dip
+    /// that bricks `redeem`. Keeping that asymmetry is the point of the mock.
     pub fn redeem_underlying(env: Env, to: Address, amount: i128) -> i128 {
         let rate: i128 = env.storage().instance().get(&MK::Rate).unwrap();
         let shares = math::underlying_to_shares(&env, amount, rate).unwrap();
-        Self::redeem(env, to, shares);
+        let underlying: Address = env.storage().instance().get(&MK::Underlying).unwrap();
+        soroban_sdk::token::Client::new(&env, &underlying).transfer(
+            &env.current_contract_address(),
+            &to,
+            &amount,
+        );
+        let total: i128 = env.storage().instance().get(&MK::Shares).unwrap_or(0);
+        env.storage().instance().set(&MK::Shares, &(total - shares));
         shares
+    }
+
+    /// The admin valve, mirroring `spield-strategy::reset_rate_floor`: read the RAW rate, and lower
+    /// the stored floor to it so `current_rate` stops panicking. Only ever lowers.
+    pub fn reset_rate_floor(env: Env) -> i128 {
+        let raw: i128 = env.storage().instance().get(&MK::Rate).unwrap();
+        let bound: RateBound = env.storage().instance().get(&MK::Bound).unwrap();
+        if raw < bound.last_rate {
+            env.storage().instance().set(
+                &MK::Bound,
+                &RateBound {
+                    last_rate: raw,
+                    last_ts: env.ledger().timestamp(),
+                    max_apr_bps: bound.max_apr_bps,
+                },
+            );
+        }
+        raw
     }
 
     /// The real adapter's guard: `b_rate` is documented monotonic, so a dip is treated as a fault
@@ -196,11 +231,16 @@ fn setup(guarded: bool) -> W {
 // tofix.md #3 — does SR's clamp help?
 // ===========================================================================
 
-/// **It does not, on its own.** The real adapter panics `RateOutOfBounds` *inside*
-/// `current_rate()`, so SR never gets a chance to clamp. The high-water mark protects against a
-/// strategy that *reports* a lower rate, not against one that refuses to report at all.
+/// **It does not, on its own — and the exit is not spared either.**
 ///
-/// This is the honest scope of the mitigation, and the reason `tofix.md` #3 stays open.
+/// The real adapter panics `RateOutOfBounds` *inside* `current_rate()`, so SR never gets a chance
+/// to clamp. The high-water mark protects against a strategy that *reports* a lower rate, not
+/// against one that refuses to report at all.
+///
+/// **Corrected 2026-08-26.** This test previously asserted that `redeem` survives a dip, and that
+/// claim reached `tofix.md` #3 and the risk disclosure. It was false: it held only because the mock
+/// read its rate straight from storage while `spield-strategy::redeem` opens with
+/// `let rate = Self::current_rate(env.clone());`. With the mock faithful, the exit bricks too.
 #[test]
 fn a_guarded_strategy_still_bricks_sr_on_a_rate_dip() {
     let w = setup(true);
@@ -211,27 +251,84 @@ fn a_guarded_strategy_still_bricks_sr_on_a_rate_dip() {
     // Blend socialises bad debt: b_rate dips by one stroop.
     w.st().set_rate(&(SCALAR_12 - 1));
 
-    // READS now survive: `exchange_rate` is a pure read of SR's own stored high-water mark and
-    // never touches the strategy (see its doc comment — this was forced by a testnet footprint
-    // failure, and closing tofix #27 at this layer bought #3 partial relief for free).
+    // READS survive: `exchange_rate` is a pure read of SR's own stored high-water mark and never
+    // touches the strategy (closing tofix #27 at this layer bought #3 that much relief for free).
     assert_eq!(
         w.sr().exchange_rate(),
         SCALAR_12,
         "the rate read must survive a strategy that refuses to report"
     );
-    // Anything that must REFRESH from the strategy still bricks — that is #3, unchanged.
-    assert!(w.sr().try_sync_rate().is_err(), "sync still bricks");
+    assert!(w.sr().assets_of(&u) > 0, "valuation reads survive too");
+
+    // Everything that must reach the strategy bricks — including the exit.
+    assert!(w.sr().try_sync_rate().is_err(), "sync bricks");
     assert!(
         w.sr().try_deposit(&u, &u, &(1 * USDC), &0i128).is_err(),
-        "deposits still brick"
+        "deposits brick"
     );
-    // `redeem` does not read `current_rate`, so the exit survives — that is the one thing SR
-    // improves over the v1 wrapper, whose `combine_and_redeem` auto-claims and therefore reads it.
-    let out = w.sr().redeem(&u, &u, &shares, &0i128);
-    assert!(out > 0, "SR redemption must survive a dip");
+    assert!(
+        w.sr().try_redeem(&u, &u, &shares, &0i128).is_err(),
+        "REDEEM BRICKS TOO — tofix #3 is a freeze, not a haircut"
+    );
+    assert_eq!(w.sr().balance(&u), shares, "the failed exit burned nothing");
+    std::println!("guarded dip: reads survive; sync, deposit AND redeem all brick (tofix #3)");
+}
+
+/// **The freeze is clearable, and clearing it turns the loss pro-rata.**
+///
+/// `reset_rate_floor` is the admin valve: it lowers the stored floor to the live rate so
+/// `current_rate` stops panicking. Nobody can exit until it is called — which makes it a live
+/// operational obligation on the admin key, not merely a recovery convenience.
+#[test]
+fn resetting_the_rate_floor_unfreezes_exits_and_the_loss_lands_pro_rata() {
+    let w = setup(true);
+    let a = w.user(1_000 * USDC);
+    let b = w.user(1_000 * USDC);
+    let sa = w.sr().deposit(&a, &a, &(1_000 * USDC), &0i128);
+    let sb = w.sr().deposit(&b, &b, &(1_000 * USDC), &0i128);
+    assert_eq!(sa, sb, "equal deposits, equal shares");
+
+    // A 20% haircut.
+    w.st().set_rate(&(SCALAR_12 * 80 / 100));
+    assert!(w.sr().try_redeem(&a, &a, &sa, &0i128).is_err(), "frozen before the reset");
+
+    // The admin clears the floor.
+    w.st().reset_rate_floor();
+
+    // Both holders exit. The FIRST out does not do better than the second.
+    let before_a = w.usdc_balance(&a);
+    let out_a = w.sr().redeem(&a, &a, &sa, &0i128);
+    let before_b = w.usdc_balance(&b);
+    let out_b = w.sr().redeem(&b, &b, &sb, &0i128);
+
+    assert_eq!(out_a, w.usdc_balance(&a) - before_a, "a was paid what was reported");
+    assert_eq!(out_b, w.usdc_balance(&b) - before_b, "b was paid what was reported");
+    assert_eq!(out_a, out_b, "PRO-RATA: exiting first confers no advantage");
+    assert_eq!(out_a, 800 * USDC, "each holder takes the same 20% haircut");
+
+    // And SR's own view still over-promises, which is the number a UI must not show as a quote.
     std::println!(
-        "guarded dip: sync + deposits brick (tofix #3 unchanged), but reads AND redeem survive — redeem paid {out}"
+        "20% haircut, after reset: a exited first for {out_a}, b second for {out_b} — identical. \
+         SR still quotes exchange_rate {} (unchanged high-water).",
+        w.sr().exchange_rate()
     );
+}
+
+/// The freeze applies to the whole share balance, not just large exits — so a holder cannot slip
+/// under it by withdrawing less.
+#[test]
+fn a_dip_freezes_exits_at_every_size() {
+    let w = setup(true);
+    let u = w.user(1_000 * USDC);
+    let shares = w.sr().deposit(&u, &u, &(1_000 * USDC), &0i128);
+    w.st().set_rate(&(SCALAR_12 - 1));
+    for divisor in [1i128, 2, 10, 1_000] {
+        assert!(
+            w.sr().try_redeem(&u, &u, &(shares / divisor), &0i128).is_err(),
+            "a 1/{divisor} exit must brick too"
+        );
+    }
+    assert_eq!(w.sr().balance(&u), shares, "nothing was burned by any attempt");
 }
 
 /// If the adapter *reports* a dip instead of panicking, SR's clamp is what stops the whole stack

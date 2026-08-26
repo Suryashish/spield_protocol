@@ -1,0 +1,15 @@
+{
+  "name": "spield-ops-scripts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Operational watchtowers for the Spield protocol. Kept as its own package for two reasons (tofix.md #23b): Node resolves ESM imports relative to the script file, not the working directory, so without a node_modules here `node solvency_monitor.mjs` fails with ERR_MODULE_NOT_FOUND no matter where you cd from; and the monitors need a protocol-23-capable stellar-sdk (>=14) to decode simulations that return stateChanges \u2014 on 13.x every v1 vault view fails with 'Bad union switch: 1'. The published SDK in sdk/ pins 13.x for its own reasons; these scripts are deliberately independent of it.",
+  "scripts": {
+    "monitor:v1": "node solvency_monitor.mjs",
+    "monitor:v2": "node sr_solvency_monitor.mjs",
+    "budget": "node probe_budget.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^17.0.1"
+  }
+}

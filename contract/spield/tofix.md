@@ -15,26 +15,48 @@ meaningful TVL; **P2** = documentation / belt-and-braces.
 
 Everything below was re-tested this round, not carried forward on trust.
 
-**Local suite: 491 Rust tests, all green.**
+**Local suite: 509 Rust tests, all green** (was 491 at the start of this round).
 
 | crate | tests | | crate | tests |
 |---|---:|---|---|---:|
-| `market` (v1) | 69 | | `sr` | 27 |
+| `market` (v1) | 69 | | `sr` | 29 |
 | `wrapper` (v1) | 74 | | `yield` | 59 |
-| `vault` (v1) | 43 | | `srmarket` | 97 |
-| `strategy` | 13 | | `srvault` | 24 |
+| `vault` (v1) | 43 | | `srmarket` | 101 |
+| `strategy` | 13 | | `srvault` | 36 |
 | `shared` | 56 | | `srrouter` | 29 |
 
 Release WASM (`wasm32v1-none`) builds clean, **zero warnings**, after a forced rebuild.
-SDK: **218 tests pass** via `npx vitest run …`; the documented `pnpm run test:unit` entry point
-still fails before any test runs (see [30](#30-p2--remaining-sdk--tooling-gaps)).
+SDK: **218 tests pass**, through the documented `pnpm run test:unit`.
 
-**v1 is unchanged, and all 18 of its defect acceptance tests still pass — i.e. still assert the
-broken behaviour.** No v1 item has closed in v1. Items are removed below only when the *current*
-edition closes them, which is the question this document now answers.
+### Fixed this round — 2026-08-26
 
-Live state read this round: **v1 mainnet** (via `https://mainnet.sorobanrpc.com` + Horizon),
-**v1 testnet**, and the **full v2 testnet stack** including `srvault` and `srrouter`.
+Eleven items were implemented and tested; reasoning and measurements are in
+[`V2_WORK.md`](./V2_WORK.md). They are marked rather than deleted, because most leave a follow-on.
+
+| # | What was fixed |
+|---|---|
+| **34** | `sync_implied_rate` anchors pre-trade and prices post-trade — the quote responds to flow and scales with size |
+| **26b** | `shares > 0` guard on the follow-on LP branch |
+| **26c** | `min_shares` on `add_liquidity`; the 0.1% band is now the `min_shares == 0` default |
+| **20** | `srvault::redeem` is resumable — banks progress, invariant widened to `pt + collected >= liability` |
+| **20** | `strategy::available_liquidity` computes the real utilization cap; the raw balance overstated it by **12.8%** on the live pool |
+| **22** | `srvault::sweep_surplus` recovers SR, YT and USDC, expiry-gated, reserving collected USDC |
+| **23a** | The v1 monitor's vault probe reads `stats()` — passes against the live deployment |
+| **23b** | `scripts/package.json` — both monitors start from their own directory, on a protocol-23 SDK |
+| **23c** | The 11 counterfeit stroops burned; the v2 watchtower reports all six invariants holding |
+| **30** | Three TTL bump entry points + the full `srvault` SDK surface; `pnpm run test:unit` works |
+| **3** | **Description corrected** — a dip freezes exits, recovery is admin-gated, and the loss is pro-rata. `RiskDisclosure.tsx` fixed to match |
+
+**Two test-fidelity fixes behind those.** `sr::test`'s mock strategy diverged from the real adapter
+on `redeem` — the one path its headline test was named for — which produced the false claim in item
+3. And `economics_test::an_idle_participant_cannot_gain_at_anothers_expense` asserted an LP cannot
+lose, which held only while `pt_price()` was frozen; it now measures fees and impermanent loss
+separately.
+
+**None of it is on chain yet.** `add_liquidity` is a four-argument function, `Receipt` has a new
+field, and `available_liquidity` computes differently — so the v2 stack needs a redeploy, and
+**`strategy` must be upgraded in the same cycle as `sr`/`srvault`**, since both now depend on the
+new `available_liquidity`.
 
 ---
 
@@ -96,14 +118,14 @@ first. The v2 testnet stack was checked the same way this round and **does** mat
 
 | # | Item | Area | Sev | What is left |
 |---|---|---|---|---|
-| [3](#3-p0--b_rate-deep-dip-freezes-exits) | `b_rate` deep dip freezes exits | strategy | **P0** | **Decide the TVL cap number.** Mechanism built and live; `deposit_cap` reads `0` on chain |
-| [26](#26-p2--two-lp-path-defects-survived-into-srmarket) | LP path: dust add + add-liquidity DoS | srmarket | **P1** ↑ | **Both reproduced in v2 today** — `shares > 0` guard, caller-chosen tolerance |
-| [34](#34-p1--the-markets-reported-rate-and-price-never-respond-to-trading) | Reported rate/price frozen — the anchor is a fixpoint | srmarket | **P1** | **NEW 2026-08-26.** `implied_apy()` / `pt_price()` never move, at any trade size |
-| [20](#20-p1--srvaultredeem-still-has-no-partial-path) | Vault redeem all-or-nothing | srvault | **P1** | **Give `srvault::redeem` the partial path `Sr` already has** |
-| [22](#22-p1--srvaultsweep-recovers-pt-only) | SR / YT / USDC inventory is one-way | srvault | **P1** | **Extend `sweep` past the PT leg** — measured 248.53 SR stranded |
-| [23](#23-p1--the-watchtowers-four-open-items) | Watchtower gaps | ops | **P1** | **4 items:** vault probe reads a non-existent fn; no `package.json`; latched false alarm; v1 wrapper redeploy |
+| [3](#3-p0--b_rate-deep-dip-freezes-exits) | `b_rate` deep dip freezes exits | strategy | **P0** | **Decide the TVL cap number.** ⚠ Description corrected: a dip **freezes** exits; recovery is admin-gated; the loss is pro-rata |
+| [26](#26-p1--two-lp-path-defects-survived-into-srmarket---fixed) | LP path: dust add + add-liquidity DoS | srmarket | ~~P1~~ | ✅ **FIXED 2026-08-26.** Left: review the band-vs-bound decision; redeploy |
+| [34](#34-p1--the-markets-reported-rate-and-price-never-respond-to-trading---fixed) | Reported rate/price frozen — the anchor is a fixpoint | srmarket | ~~P1~~ | ✅ **FIXED 2026-08-26.** Left: redeploy; IL is now visible in the views |
+| [20](#20-p1--srvaultredeem-had-no-partial-path---fixed) | Vault redeem all-or-nothing | srvault | ~~P1~~ | ✅ **FIXED.** Resumable; also forced the `available_liquidity` correctness fix. Left: redeploy |
+| [22](#22-p1--srvaultsweep-recovered-pt-only---fixed) | SR / YT / USDC inventory is one-way | srvault | ~~P1~~ | ✅ **FIXED.** `sweep_surplus`, expiry-gated, reserving collected USDC |
+| [23](#23-p1--the-watchtowers-four-open-items---three-fixed) | Watchtower gaps | ops | **P1** | 🟡 **3 of 4 fixed.** Left: the v1 wrapper redeploy (v1-only) |
 | [13](#13-p1--issuer-lockdown--mainnet-step-outstanding) | Issuer lockdown | deploy | P1 | Testnet ✅ — **mainnet issuer re-measured UNLOCKED 2026-08-26** |
-| [30](#30-p2--remaining-sdk--tooling-gaps) | SDK / tooling gaps | sdk | P2 | **TTL bump helpers, srvault surface, the `pnpm` entry point** |
+| [30](#30-p2--remaining-sdk--tooling-gaps---mechanisms-done-policies-open) | SDK / tooling gaps | sdk | P2 | 🟡 **All mechanisms done.** Left: two application *policies* |
 | [19](#19-p0--market-init-cross-check--v1-only) | Market/vault init cross-check | v1 only | P0/P1 | **v1 only — closed in v2.** Do only if v1 is revived |
 
 **Closed and removed this round** — each verified against the current edition, not assumed:
@@ -125,49 +147,80 @@ mainnet-parameter profile, the audit decision, and Appendix B.
 *`testcando.md` §0 P0 `brate_decrease_bricks_everything_including_exits` — **residual ACCEPTED
 2026-08-20; the mitigation is operational, not code***
 
-In a **deep** dip (backing genuinely below principal — tested at a 12% haircut) reads come back but
-**every mutation still refuses** with `SolvencyViolation`. Pinned for full, half and 1-USDC exits, so
-it is not a size threshold a small enough withdrawal slips under. Only loss allocation restores
-exits, and that means PT stops being a strict 1:1 claim — not a pre-launch change.
+### ⚠ Corrected 2026-08-26 — the previous description of the v2 behaviour was wrong
 
-### Correction — the recovery lever is not deployed on v1
+An earlier revision of this item said v2's exits **survive** a dip, on the strength of
+`sr::test::a_guarded_strategy_still_bricks_sr_on_a_rate_dip`. That was false, and the false claim
+reached `V2_WORK.md` §1 and the user-facing risk disclosure before it was caught.
 
-This item has always been written around `reset_rate_floor()` restoring reads. **That function does
-not exist on the deployed v1 strategy** (mainnet or testnet — see the skew section). On the live v1
-there is no lever: a deep dip is unrecoverable without an upgrade.
+The test ran against a mock strategy whose `redeem` read its rate straight from storage. The real
+`spield-strategy::redeem` opens with `let rate = Self::current_rate(env.clone());`, and
+`math::check_rate_bound_timed` returns `RateOutOfBounds` on **any** downward move. Making the mock
+faithful flipped the result on the first run:
 
-It **is** live on the v2 testnet strategy, so the item reads correctly for the current edition only.
+```
+redeem -> HostError: Error(Contract, #40)   // RateOutOfBounds
+```
+
+Same defect class as the misaimed 26b/26c tests: a mock that diverged from the real adapter on the
+one path the test was named for. The mock and the tests are fixed.
+
+### What actually happens, in both stacks
+
+1. **A dip freezes everything, exits included.** Reads survive — `Sr::exchange_rate` is a pure read
+   of SR's own high-water mark — but `sync_rate`, `deposit` and `redeem` all revert. Pinned at every
+   exit size by `a_dip_freezes_exits_at_every_size`, so a holder cannot slip under it by taking
+   less.
+2. **Clearing it is an admin action.** `strategy::reset_rate_floor()` lowers the stored floor to the
+   live rate. **Until an admin calls it, nobody can exit at all** — a live operational obligation on
+   what is still a single hot key.
+3. **After the reset the loss is pro-rata.** `resetting_the_rate_floor_unfreezes_exits_and_the_loss_lands_pro_rata`:
+   two equal holders, a 20% haircut, and the first out receives exactly what the second receives —
+   800 USDC each on a 1,000 USDC deposit. Exiting first confers no advantage.
+4. **The quoted rate still over-promises.** The high-water mark does not fall, so `preview_redeem`
+   reports the old value while `redeem` pays the real one — 1,000 vs 500 on a 50% collapse.
+
+**Who bears it: users, pro-rata by shares.** There is no buffer, insurance fund or subordinated
+protocol capital. The operator's exposure is whatever they hold as a depositor, plus the obligation
+to clear the freeze.
+
+### Also corrected: the recovery lever is not deployed on v1
+
+`reset_rate_floor()` does not exist on the deployed v1 strategy, mainnet or testnet (see the skew
+section). On the live v1 there is no lever at all. It **is** live on the v2 testnet strategy.
 
 ### What is left: one number
 
-Both actions landed for the current stack, and the cap went further than the plan asked — it is
-enforced **on chain**, not in a runbook. `Sr::set_deposit_cap` bounds deployed assets in
-`Sr::deposit`, with `deposit_cap()` / `total_assets()` / `deposit_headroom()` to read it back and an
-event on every change. Three properties are pinned by tests: it is **opt-in** (0 = uncapped), it
-**gates deposits only** (`the_cap_can_never_trap_a_depositor` slams the cap to 1 USDC on a full
-wrapper and confirms the exit still pays in full), and it measures **exposure, not supply**
-(`yield_growth_does_not_eat_the_cap`). The disclosure is published in `RiskDisclosure.tsx`.
-
-**Still to decide: the number.** Read from the live testnet SR this round:
+The cap mechanism is built and enforced on chain, not in a runbook. `Sr::set_deposit_cap` bounds
+deployed assets in `Sr::deposit`, with `deposit_cap()` / `total_assets()` / `deposit_headroom()` to
+read it back. Three properties are pinned: **opt-in** (0 = uncapped), **gates deposits only**
+(`the_cap_can_never_trap_a_depositor`), and measures **exposure, not supply**
+(`yield_growth_does_not_eat_the_cap`).
 
 ```
-deposit_cap    0            ← uncapped
+deposit_cap    0            ← uncapped, read from the live testnet SR
 total_assets   3433.2304105 USDC
 ```
 
-`SR_DEPOSIT_CAP=0` in `deploy_sr_testnet.sh`; the script warns loudly but deploys anyway. The
-contract enforces whatever it is told and nobody has said what that is.
+**The number is still undecided.** With the description corrected, the question it answers is
+concrete: *how much uncompensated depositor loss, recoverable only by an admin action, is
+acceptable.* At a 100,000 cap and a 20% haircut that is up to 20,000 of user losses spread evenly,
+plus a freeze of unbounded duration.
+
+`RiskDisclosure.tsx` has been corrected to say all of this — it previously claimed the freeze lasts
+"until backing recovers" (omitting the admin step) and that there is "no partial-withdrawal path"
+(no longer true after item 20).
 
 Revisit loss allocation before scaling past the cap. Item **20** is a *second*, more likely
-Blend-dependency freeze with the same user-visible shape and a different cause — the disclosure
-covers both.
+Blend-dependency freeze with the same user-visible shape and a different cause.
 
 ---
 
-## 26. P2 — Two LP-path defects survived into `srmarket`
+## 26. ~~P1~~ — Two LP-path defects survived into `srmarket` — ✅ FIXED
 
-*Reproduced against the current `srmarket` on 2026-08-26. **Severity raised from P2 to P1** — not
-because the loss got bigger, but because these were recorded as closed and are not.*
+*Reproduced against `srmarket` on 2026-08-26 (severity had been raised P2 → P1 because both were
+wrongly on the closed list), then fixed the same day. Implementation detail in
+[`V2_WORK.md`](./V2_WORK.md) §3 and §4.*
 
 The previous round marked all three of item 26's defects "structurally absent in the SR stack". One
 of the three is. The other two reproduce exactly, and the audit tests that were supposed to prove
@@ -178,7 +231,7 @@ otherwise do not test the defect.
 `srmarket::add_liquidity` calls `ensure_can_trade`, which includes
 `if now >= expiry { panic SeriesExpired }`. Genuinely fixed. `tofix_26a_*` is a valid test.
 
-### 26b — no `shares > 0` guard on the follow-on LP path ❌ **still broken**
+### 26b — no `shares > 0` guard on the follow-on LP path — ✅ fixed
 
 Only the *first-LP* branch checks its result:
 
@@ -206,10 +259,10 @@ reserves pt=4792577961655  sr=5199710318777   total_shares=5000000000000
 add_liquidity(1, 1) -> 0 shares; took pt=1 sr=1
 ```
 
-Identical to v1. **Fix:** `if shares <= 0 { panic_with_error!(&env, Error::InvalidAmount); }` before
-the transfers, covering both branches.
+Identical to v1. **Fixed** with `if shares <= 0 { panic_with_error!(&env, Error::InvalidAmount); }`
+before the transfers, covering both branches — the same error the first-LP branch already used.
 
-### 26c — `add_liquidity` has no tolerance parameter and is trivially DoSed ❌ **still broken**
+### 26c — `add_liquidity` had no tolerance parameter and was trivially DoSed — ✅ fixed
 
 `add_liquidity` still requires the deposit to match the live reserve ratio to within ~0.1%
 (`hi - lo > (hi / 1000) + 1`), with **no `min_shares` argument** the LP can widen.
@@ -225,25 +278,44 @@ of ~1% of the pool lands first. The add **reverts**, and there is no argument to
 This is a *liveness* problem, not an extraction one: the strict band is what stops a sandwich from
 re-pricing the LP's entry. The cost is a wasted fee, not a bad fill.
 
-**Fix:** take the tolerance from the caller. Add `min_shares: i128` (the standard AMM shape), mint
-`lo` as today, revert `SlippageExceeded` if `lo < min_shares`. Alternatively keep the band and add
-`max_pt_in` / `max_sr_in` so the contract trims and refunds the over-supplied leg.
+**Fixed** by adding `min_shares: i128`. Note that `min_shares` **alone does not fix the DoS** — the
+band and the bound are two separate checks, and keeping both leaves the pre-quoted deposit rejected
+exactly as before (the first attempt here did that, and the test caught it with
+`ImbalancedLiquidity`). They had to be made alternatives:
 
-### Also fix the tests
+* `min_shares == 0` → the pool's 0.1% band still applies. Exactly today's behaviour, so no existing
+  caller changes.
+* `min_shares > 0` → the caller's bound replaces the band; the contract mints `min(by_pt, by_sr)`
+  and reverts `SlippageExceeded` below it.
 
-`tofix_26b_*` and `tofix_26c_*` in `contracts/srmarket/src/tofix_audit.rs` currently assert green on
-a defect that is present. Either would have caught this if it tested the defect's actual shape —
-trade first for 26b, target `add_liquidity` for 26c.
+**A decision is left here.** Under a stated bound the over-supplied leg is donated rather than
+refunded — the Uniswap V2 shape. The alternative, dropping the band unconditionally, would strip
+that protection from every zero-bound caller. See `V2_WORK.md` §4 if you would rather drop the band
+entirely, or use `max_pt_in`/`max_sr_in` with a refund.
+
+### The tests were fixed too
+
+`tofix_26b_*` and `tofix_26c_*` asserted green on live defects. Both are replaced: 26b now trades
+first (asserting a reserve really did grow past `total_shares`) before submitting the dust add, and
+26c targets `add_liquidity` — landing a swap between quote and execution, then checking that the
+unbounded add still reverts, the bounded one succeeds, the bound binds, and the exact boundary
+passes.
+
+### What is left
+
+**Redeploy.** `add_liquidity` is now a four-argument function; the deployed market still has the
+three-argument ABI, so neither this nor item 34 is live.
 
 ---
 
-## 34. P1 — The market's reported rate and price never respond to trading
+## 34. P1 — The market's reported rate and price never respond to trading — ✅ FIXED
 
-*New 2026-08-26, found while attempting the `scalar_root` calibration. No existing test covers it.*
+*Found 2026-08-26 while attempting the `scalar_root` calibration; fixed the same day. Implementation
+detail in [`V2_WORK.md`](./V2_WORK.md) §2.*
 
-### The logic that is wrong
+### The logic that was wrong
 
-`srmarket::implied_apy()` and `pt_price()` return the same values no matter how much the pool trades.
+`srmarket::implied_apy()` and `pt_price()` returned the same values no matter how much the pool trades.
 Measured across six trade sizes on an identical 500,000/500,000 pool:
 
 ```
@@ -283,25 +355,55 @@ the update is a mathematical no-op. `pt_price()` is pinned the same way.
 This defeats the curve's stated intent — its module docs open with *"The anchor is recomputed, not
 pinned at par … Pendle re-derives the anchor."*
 
-### Possible fixes
+### The fix
 
-Pendle's `_updateMarketState` anchors on the **pre-trade** state and prices the **post-trade**
-proportion. `sync_implied_rate` must do the same: build `Params` from the reserves as they were
-before the trade, compute the proportion from the new reserves, read `try_price_at` with that
-mismatched pair, and store the rate derived from it. The asymmetry is the whole mechanism.
+`sync_implied_rate(env, pre_pt_res, pre_sr_res)` now anchors on the pre-trade reserves and prices
+the post-trade proportion; all five call sites capture and pass their pre-trade state. `pt_price()`
+is fixed by the same change, since it derives from `last_ln_implied_rate`.
 
-Check separately that a proportional `add_liquidity` / `remove_liquidity` stays rate-neutral under
-the fix rather than assuming it.
+Measured after:
 
-### Test gap
+```
+buy  1% of the SR side: apy 5.0000% -> 4.9436%   pt_price 952380952384 -> 952892670517
+buy  5% of the SR side: apy 5.0000% -> 4.7185%   pt_price 952380952384 -> 954941161694
+buy 25% of the SR side: apy 5.0000% -> 3.5810%   pt_price 952380952384 -> 965427604115
+sell:                   apy 5.0000% -> 6.0882%   pt_price 952380952384 -> 942612119174
+```
+
+Three tests added: direction and size-scaling on buys, the reverse on sells, and rate-neutrality of
+a proportional liquidity change (the property the fix could plausibly have broken).
+
+### One consequence to know about before deploying
+
+`economics_test::an_idle_participant_cannot_gain_at_anothers_expense` failed after the fix on "the
+LP absorbing the flow must not lose". That assertion held **only because the price was frozen** — it
+marked both bundles at the same number, so it silently measured fee accrual. With a working price it
+is a mark-to-market comparison, and an LP absorbing one-way flow is down against holding. That is
+impermanent loss, not a defect, and the test now measures both halves explicitly:
+
+```
+LP after 100k SR of one-way flow (pt_price 952380952384 -> 962770669050):
+  fees, at constant prices:       +843.4389306
+  vs holding, both at exit price: -237.7352944  <- impermanent loss, expected
+```
+
+**The pool now has visible impermanent loss.** It always had it economically; the contract's own
+views simply could not show it.
+
+### Test gap this closes
 
 `srmarket::test::pt_still_converges_to_par_with_a_dynamic_anchor` advances only **time** and never
-trades, so it passes on `target_price = exp(-rate · years)` walking to par as `years → 0`. It never
-exercises the anchor's response to flow — the same failure shape as the misaimed 26b/26c tests.
+trades, so it passed on `target_price = exp(-rate · years)` walking to par as `years → 0` and never
+exercised the anchor's response to flow — the same failure shape as the misaimed 26b/26c tests. It
+is unchanged and still green; the three new tests cover what it could not.
+
+### What is left
+
+**Redeploy.** The fix is in source only; the deployed testnet market still has the fixpoint.
 
 ---
 
-## 20. P1 — `srvault::redeem` still has no partial path
+## 20. ~~P1~~ — `srvault::redeem` had no partial path — ✅ FIXED
 
 *The wrapper half is **closed**; only the vault half remains.*
 
@@ -325,28 +427,47 @@ strategy.available_liquidity   38356.8771733 USDC
 The `i128::MAX` early return is load-bearing: applying the 1% haircut unconditionally capped every
 redemption at 99% of the position, so a user could never fully exit even on a healthy venue.
 
-### Still open — the vault
+### ✅ Fixed 2026-08-26 — the vault
 
-`srvault::redeem(receipt_id)` is all-or-nothing:
+`srvault::redeem` is now resumable. `Receipt` gained `collected`, the vault a `TotalCollected`
+counter, and the call **sizes its PT burn to what the venue can actually pay** rather than
+attempting the full payout and reverting. Progress is banked; the holder is paid exactly `payout`
+on the closing call. `redeem_remaining(id)` reports what is outstanding.
+
+The solvency invariant moved with it — mandatory, not cleanup:
 
 ```rust
-let got = SrClient::new(&env, &sr_addr).redeem(&me, &me, &sr_out, &0i128);
-if got < r.payout {
-    panic_with_error!(&env, Error::WithdrawShortfall);   // receipt stays open, holder gets nothing
-}
+if pt_inventory + total_collected < total_liability { panic SolvencyViolation }
 ```
 
-Less severe than v1's version — the vault holds PT as bearer inventory, so it is not competing for
-venue liquidity at redemption time — but the failure shape is the same: during a crunch the holder
-gets nothing rather than most of it.
+A partial burns PT to obtain USDC, so that part of the backing is cash rather than bond face;
+without widening the invariant the vault trips on its own correct behaviour on the second call.
 
-**Fix:** the resumable shape. Bank what was collected against the receipt (a `collected` field on
-`Receipt`), close and pay only once `collected >= payout`. Repeated calls finish the job. Pair with
-item 22 — both are about the vault's inventory having no partial route out.
+Measured on a 210,000 USDC payout, venue drawn to Blend's ceiling:
+
+```
+venue free 800,000 -> 56,230 USDC
+first call collected 0.93 USDC     ← the true headroom at max_util is near zero
+finished: paid 210,000 across 2 calls
+```
+
+Eight tests, including the invariant holding at **every step** of two concurrent redemptions, a dry
+venue banking nothing, and no over-collection.
+
+**This work surfaced a hard dependency.** The first build still failed with Blend's `#1207`, because
+it sized against `max_redeemable()` → `available_liquidity()` → the pool's raw balance, and the pool
+was already at its utilization ceiling. `available_liquidity` now computes
+`min(balance, supplied − borrowed / max_util)`; on the live testnet pool the balance overstated true
+headroom by **12.8%**, far more than the 1% safety haircut covered. See the Calibration table.
+
+### What is left
+
+**Redeploy** — and note `Sr::max_redeemable` and `srvault::redeem` both depend on the new
+`available_liquidity`, so **`strategy` must be upgraded in the same cycle**, not after.
 
 ---
 
-## 22. P1 — `srvault::sweep` recovers PT only
+## 22. ~~P1~~ — `srvault::sweep` recovered PT only — ✅ FIXED
 
 *Verified by test 2026-08-26. **Partially closed** — the PT leg has a path out; SR, YT and USDC do
 not.*
@@ -365,38 +486,39 @@ let capacity = Self::pt_inventory(&env) - reserved;
 This is better than what was asked for: surplus is recoverable *before* maturity without ever
 touching a receipt's backing.
 
-### Still open — the other three legs
+### ✅ Fixed 2026-08-26 — the other three legs
 
-`sweep` moves PT and nothing else. Measured on a 20,000 USDC seed + one 1,000 USDC receipt, run
-through the full lifecycle (harvest → expiry → `stamp_expiry_index` → post-expiry harvest → redeem)
-until `total_liability == 0`:
+`sweep_surplus(to) -> (sr, yt, usdc)`, admin-only and **gated at/after expiry**, with a read-only
+`surplus()` that predicts it. The expiry gate differs per leg for a reason:
 
-| asset held by the vault after full settlement | amount | recoverable? |
-|---|---:|---|
-| PT | 20,196.7086960 | ✅ `sweep()` recovered all of it |
-| **SR** | **248.5274157** | ❌ no entry point |
-| **YT** | **21,246.7086962** | ❌ no entry point |
-| **USDC** | **0.0000001** | ❌ no entry point |
+* **YT** earns the yield that funds future coupons. Pre-expiry it has forward value `assert_solvent`
+  cannot see — that invariant compares PT face against liability and says nothing about future
+  capacity — so a pre-expiry YT sweep would degrade the vault's ability to pay later receipts while
+  every check still passed.
+* **SR** resting pre-expiry is transient; `harvest` reinvests it in the same call.
+* **USDC** pre-expiry is indistinguishable from cash a partial redemption has banked.
 
-**This is caused by item 21's fix.** Post-expiry `harvest` is now allowed (correctly) and parks the
-claimed SR as vault inventory, because `mint_py` refuses past expiry:
+`total_collected` is reserved unconditionally, so a sweep can never touch USDC belonging to a
+partially-redeemed receipt. `sweep`, `stats` and `deposit` now reserve only the *uncollected* part
+of the liability in PT.
+
+The original measurement, re-run to completion:
 
 ```
-post-expiry harvest: claimed 2485274157 SR, reinvested 0
+before sweeping: PT 201967086960  SR 2485274157  YT 212467086962  USDC 1
+after:           vault fully drained of surplus; nothing inaccessible remains
 ```
 
-That SR is real value — 1.2% of the seed on this run — with no route out. The USDC stroop is
-`redeem`'s deliberate rounding remainder, which accumulates one receipt at a time. YT is
-economically dead after expiry but is still the vault's asset.
+Five tests, including the #20 interaction: with a partial in flight the vault held 547,114 USDC of
+which **547,114 was reserved and 0 sweepable**, and the holder was still paid in full afterwards.
 
-**Fix:** widen `sweep` to the other legs under the same liability gate — either a
-`sweep_token(to, token, amount)` with the capacity rule applied per asset, or have post-expiry
-`harvest` unwrap SR straight to USDC and sweep that. The gate is already correct; only its reach is
-too narrow.
+### What is left
+
+Redeploy, with the same `strategy` co-upgrade note as item 20.
 
 ---
 
-## 23. P1 — The watchtower's four open items
+## 23. P1 — The watchtower's four open items — 🟡 three fixed
 
 *Both monitors were run against live testnet this round. They work — and each surfaced something.*
 
@@ -407,7 +529,7 @@ band is read from chain rather than hardcoded to 8, PT conservation is checked a
 daemon mode alarms + keeps polling instead of `exit(2)`-ing itself to death on the first alert.
 `scripts/sr_solvency_monitor.mjs` covers the v2 stack with six probes plus Blend utilization.
 
-### 23a — the v1 vault probe reads functions the vault has never had ❌
+### 23a — the v1 vault probe read functions the vault has never had — ✅ fixed
 
 Live run output:
 
@@ -431,10 +553,14 @@ source *and* on the deployed binary. Read live this round:
  "yt_inventory":"652677677","rate_bps":500,"maturity":1783546154}
 ```
 
-`pt_inventory >= total_liability` is exactly the invariant sub-defect (3) asks for. **This needs no
-redeploy — it is a one-line script fix**, and it is the cheapest item in this document.
+`pt_inventory >= total_liability` is exactly the invariant sub-defect (3) asks for. **Fixed** — the
+probe reads `stats()` and now passes against the live deployment:
 
-### 23b — neither monitor can be run as documented ❌
+```
+✓ vault: pt_inventory=65.2677677 total_liability=60.3659222 coupon_capacity=4.9018455
+```
+
+### 23b — neither monitor could be run as documented — ✅ fixed
 
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@stellar/stellar-sdk'
@@ -446,10 +572,18 @@ not the working directory, so `cd`-ing somewhere with the dependency installed d
 monitors had to be copied next to a `node_modules` to run at all. A watchtower that cannot be
 started from its documented path will not be started.
 
-**Fix:** a `scripts/package.json` with `@stellar/stellar-sdk` as a dependency and
-`"type": "module"`.
+**Fixed** with a `scripts/package.json` (`"type": "module"`, its own installed dependency, and
+`monitor:v1` / `monitor:v2` run scripts). Both monitors now start from `scripts/`.
 
-### 23c — the v2 monitor is latched permanently red ❌
+**A second cause turned up behind the first.** With the dependency resolving, every v1 *vault* view
+still failed — `stats`, `rate_bps`, `maturity` alike — with `Bad union switch: 1`, while the
+wrapper's `solvency` worked. The vault's simulation response carries `stateChanges`, which
+`@stellar/stellar-sdk` 13.x cannot decode. The scripts package pins **`^17.0.1`**, which can. The
+published SDK in `sdk/` still pins 13.x for its own reasons; the scripts are deliberately an
+independent package and the reason is recorded in its `description`, so the versions do not get
+"tidied" back together.
+
+### 23c — the v2 monitor is latched permanently red — ❌ open
 
 It fires on every run:
 
@@ -465,7 +599,7 @@ guesses silently, which is the defect class this item exists to remove.
 **Fix:** reconcile it — burn the 11 stroops, or record a signed baseline offset the probe subtracts
 and re-alarms above. Do not simply widen the tolerance; the probe's value is that it is exact.
 
-### 23d — the v1 wrapper probes still cannot run ❌
+### 23d — the v1 wrapper probes still cannot run — ❌ open (v1 redeploy)
 
 ```
 ✓ solvency: backing=345.4887497 principal=345.4400376 headroom=0.0487121
@@ -539,7 +673,7 @@ issuer transactions: 7, all on 2026-06-08 (deploy day), none since
 
 ---
 
-## 30. P2 — Remaining SDK / tooling gaps
+## 30. P2 — Remaining SDK / tooling gaps — 🟡 mechanisms done, policies open
 
 ### Closed — removed from this item
 
@@ -553,26 +687,45 @@ a doc comment.
 Item 15's "guarded partial-sale helper" is **not needed in the current edition** — YT is a
 hook-bearing SEP-41 whose transfer carries the claim, so there is no wrong path to guard against.
 
-### Still open
+### ✅ Fixed 2026-08-26 — TTL keep-alive
 
-1. **No TTL keep-alive helpers anywhere.** `srvault::bump_receipt` and `yield::bump_holder` ship
-   specifically so a long-dated position cannot archive before maturity, and neither is reachable
-   from `srstack.ts` — so nothing in shipped client code ever calls them. This is the same
-   mainnet-readiness gap v1 had, carried forward intact.
-2. **No `srvault` surface at all.** The fixed-rate vault is deployed on testnet
-   (`CAHWXX7DQKAJ733SL7U7IHDG5JHGKIW74JN23AY2WQDESQSV4BW2VBHV`, `SRVAULT_INIT=1`,
-   `VAULT_SEEDED=1`) and there is no client code for it — no `deposit`, `redeem`, `quote`,
-   `stats` or `harvest`. The product exists on chain and is unreachable from the app.
-3. **The documented test entry point is still broken**, and has grown a second offender:
+The gap was wider than "the SDK doesn't call them": only **two of five** archivable entry types had
+a permissionless bump at all, and `yield::bump_holder` covered only the `Interest` record, not the
+YT balance beside it — keeping the accounting alive while letting the balance archive.
 
-   ```
-   [ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.21.5, esbuild@0.27.7
-   [ERROR] Command failed with exit code 1: pnpm install
-   ```
+Three contract entry points added (`Sr::bump_holder`, `SrMarket::bump_lp`, and `Yield::bump_holder`
+extended to the balance), backed by `spield_shared::token::bump_balance` and
+`srmarket::storage::bump_shares_ttl`. All permissionless, all value-neutral, all no-op on an address
+holding nothing. All four are now exposed from `srstack.ts`, plus `bumpAll(wallet)`.
 
-   `pnpm run test:unit` fails at pnpm's install pre-check before any test runs.
-   `npx vitest run test/unit …` passes all **218**. **Fix:** a `pnpm.onlyBuiltDependencies: ["esbuild"]`
-   entry in `sdk/package.json`, so CI and contributors do not have to know the workaround.
+SR was the most exposed of the three: it has no maturity bounding how long a holder may sit dormant,
+so a dormant holder is the ordinary case there rather than the edge case.
+
+**Left:** the application's keep-alive *policy* — nothing schedules these yet.
+
+### ✅ Fixed 2026-08-26 — the pnpm entry point
+
+Not `pnpm.onlyBuiltDependencies` in `package.json`; pnpm 11.9.0 ignores that field outright. The
+setting lives in `sdk/pnpm-workspace.yaml`, which already held a stub with an unfilled placeholder
+(`esbuild: set this to true or false`). Completed to `esbuild: true`; `pnpm run test:unit` now runs
+and passes all 218.
+
+### ✅ Fixed 2026-08-26 — the `srvault` surface
+
+A full typed client in `srstack.ts`, written against the post-item-20 receipt shape:
+`getVaultStats`, `quoteVaultDeposit`, `vaultDeposit`, `getVaultReceipt`, `vaultRedeemRemaining`,
+`vaultRedeem`, `vaultHarvest`, `bumpVaultReceipt`, `getVaultSurplus`, and an `SR_VAULT_AVAILABLE`
+guard. Reads are failure-tolerant, matching the module's conventions; `tsc --noEmit` passes.
+
+The resumable surface is what matters for the UI: after `vaultRedeem`, a non-zero
+`vaultRedeemRemaining` means the venue was short and the user should return later, progress safe.
+
+### Still open — two policies, not mechanisms
+
+Both surfaces exist. What is undefined is *when the application uses them*:
+
+1. **When the UI prompts a user to finish a partial redemption.**
+2. **When the app calls the TTL bumps.**
 
 ---
 
@@ -608,9 +761,9 @@ where noted) live.
 | # | Constant / setting | Today | What it needs to be set against |
 |---|---|---|---|
 | **3** | `SR_DEPOSIT_CAP` → `Sr::set_deposit_cap` | **`0` = uncapped** on chain | Loss appetite for a deep `b_rate` dip. The only bound on how much money is exposed to the one failure mode that has no code fix. **This is the blocking one.** |
-| **20** | `LIQUIDITY_HAIRCUT_BPS` = 100 (1%) | 1% | Blend's real `max_util` headroom. `available_liquidity()` is the pool's raw token balance — an **upper** bound, since Blend also refuses withdrawals that push utilization past its ceiling. 1% is a guess; measure the gap against the live pool. |
+| **20** | `LIQUIDITY_HAIRCUT_BPS` = 100 (1%) | 1% | ✅ The **code** half is fixed — `available_liquidity()` now computes `min(balance, supplied − borrowed/max_util)` instead of guessing. The pool's raw token balance — an **upper** bound, since Blend also refuses withdrawals that push utilization past its ceiling. 1% is a guess; measure the gap against the live pool. |
 | **20** | Watchtower utilization threshold | warns above **85%** | Fired on its first run — Blend testnet USDC was at 85.4%. Either the threshold is too tight for a venue that normally sits there, or 85% genuinely is the danger zone. Decide which, or it becomes another latched alarm. |
-| **31** | `scalar_root` | **40** (SCALAR_12) live on testnet | **Blocked on item 34.** `srmarket`'s reported rate does not move with flow, so its sensitivity is currently unmeasurable. The 4.990% → 4.406% figure previously recorded here was measured on the **v1** market (`contracts/market/`), a different curve — it does not transfer. Re-measure on `srmarket` once the anchor is fixed. `testcando.md` §12. |
+| **31** | `scalar_root` | **40** (SCALAR_12) live on testnet | **Unblocked** — item 34 is fixed, so sensitivity is now measurable. First readings at 40, on a 500k/500k pool one year out: a 1% buy moves the quote **−5.6 bps**, 5% **−28.2 bps**, 25% **−142 bps**. Whether that is the right steepness is the open decision. (The 4.990% → 4.406% figure previously here was from the **v1** market — a different curve — and does not transfer.) `testcando.md` §12. |
 | **26c** | LP ratio band `(hi/1000)+1` = 0.1% | hardcoded | Should become a caller-supplied `min_shares` — see item 26c. Until then, the number is the DoS surface. |
 | **23c** | PT-conservation baseline | none | 11 stroops of rehearsal counterfeit are latching the alarm. Burn them or record a signed offset. |
 
@@ -709,15 +862,24 @@ Scope was `testcando.md` §0 plus §13's on-chain conservation law. Still open, 
 
 ## Suggested order of work
 
-1. **Fix the v1 monitor's vault probe** (23a) — one line, reads `stats()` instead of two functions
-   that never existed, and turns a permanently-degraded probe green.
-2. **Add `scripts/package.json`** (23b) — neither watchtower can be started from its documented path
-   without it.
-3. **Add the `shares > 0` guard and a `min_shares` argument to `srmarket::add_liquidity`** (26b, 26c)
-   — one line and one argument, and fix the two audit tests that assert green on a live defect.
-4. **Decide `SR_DEPOSIT_CAP`.** The one blocking calibration number.
-5. **Widen `srvault::sweep` past the PT leg** (22) and **give `srvault::redeem` the partial path**
-   (20) — same area of the same contract, do them together.
-6. **Reconcile the 11-stroop counterfeit baseline** (23c) so the v2 watchtower stops crying wolf.
-7. **The SDK batch** (30) — TTL bump helpers, the srvault surface, the `pnpm` entry point.
-8. **v1 only, and only if v1 is revived:** redeploy the wrapper (23d), then item 19's cross-checks.
+**Done 2026-08-26** — items 34, 26b, 26c, 20, 22, 23a/b/c, 30's mechanisms, and item 3's
+description correction. Details in [`V2_WORK.md`](./V2_WORK.md).
+
+**Remaining:**
+
+1. **Decide `SR_DEPOSIT_CAP`** (item 3). Now that the description is right, the question is
+   concrete: how much uncompensated depositor loss, recoverable only by an admin action, is
+   acceptable.
+2. **Review the band-vs-bound decision in 26c** — keep the 0.1% band as the `min_shares == 0`
+   default, or drop it. One line either way, easier settled before deploying.
+3. **Set the residual `LIQUIDITY_HAIRCUT_BPS` and the watchtower's coverage thresholds.** The
+   utilization cap is computed now, so the haircut only has to cover the residual. One measurement
+   answers both.
+4. **Re-measure `scalar_root`** now that the quote responds to flow.
+5. **Define the two application policies** — when the UI prompts a user to finish a partial
+   redemption, and when it calls the TTL bumps.
+6. **Redeploy the v2 stack.** `add_liquidity` is four arguments, `Receipt` has a new field, and
+   `available_liquidity` computes differently. **`strategy` must be upgraded in the same cycle as
+   `sr` and `srvault`** — both now depend on the new `available_liquidity`, and upgrading a caller
+   without its callee is the exact failure this repo has already hit once.
+7. **v1 only, and only if v1 is revived:** redeploy the wrapper (23d), then item 19's cross-checks.

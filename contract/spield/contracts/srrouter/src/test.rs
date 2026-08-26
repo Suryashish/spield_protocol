@@ -98,7 +98,7 @@ impl World {
         let sr_for_pt = self.sr().preview_deposit(&pt_face);
         let py = self.y().mint_py(&lp, &lp, &sr_for_pt);
         let sr_left = self.sr().balance(&lp);
-        let shares = self.m().add_liquidity(&lp, &py, &sr_left);
+        let shares = self.m().add_liquidity(&lp, &py, &sr_left, &0i128);
         self.env.cost_estimate().budget().reset_unlimited();
         (lp, shares)
     }

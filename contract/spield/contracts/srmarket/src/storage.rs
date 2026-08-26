@@ -139,6 +139,15 @@ pub fn shares_of(env: &Env, lp: &Address) -> i128 {
         .unwrap_or(0)
 }
 
+/// Permissionless TTL keep-alive for an LP's share entry. No-ops when the LP has no position.
+pub fn bump_shares_ttl(env: &Env, lp: &Address) {
+    let key = DataKey::Shares(lp.clone());
+    if env.storage().persistent().has(&key) {
+        let (lo, hi) = ttl::maturity_aware_bump(env, get_expiry(env));
+        env.storage().persistent().extend_ttl(&key, lo, hi);
+    }
+}
+
 pub fn save_shares(env: &Env, lp: &Address, amount: i128) {
     let key = DataKey::Shares(lp.clone());
     env.storage().persistent().set(&key, &amount);

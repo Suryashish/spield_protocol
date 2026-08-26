@@ -158,10 +158,16 @@ impl SrMarket {
 
     /// Add `pt_in` PT and `sr_in` SR. The first LP sets the reserve ratio — and because the anchor
     /// is dynamic, **any** ratio opens the pool at the configured rate, so a 1:1 seed is fine.
-    pub fn add_liquidity(env: Env, lp: Address, pt_in: i128, sr_in: i128) -> i128 {
+    pub fn add_liquidity(
+        env: Env,
+        lp: Address,
+        pt_in: i128,
+        sr_in: i128,
+        min_shares: i128,
+    ) -> i128 {
         Self::ensure_can_trade(&env);
         lp.require_auth();
-        if pt_in <= 0 || sr_in <= 0 {
+        if pt_in <= 0 || sr_in <= 0 || min_shares < 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
         let pt_res = storage::pt_reserve(&env);
@@ -183,11 +189,37 @@ impl SrMarket {
             let by_sr = math::mul_div_floor(&env, sr_in, total, sr_res)
                 .unwrap_or_else(|e| panic_with_error!(&env, e));
             let (lo, hi) = if by_pt < by_sr { (by_pt, by_sr) } else { (by_sr, by_pt) };
-            if hi - lo > (hi / 1000) + 1 {
+            // `tofix.md` #26c. The 0.1% band below is the *pool's* tolerance, not the caller's, and
+            // it is what makes a pre-quoted add trivially DoS-able: any swap landing first moves
+            // the ratio and reverts an otherwise correct deposit, with nothing the LP can widen.
+            //
+            // `min_shares` is the standard AMM answer — the caller states the outcome they will
+            // accept and the contract mints `min(by_pt, by_sr)`, donating the over-supplied leg.
+            // So when the caller has given a bound, that bound *replaces* the band; when they have
+            // not (`min_shares == 0`), the band stays as the safe default, because a naive caller
+            // with no bound and no band could donate an arbitrarily large excess leg.
+            //
+            // This keeps every existing zero-bound caller on exactly today's behaviour.
+            if min_shares == 0 && hi - lo > (hi / 1000) + 1 {
                 panic_with_error!(&env, Error::ImbalancedLiquidity);
             }
             lo
         };
+
+        // `tofix.md` #26b: the follow-on branch above can floor BOTH legs to zero once swap fees
+        // have grown the reserves past `total_shares` — `hi - lo` is then 0, the ratio check
+        // passes, and the deposit is consumed for no ownership at all. The first-LP branch has
+        // always guarded its own result; this makes the two consistent. It must run before either
+        // transfer.
+        if shares <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        // `tofix.md` #26c: the ratio band above is the pool's, not the caller's. Any swap landing
+        // between an LP's quote and their transaction moves the ratio and reverts an otherwise
+        // correct add, with no argument to widen. `min_shares` is that argument.
+        if shares < min_shares {
+            panic_with_error!(&env, Error::SlippageExceeded);
+        }
 
         let me = env.current_contract_address();
         token::Client::new(&env, &storage::get_pt(&env)).transfer(&lp, &me, &pt_in);
@@ -197,7 +229,7 @@ impl SrMarket {
         storage::set_sr_reserve(&env, sr_res + sr_in);
         storage::set_total_shares(&env, total + shares);
         storage::save_shares(&env, &lp, storage::shares_of(&env, &lp) + shares);
-        Self::sync_implied_rate(&env);
+        Self::sync_implied_rate(&env, pt_res, sr_res);
         storage::bump_instance(&env);
 
         events::added(&env, &lp, pt_in, sr_in, shares);
@@ -282,10 +314,11 @@ impl SrMarket {
             sr.transfer(&me, &storage::get_treasury(&env), &treasury_sr);
         }
 
+        let pre_sr_res = storage::sr_reserve(&env);
         storage::set_pt_reserve(&env, pt_res + pt_in);
-        storage::set_sr_reserve(&env, storage::sr_reserve(&env) - sr_out - treasury_sr);
+        storage::set_sr_reserve(&env, pre_sr_res - sr_out - treasury_sr);
         Self::record_treasury(&env, treasury_sr);
-        Self::sync_implied_rate(&env);
+        Self::sync_implied_rate(&env, pt_res, pre_sr_res);
         storage::bump_instance(&env);
 
         events::swapped(&env, &trader, true, pt_in, sr_out, fee_sr, treasury_sr);
@@ -325,10 +358,11 @@ impl SrMarket {
             sr.transfer(&me, &storage::get_treasury(&env), &treasury_sr);
         }
 
+        let pre_sr_res = storage::sr_reserve(&env);
         storage::set_pt_reserve(&env, pt_res - t.pt_amount);
-        storage::set_sr_reserve(&env, storage::sr_reserve(&env) + sr_in - treasury_sr);
+        storage::set_sr_reserve(&env, pre_sr_res + sr_in - treasury_sr);
         Self::record_treasury(&env, treasury_sr);
-        Self::sync_implied_rate(&env);
+        Self::sync_implied_rate(&env, pt_res, pre_sr_res);
         storage::bump_instance(&env);
 
         events::swapped(&env, &trader, false, sr_in, t.pt_amount, fee_sr, treasury_sr);
@@ -437,10 +471,11 @@ impl SrMarket {
             sr.transfer(&me, &user, &refund);
         }
 
+        let pre_sr_res = storage::sr_reserve(&env);
         storage::set_pt_reserve(&env, pt_res + py);
-        storage::set_sr_reserve(&env, storage::sr_reserve(&env) - pool_sr - treasury_sr);
+        storage::set_sr_reserve(&env, pre_sr_res - pool_sr - treasury_sr);
         Self::record_treasury(&env, treasury_sr);
-        Self::sync_implied_rate(&env);
+        Self::sync_implied_rate(&env, pt_res, pre_sr_res);
         storage::bump_instance(&env);
 
         events::yt_traded(&env, &user, true, yt_out, user_sr, fee_sr, treasury_sr);
@@ -511,13 +546,11 @@ impl SrMarket {
             sr.transfer(&me, &storage::get_treasury(&env), &treasury_sr);
         }
 
+        let pre_sr_res = storage::sr_reserve(&env);
         storage::set_pt_reserve(&env, pt_res - yt_in);
-        storage::set_sr_reserve(
-            &env,
-            storage::sr_reserve(&env) + (got_sr - user_sr) - treasury_sr,
-        );
+        storage::set_sr_reserve(&env, pre_sr_res + (got_sr - user_sr) - treasury_sr);
         Self::record_treasury(&env, treasury_sr);
-        Self::sync_implied_rate(&env);
+        Self::sync_implied_rate(&env, pt_res, pre_sr_res);
         storage::bump_instance(&env);
 
         events::yt_traded(&env, &user, false, yt_in, user_sr, fee_sr, treasury_sr);
@@ -613,6 +646,18 @@ impl SrMarket {
         let pt = math::mul_div_floor(&env, storage::pt_reserve(&env), shares, total).unwrap_or(0);
         let sr = math::mul_div_floor(&env, storage::sr_reserve(&env), shares, total).unwrap_or(0);
         (shares, pt, sr)
+    }
+
+    /// **Permissionless TTL keep-alive for an LP's share entry** (`tofix.md` #30).
+    ///
+    /// Share entries are bumped on every liquidity event, so an LP who provides once and then sits
+    /// through the term is never written to. Anyone may call this — it only prolongs an entry.
+    ///
+    /// No-ops for an address with no position.
+    pub fn bump_lp(env: Env, lp: Address) {
+        Self::ensure_initialized(&env);
+        storage::bump_shares_ttl(&env, &lp);
+        storage::bump_instance(&env);
     }
 
     pub fn total_shares(env: Env) -> i128 {
@@ -896,14 +941,28 @@ impl SrMarket {
 
     /// Re-derive and store the implied rate the pool now prices. **This is what makes the anchor
     /// dynamic** — the next quote rebuilds the anchor from this number and the time then remaining.
-    fn sync_implied_rate(env: &Env) {
+    /// Re-derive and store the pool's implied rate after a state change.
+    ///
+    /// **The two reserve sets are deliberately different, and that asymmetry is the whole
+    /// mechanism** (`tofix.md` #34). `try_params` builds an anchor such that
+    /// `price(proportion_it_was_given) == target_price` — an identity. So anchoring on the
+    /// *post-trade* reserves and then pricing that *same* proportion reads back exactly the rate
+    /// we started with: a fixpoint, and the update becomes a mathematical no-op. That is what this
+    /// used to do, and it left `implied_apy()` / `pt_price()` frozen at the seeded rate no matter
+    /// how much the pool traded — measured identical across 1%–50% trade sizes.
+    ///
+    /// Pendle's `_updateMarketState` anchors on the state *before* the trade and prices the
+    /// proportion the trade *left behind*. That is what this does now.
+    ///
+    /// A proportional `add_liquidity` / `remove_liquidity` is rate-neutral for free: it does not
+    /// change the proportion, so pre and post agree and the stored rate does not move.
+    fn sync_implied_rate(env: &Env, pre_pt_res: i128, pre_sr_res: i128) {
         let index = Self::index_view(env);
-        let pt_res = storage::pt_reserve(env);
-        let sr_res = storage::sr_reserve(env);
+        // Anchor on the PRE-trade state.
         if let Ok(p) = curve::try_params(
             env,
-            pt_res,
-            sr_res,
+            pre_pt_res,
+            pre_sr_res,
             index,
             storage::scalar_root(env),
             storage::ln_fee_root(env),
@@ -911,6 +970,9 @@ impl SrMarket {
             storage::get_expiry(env),
             env.ledger().timestamp(),
         ) {
+            // Price the POST-trade proportion under that anchor.
+            let pt_res = storage::pt_reserve(env);
+            let sr_res = storage::sr_reserve(env);
             let asset_res = Self::sr_to_asset(env, sr_res, index);
             if let Some(r) = curve::try_new_ln_implied_rate(env, pt_res, asset_res, &p) {
                 storage::set_last_ln_implied_rate(env, r);

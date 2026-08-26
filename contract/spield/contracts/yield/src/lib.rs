@@ -565,10 +565,16 @@ impl Yield {
         (held, need, if held > need { held - need } else { 0 })
     }
 
-    /// Permissionless TTL keep-alive for a holder's interest entry.
+    /// Permissionless TTL keep-alive for a holder's entries.
+    ///
+    /// Covers **both** the `Interest` record and the YT **balance** entry. It used to bump only the
+    /// former (`tofix.md` #30): a dormant YT holder's balance is a separate persistent entry with
+    /// its own TTL, refreshed only when the balance is written, so keeping the interest record
+    /// alive while letting the balance archive kept exactly the wrong half.
     pub fn bump_holder(env: Env, user: Address) {
         Self::ensure_initialized(&env);
         storage::bump_interest_ttl(&env, &user);
+        tok::bump_balance(&env, &user, Self::bump_horizon(&env));
     }
 
     // ================= admin =================

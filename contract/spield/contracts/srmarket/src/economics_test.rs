@@ -505,6 +505,10 @@ fn an_idle_participant_cannot_gain_at_anothers_expense() {
     let (lp, _) = w.seed(500_000 * USDC, 500_000 * USDC);
     let idle = Address::generate(&w.env);
     let (_, pt0, sr0) = w.m().lp_position(&lp);
+    // Capture the mark BEFORE the flow. Since `tofix.md` #34 was fixed, `pt_price()` actually
+    // moves with trading, so which price a bundle is marked at is now a real choice.
+    let price0 = w.m().pt_price();
+    let idx0 = w.y().py_index();
 
     // Heavy activity by others.
     for _ in 0..5 {
@@ -512,17 +516,31 @@ fn an_idle_participant_cannot_gain_at_anothers_expense() {
         let _ = w.m().try_swap_exact_sr_for_pt(&t, &s, &0i128, &0u32);
     }
 
-    // The idle account gained nothing anywhere.
+    // The idle account gained nothing anywhere. This is the property the test is named for.
     assert_eq!(w.sr().balance(&idle), 0);
     assert_eq!(w.y().balance(&idle), 0);
     assert_eq!(w.m().lp_position(&idle), (0, 0, 0));
     assert_eq!(w.y().claimable_interest(&idle), 0);
 
-    // The LP who took the flow did gain (in PT inventory terms at minimum).
+    // The LP who took the flow collected fees: at CONSTANT prices their bundle grew.
     let (_, pt1, sr1) = w.m().lp_position(&lp);
-    let price = w.m().pt_price();
-    let idx = w.y().py_index();
-    let v0 = lp_value(pt0, sr0, price, idx);
-    let v1 = lp_value(pt1, sr1, price, idx);
-    assert!(v1 >= v0, "the LP absorbing the flow must not lose: {v0} -> {v1}");
+    let v0 = lp_value(pt0, sr0, price0, idx0);
+    let v1_at_entry_mark = lp_value(pt1, sr1, price0, idx0);
+    assert!(
+        v1_at_entry_mark >= v0,
+        "at constant prices the LP absorbing the flow must not lose: {v0} -> {v1_at_entry_mark}"
+    );
+
+    // Against HOLDING — both bundles marked at the final price — the LP can be down, and that is
+    // not a defect: it is impermanent loss, which every constant-function AMM has. It was
+    // invisible here until #34 was fixed, because a frozen `pt_price()` made the two marks
+    // identical, so this comparison silently measured fee accrual instead of mark-to-market.
+    let price1 = w.m().pt_price();
+    let idx1 = w.y().py_index();
+    let hold_at_exit = lp_value(pt0, sr0, price1, idx1);
+    let lp_at_exit = lp_value(pt1, sr1, price1, idx1);
+    std::println!("LP after 100k SR of one-way flow (pt_price {price0} -> {price1}):");
+    std::println!("  fees, at constant prices:       {:+}", v1_at_entry_mark - v0);
+    std::println!("  vs holding, both at exit price: {:+}  <- impermanent loss, expected",
+        lp_at_exit - hold_at_exit);
 }

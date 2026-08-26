@@ -123,7 +123,7 @@ impl World {
         let sr_for_pt = self.sr().preview_deposit(&pt_face);
         let py = self.y().mint_py(&lp, &lp, &sr_for_pt);
         let sr_left = self.sr().balance(&lp);
-        let shares = self.m().add_liquidity(&lp, &py, &sr_left);
+        let shares = self.m().add_liquidity(&lp, &py, &sr_left, &0i128);
         self.env.cost_estimate().budget().reset_unlimited();
         (lp, shares)
     }
@@ -719,7 +719,7 @@ fn a_later_lp_must_match_the_pool_ratio() {
     w.seed(500_000 * USDC, 500_000 * USDC);
     let (lp2, sr) = w.user_with_sr(200_000 * USDC);
     let py = w.y().mint_py(&lp2, &lp2, &(sr / 4));
-    w.m().add_liquidity(&lp2, &py, &w.sr().balance(&lp2));
+    w.m().add_liquidity(&lp2, &py, &w.sr().balance(&lp2), &0i128);
 }
 
 // ===========================================================================
@@ -1102,13 +1102,13 @@ fn a_dust_first_lp_cannot_dilute_a_real_one() {
     // Attacker seeds with the smallest viable amount.
     let (att, sr) = w.user_with_sr(200_000 * USDC);
     let py = w.y().mint_py(&att, &att, &(sr / 2));
-    let att_shares = w.m().add_liquidity(&att, &(100 * USDC), &(100 * USDC));
+    let att_shares = w.m().add_liquidity(&att, &(100 * USDC), &(100 * USDC), &0i128);
     assert!(att_shares > 0);
 
     // Real LP joins at the pool ratio.
     let (lp, sr2) = w.user_with_sr(400_000 * USDC);
     let py2 = w.y().mint_py(&lp, &lp, &(sr2 / 2));
-    let lp_shares = w.m().add_liquidity(&lp, &(100_000 * USDC), &w.sr().balance(&lp).min(w.sr().preview_deposit(&(100_000 * USDC))));
+    let lp_shares = w.m().add_liquidity(&lp, &(100_000 * USDC), &w.sr().balance(&lp).min(w.sr().preview_deposit(&(100_000 * USDC))), &0i128);
 
     let total = w.m().total_shares();
     let att_frac = att_shares as f64 / total as f64;
@@ -1158,7 +1158,7 @@ fn zero_and_negative_trade_sizes_are_refused() {
         assert!(w.m().try_swap_exact_pt_for_sr(&u, &bad, &0i128, &0u32).is_err());
         assert!(w.m().try_buy_yt_exact_out(&u, &bad, &i128::MAX, &0u32).is_err());
         assert!(w.m().try_sell_yt_exact_in(&u, &bad, &0i128, &0u32).is_err());
-        assert!(w.m().try_add_liquidity(&u, &bad, &bad).is_err());
+        assert!(w.m().try_add_liquidity(&u, &bad, &bad, &0i128).is_err());
         assert!(w.m().try_remove_liquidity(&u, &bad, &0i128, &0i128).is_err());
     }
 }
@@ -1280,7 +1280,7 @@ fn the_expiry_boundary_is_exact() {
     assert!(w.m().try_swap_exact_sr_for_pt(&u, &(sr_in / 4), &0i128, &0u32).is_err());
     assert!(w.m().try_buy_yt_exact_out(&u, &(100 * USDC), &i128::MAX, &0u32).is_err());
     assert!(w.m().try_sell_yt_exact_in(&u, &(100 * USDC), &0i128, &0u32).is_err());
-    assert!(w.m().try_add_liquidity(&u, &(100 * USDC), &(100 * USDC)).is_err());
+    assert!(w.m().try_add_liquidity(&u, &(100 * USDC), &(100 * USDC), &0i128).is_err());
     // ...but the LP exit stays open, at the exact boundary and after.
     assert!(w.m().try_remove_liquidity(&lp, &(shares / 2), &0i128, &0i128).is_ok());
 }

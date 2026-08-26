@@ -68,6 +68,19 @@ pub fn set_balance(env: &Env, addr: &Address, amount: i128, maturity: u64) {
     env.storage().persistent().extend_ttl(&key, lo, hi);
 }
 
+/// Extend a balance entry's TTL **without** writing it — the permissionless keep-alive half of
+/// [`set_balance`]. `set_balance` only fires on a transfer/mint/burn, so a holder who simply holds
+/// across a long term has no way to refresh their own entry; this is that way.
+///
+/// No-ops when the holder has no entry, so it can never create one.
+pub fn bump_balance(env: &Env, addr: &Address, maturity: u64) {
+    let key = TokenKey::Balance(addr.clone());
+    if env.storage().persistent().has(&key) {
+        let (lo, hi) = ttl::maturity_aware_bump(env, maturity);
+        env.storage().persistent().extend_ttl(&key, lo, hi);
+    }
+}
+
 pub fn total_supply(env: &Env) -> i128 {
     env.storage()
         .instance()

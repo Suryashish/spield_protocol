@@ -34,6 +34,9 @@ use spield_shared::{governance, math, types::RateBound, Error};
 
 /// Blend `RequestType` discriminants (verified from `blend-contracts-v2/pool/src/pool/actions.rs`).
 /// Encoded as the plain `u32` `request_type` on the wire.
+/// Blend expresses `max_util` in 7-decimal fixed point (`9500000` = 95%).
+const UTIL_SCALAR: i128 = 10_000_000;
+
 const REQ_SUPPLY: u32 = 0;
 const REQ_WITHDRAW: u32 = 1;
 
@@ -293,7 +296,37 @@ impl BlendStrategy {
     /// withdrawal against this should take a haircut. `Sr::max_redeemable` does.
     pub fn available_liquidity(env: Env) -> i128 {
         let pool = Self::pool_addr(&env);
-        soroban_sdk::token::Client::new(&env, &Self::underlying(env.clone())).balance(&pool)
+        let underlying = Self::underlying(env.clone());
+        let balance = soroban_sdk::token::Client::new(&env, &underlying).balance(&pool);
+
+        // The pool's balance alone is NOT the answer, and taking a flat percentage off it is not
+        // either. Blend refuses any withdrawal that would push utilization past `max_util`, so the
+        // real ceiling is whichever of the two binds:
+        //
+        //     util_cap = supplied - borrowed / max_util
+        //
+        // Measured on the live testnet pool at 70% utilization, the balance overstated the true
+        // headroom by 12.8% — far more than the 1% safety haircut `Sr::max_redeemable` takes off,
+        // so `max_redeemable` was wrong in the dangerous direction. And the gap is not a constant:
+        // it is ~0 at low utilization and unbounded as utilization approaches the cap, so no fixed
+        // percentage can stand in for it. Computing it is the only correct option.
+        //
+        // Found by `srvault`'s resumable-redeem tests: sizing a withdrawal against the balance
+        // still reverted with Blend's `#1207`, because the pool was already at its ceiling.
+        let reserve = PoolClient::new(&env, &pool).get_reserve(&underlying);
+        let supplied = math::shares_to_underlying(&env, reserve.data.b_supply, reserve.data.b_rate)
+            .unwrap_or(0);
+        let borrowed = math::shares_to_underlying(&env, reserve.data.d_supply, reserve.data.d_rate)
+            .unwrap_or(0);
+        let max_util = reserve.config.max_util as i128;
+        if max_util <= 0 {
+            return 0;
+        }
+        // borrowed / max_util, in UTIL_SCALAR (1e7) fixed point.
+        let needed = math::mul_div_floor(&env, borrowed, UTIL_SCALAR, max_util).unwrap_or(i128::MAX);
+        let util_cap = if supplied > needed { supplied - needed } else { 0 };
+
+        if util_cap < balance { util_cap } else { balance }
     }
 
     pub fn rate_bound(env: Env) -> (i128, u64, u32) {

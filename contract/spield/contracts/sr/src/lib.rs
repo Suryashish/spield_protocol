@@ -374,6 +374,20 @@ impl Sr {
         storage::get_strategy(&env)
     }
 
+    /// **Permissionless TTL keep-alive for an SR holder's balance entry** (`tofix.md` #30).
+    ///
+    /// SR balances are bumped on every write, but a holder who deposits and then simply *holds* is
+    /// never written to. SR has no maturity of its own, so unlike a receipt or an LP share there is
+    /// no natural end date bounding the exposure — a dormant holder is the normal case, not the
+    /// edge case. Anyone may call this: it only ever prolongs an entry, never mutates accounting.
+    ///
+    /// No-ops for an address with no balance entry.
+    pub fn bump_holder(env: Env, user: Address) {
+        Self::ensure_initialized(&env);
+        tok::bump_balance(&env, &user, Self::bump_horizon(&env));
+        storage::bump_instance(&env);
+    }
+
     /// Advance the stored high-water mark to the live rate. Permissionless — it only ever raises a
     /// floor, never lowers it, and never moves funds. Keeps the clamp tight without needing a
     /// deposit to happen.

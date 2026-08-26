@@ -22,6 +22,13 @@ pub struct Receipt {
     pub rate_bps: u32,
     pub maturity: u64,
     pub open: bool,
+    /// USDC already collected toward `payout` by earlier partial redemptions (`tofix.md` #20).
+    ///
+    /// A redeem sizes its PT burn to what the venue can actually pay, banks the proceeds here, and
+    /// pays the holder only once `collected >= payout`. Until then this USDC sits in the vault
+    /// **reserved for this receipt** — it is counted by `assert_solvent` in place of the PT that was
+    /// burned to obtain it, and excluded from every sweep.
+    pub collected: i128,
 }
 
 #[derive(Clone)]
@@ -40,6 +47,8 @@ pub enum DataKey {
     MaxRateBps,
     /// Sum of `payout` across open receipts — the vault's total obligation.
     TotalLiability,
+    /// Sum of `collected` across open receipts — obligation already backed by USDC rather than PT.
+    TotalCollected,
     NextReceiptId,
     /// Count of open receipts, for the dashboard.
     OpenReceipts,
@@ -89,6 +98,13 @@ pub fn total_liability(env: &Env) -> i128 {
 }
 pub fn set_total_liability(env: &Env, v: i128) {
     env.storage().instance().set(&DataKey::TotalLiability, &v);
+}
+
+pub fn total_collected(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::TotalCollected).unwrap_or(0)
+}
+pub fn set_total_collected(env: &Env, v: i128) {
+    env.storage().instance().set(&DataKey::TotalCollected, &v);
 }
 
 pub fn open_receipts(env: &Env) -> u64 {

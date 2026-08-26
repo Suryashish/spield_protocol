@@ -298,29 +298,43 @@ async function check() {
   }
 
   // ── Probe 3: the vault. Its receipts are only as good as the PT behind them. ──────────────────
+  //
+  // The vault's aggregate view is `stats()`. This probe used to read `solvency` and
+  // `bearer_redeemed` on the vault — neither has ever been a vault function, on any build — and
+  // then reported "no aggregate solvency view on this contract", which was wrong: the view exists,
+  // the probe was asking for the wrong name. Fixed 2026-08-26 (`tofix.md` #23a).
+  //
+  // `stats()` returns a map; `pt_inventory >= total_liability` is the invariant the contract
+  // itself enforces in `assert_solvent`.
   if (VAULT) {
     try {
-      const [ptBal, sol] = await Promise.all([
-        readView('bearer_redeemed', VAULT).catch(() => null),
-        readView('solvency', VAULT).catch(() => null),
-      ]);
-      if (sol) {
-        const [backing, liability] = sol.map((x) => BigInt(x));
+      const stats = await readView('stats', VAULT);
+      const pick = (k) => {
+        if (stats == null) return null;
+        const v = Array.isArray(stats) ? undefined : stats[k];
+        return v === undefined || v === null ? null : BigInt(v);
+      };
+      const inventory = pick('pt_inventory');
+      const liability = pick('total_liability');
+      if (inventory === null || liability === null) {
+        console.error(
+          `  ⚠ vault probe unavailable: stats() did not return pt_inventory/total_liability ` +
+            `(got ${JSON.stringify(stats)})`,
+        );
+      } else {
+        const capacity = pick('coupon_capacity');
         ok =
           (await verdict(
             'vault',
-            backing >= liability,
-            `backing=${fmtUsdc(backing)} liability=${fmtUsdc(liability)}`,
-            { backing: backing.toString(), liability: liability.toString() },
+            inventory >= liability,
+            `pt_inventory=${fmtUsdc(inventory)} total_liability=${fmtUsdc(liability)}` +
+              (capacity === null ? '' : ` coupon_capacity=${fmtUsdc(capacity)}`),
+            {
+              pt_inventory: inventory.toString(),
+              total_liability: liability.toString(),
+              coupon_capacity: capacity === null ? null : capacity.toString(),
+            },
           )) && ok;
-      } else {
-        // v1's vault exposes no aggregate solvency view — recorded rather than silently skipped,
-        // because "no probe" and "probe passed" must never look the same in a log.
-        console.log(
-          `  — vault: no aggregate solvency view on this contract (v1 exposes per-receipt reads only)${
-            ptBal === null ? '' : ''
-          }`,
-        );
       }
     } catch (e) {
       console.error(`  ⚠ vault probe unavailable: ${brief(e)}`);

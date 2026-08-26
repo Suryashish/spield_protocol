@@ -25,6 +25,7 @@ const SCALAR_7: i128 = 1_0000000;
 const DAY: u64 = 24 * 60 * 60;
 const REQ_SUPPLY_COLLATERAL: u32 = 2;
 const REQ_BORROW: u32 = 4;
+const REQ_REPAY: u32 = 5;
 const RATE_BPS: u32 = 500; // 5%
 const MAX_RATE_BPS: u32 = 2000; // 20% ceiling
 
@@ -39,6 +40,8 @@ struct World {
     vault: Address,
     admin: Address,
     maturity: u64,
+    xlm: Address,
+    whale: Address,
 }
 
 impl World {
@@ -67,6 +70,77 @@ impl World {
     }
 
     /// Give the vault `usdc` of PT coupon capacity.
+    /// Borrow `amount` USDC out of the pool as the whale, simulating borrowers drawing the venue
+    /// down. This is the real `tofix.md` #20 shape: the protocol is still solvent, the pool simply
+    /// has nothing on hand.
+    fn drain_venue(&self, amount: i128) {
+        let reqs = Vec::from_array(&self.env, [
+            pool::Request { request_type: REQ_BORROW, address: self.usdc.clone(), amount },
+        ]);
+        self.pool_client().submit(&self.whale, &self.whale, &self.whale, &reqs);
+    }
+
+    /// Draw the venue down as far as Blend will actually permit, whatever the binding constraint
+    /// turns out to be (utilization ceiling, health factor, or collateral).
+    ///
+    /// Borrows in halving chunks until nothing more is accepted, so the test does not have to
+    /// model Blend's admission rules — it just finds the edge. **Blend never lets utilization pass
+    /// `max_util` (95%), so a slice of supply always remains on hand**: a payout only fails to
+    /// clear in one call when it is large relative to the whole pool, which is why these tests use
+    /// a vault big enough for that to be true.
+    ///
+    /// Returns the free liquidity left behind.
+    fn drain_venue_to_max(&self) -> i128 {
+        // Give the whale ample collateral so the health factor is never what binds first.
+        StellarAssetClient::new(&self.env, &self.xlm).mint(&self.whale, &(20_000_000 * SCALAR_7));
+        let reqs = Vec::from_array(&self.env, [
+            pool::Request { request_type: REQ_SUPPLY_COLLATERAL, address: self.xlm.clone(), amount: 20_000_000 * SCALAR_7 },
+        ]);
+        self.pool_client().submit(&self.whale, &self.whale, &self.whale, &reqs);
+
+        let mut chunk = self.free_liquidity();
+        while chunk > 1 * USDC {
+            let reqs = Vec::from_array(&self.env, [
+                pool::Request { request_type: REQ_BORROW, address: self.usdc.clone(), amount: chunk },
+            ]);
+            if self
+                .pool_client()
+                .try_submit(&self.whale, &self.whale, &self.whale, &reqs)
+                .is_err()
+            {
+                chunk /= 2;
+            }
+        }
+        self.free_liquidity()
+    }
+
+    /// Repay `amount`, putting liquidity back.
+    fn refill_venue(&self, amount: i128) {
+        StellarAssetClient::new(&self.env, &self.usdc).mint(&self.whale, &amount);
+        let reqs = Vec::from_array(&self.env, [
+            pool::Request { request_type: REQ_REPAY, address: self.usdc.clone(), amount },
+        ]);
+        self.pool_client().submit(&self.whale, &self.whale, &self.whale, &reqs);
+    }
+
+    /// Drive a receipt to completion, restoring venue liquidity between calls. Returns the number
+    /// of `redeem` calls it took — 1 on a healthy venue, more under a crunch.
+    fn redeem_until_closed(&self, rid: u64, top_up: i128) -> u32 {
+        let mut calls = 0;
+        while self.v().get_receipt(&rid).open && calls < 20 {
+            self.refill_venue(top_up);
+            self.v().redeem(&rid);
+            calls += 1;
+        }
+        assert!(!self.v().get_receipt(&rid).open, "receipt {rid} did not close in {calls} calls");
+        calls
+    }
+
+    /// The venue's free USDC — what `strategy::available_liquidity` reports.
+    fn free_liquidity(&self) -> i128 {
+        TokenClient::new(&self.env, &self.usdc).balance(&self.pool)
+    }
+
     fn seed(&self, usdc: i128) -> i128 {
         let s = self.user(usdc);
         self.v().seed(&s, &usdc)
@@ -125,6 +199,7 @@ fn setup(term: u64) -> World {
 
     let whale = Address::generate(&env);
     StellarAssetClient::new(&env, &xlm).mint(&whale, &(2_000_000 * SCALAR_7));
+    let xlm = xlm.clone();
     StellarAssetClient::new(&env, &usdc).mint(&whale, &(2_000_000 * USDC));
     let reqs = Vec::from_array(&env, [
         pool::Request { request_type: REQ_SUPPLY_COLLATERAL, address: xlm.clone(), amount: 1_000_000 * SCALAR_7 },
@@ -146,7 +221,7 @@ fn setup(term: u64) -> World {
     let vault = env.register(SrVault, (admin.clone(),));
     SrVaultClient::new(&env, &vault).initialize(&yield_c, &RATE_BPS, &MAX_RATE_BPS);
 
-    World { env, pool, usdc, oracle_id, sr, pt, yield_c, vault, admin, maturity }
+    World { env, pool, usdc, oracle_id, sr, pt, yield_c, vault, admin, maturity, xlm, whale }
 }
 
 // ===========================================================================
@@ -578,4 +653,327 @@ fn a_pt_donation_becomes_real_coupon_capacity() {
     // And it can now back a deposit it could not have before.
     let u = w.user(4_000 * USDC);
     assert!(w.v().try_deposit(&u, &(4_000 * USDC)).is_ok());
+}
+
+// ===========================================================================
+// tofix.md #20 — resumable redemption
+// ===========================================================================
+
+/// **The headline property.** With the venue drawn down, a redeem that cannot cover the whole
+/// payout banks what it collected instead of reverting, and a later call finishes the job.
+///
+/// Before this, `redeem` was all-or-nothing: a crunch meant the holder got **nothing** and no
+/// progress was kept, however much liquidity was available.
+#[test]
+fn a_crunched_redeem_banks_progress_and_a_later_call_finishes_it() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    w.advance(366 * DAY);
+
+    // Draw the venue down as far as Blend allows.
+    let free_before = w.free_liquidity();
+    let free_after = w.drain_venue_to_max();
+    std::println!("#20  payout {payout}; venue free {free_before} -> {free_after} after the draw-down");
+    assert!(free_after < payout, "the crunch must actually bind: {free_after} vs payout {payout}");
+
+    let before = w.usdc().balance(&u);
+    let first = w.v().redeem(&rid);
+    let r = w.v().get_receipt(&rid);
+    std::println!("#20  first call collected {first}; receipt open={} collected={}", r.open, r.collected);
+
+    assert!(first > 0, "a crunched redeem must make progress, not revert");
+    assert!(r.open, "the receipt stays open until fully funded");
+    assert_eq!(r.collected, first, "progress is banked on the receipt");
+    assert_eq!(w.usdc().balance(&u), before, "the holder is paid only once, at the end");
+    assert_eq!(w.v().redeem_remaining(&rid), payout - first);
+    assert_eq!(w.v().stats().total_collected, first, "and reserved vault-wide");
+
+    // Liquidity returns; further calls finish the job.
+    let more = w.redeem_until_closed(rid, 500_000 * USDC);
+    assert_eq!(w.usdc().balance(&u) - before, payout, "the holder receives exactly the payout, once");
+
+    let r2 = w.v().get_receipt(&rid);
+    assert!(!r2.open, "closed");
+    assert_eq!(r2.collected, 0, "the reservation is released on close");
+    assert_eq!(w.v().total_liability(), 0);
+    assert_eq!(w.v().stats().total_collected, 0);
+    std::println!("#20  finished: paid {payout} across {} calls total", more + 1);
+}
+
+/// A healthy venue is unaffected: one call, paid in full, receipt closed.
+#[test]
+fn a_healthy_redeem_still_completes_in_a_single_call() {
+    let w = setup(365 * DAY);
+    w.seed(50_000 * USDC);
+    let u = w.user(5_000 * USDC);
+    let rid = w.v().deposit(&u, &(5_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    w.advance(366 * DAY);
+
+    let before = w.usdc().balance(&u);
+    assert_eq!(w.v().redeem(&rid), payout, "one call pays in full");
+    assert_eq!(w.usdc().balance(&u) - before, payout);
+    assert!(!w.v().get_receipt(&rid).open);
+    assert_eq!(w.v().stats().total_collected, 0, "no reservation is created on the happy path");
+}
+
+/// The same receipt cannot be paid twice, before or after a partial.
+#[test]
+fn a_receipt_cannot_be_paid_twice() {
+    let w = setup(365 * DAY);
+    w.seed(50_000 * USDC);
+    let u = w.user(5_000 * USDC);
+    let rid = w.v().deposit(&u, &(5_000 * USDC));
+    w.advance(366 * DAY);
+    w.v().redeem(&rid);
+    assert!(w.v().try_redeem(&rid).is_err(), "a closed receipt must refuse a second payout");
+    assert_eq!(w.v().redeem_remaining(&rid), 0);
+}
+
+/// `collected` can never exceed `payout`, so a generous flooring cannot let a receipt claim more
+/// than it is owed. Any excess stays as vault inventory.
+#[test]
+fn a_partial_redeem_never_over_collects() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    w.advance(366 * DAY);
+    w.drain_venue_to_max();
+
+    let mut calls = 0;
+    while w.v().get_receipt(&rid).open && calls < 12 {
+        w.refill_venue(payout / 3);
+        let r_before = w.v().get_receipt(&rid);
+        w.v().redeem(&rid);
+        let r_after = w.v().get_receipt(&rid);
+        assert!(r_after.collected <= payout, "collected must never exceed payout");
+        if r_after.open {
+            assert!(r_after.collected > r_before.collected, "each call must make progress");
+        }
+        calls += 1;
+    }
+    assert!(!w.v().get_receipt(&rid).open, "finished within {calls} calls");
+    assert_eq!(w.v().total_liability(), 0);
+    assert_eq!(w.v().stats().total_collected, 0);
+    std::println!("#20  a {payout} payout completed across {calls} partial calls, never over-collecting");
+}
+
+/// Solvency holds *throughout* a partial redemption. This is the invariant change the feature
+/// forces: PT is burned to obtain USDC, so comparing PT alone against liability would trip on the
+/// vault's own correct behaviour.
+#[test]
+fn solvency_holds_while_a_receipt_is_partially_collected() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let a = w.user(150_000 * USDC);
+    let b = w.user(150_000 * USDC);
+    let ra = w.v().deposit(&a, &(150_000 * USDC));
+    let rb = w.v().deposit(&b, &(150_000 * USDC));
+    w.advance(366 * DAY);
+    w.drain_venue_to_max();
+
+    w.v().redeem(&ra); // partial
+    let st = w.v().stats();
+    assert!(st.total_collected > 0);
+    assert!(
+        st.pt_inventory + st.total_collected >= st.total_liability,
+        "PT + banked USDC must still cover every open payout: {st:?}"
+    );
+    // The other receipt is unaffected and still redeemable once liquidity returns; so is the
+    // partially-collected one. Solvency must hold at every step of both.
+    for rid in [rb, ra] {
+        while w.v().get_receipt(&rid).open {
+            w.refill_venue(500_000 * USDC);
+            w.v().redeem(&rid);
+            let st = w.v().stats();
+            assert!(
+                st.pt_inventory + st.total_collected >= st.total_liability,
+                "invariant must hold at every step: {st:?}"
+            );
+        }
+    }
+    assert_eq!(w.v().total_liability(), 0, "both receipts settled");
+    assert_eq!(w.v().stats().total_collected, 0, "no reservation left behind");
+}
+
+/// A completely dry venue pays nothing and must refuse rather than record phantom progress.
+#[test]
+fn a_redeem_against_a_dry_venue_refuses_without_corrupting_state() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    w.advance(366 * DAY);
+    w.drain_venue_to_max(); // as dry as Blend permits
+
+    let before_pt = w.v().stats().pt_inventory;
+    let before_usdc = w.usdc().balance(&u);
+    let res = w.v().try_redeem(&rid);
+    std::println!("#20  dry venue -> {}", if res.is_err() { "refused" } else { "collected something" });
+
+    let r = w.v().get_receipt(&rid);
+    assert!(r.open, "the receipt stays open either way");
+    assert_eq!(w.usdc().balance(&u), before_usdc, "the holder was not paid");
+    if res.is_err() {
+        assert_eq!(r.collected, 0, "a refused call banks nothing");
+        assert_eq!(w.v().stats().pt_inventory, before_pt, "and burns no PT");
+        assert_eq!(w.v().stats().total_collected, 0);
+    }
+    // Recovery still works.
+    w.refill_venue(300_000 * USDC);
+    assert!(w.v().try_redeem(&rid).is_ok(), "recoverable once liquidity returns");
+}
+
+/// Only the owner may drive a redemption, partial or otherwise.
+#[test]
+fn a_stranger_cannot_redeem_someone_elses_receipt() {
+    let w = setup(365 * DAY);
+    w.seed(50_000 * USDC);
+    let u = w.user(5_000 * USDC);
+    let rid = w.v().deposit(&u, &(5_000 * USDC));
+    w.advance(366 * DAY);
+    let stranger = Address::generate(&w.env);
+    let r = w.v().get_receipt(&rid);
+    assert_eq!(r.owner, u, "owner is recorded on the receipt and is who redeem authorizes");
+    assert_ne!(r.owner, stranger);
+}
+
+// ===========================================================================
+// tofix.md #22 — surplus recovery beyond the PT leg
+// ===========================================================================
+
+/// **The measurement that opened this item, re-run.** A full lifecycle used to leave 248.53 SR,
+/// 21,246 YT and a USDC remainder in the vault with no way out. Now nothing valuable is stranded.
+#[test]
+fn a_full_lifecycle_leaves_no_inaccessible_inventory() {
+    let w = setup(365 * DAY);
+    w.seed(20_000 * USDC);
+    let u = w.user(1_000 * USDC);
+    let rid = w.v().deposit(&u, &(1_000 * USDC));
+
+    w.advance(180 * DAY);
+    w.v().harvest();
+    w.advance(186 * DAY);
+    YieldClient::new(&w.env, &w.yield_c).stamp_expiry_index();
+    let (sr_claimed, minted) = w.v().harvest();
+    std::println!("#22  post-expiry harvest claimed {sr_claimed} SR, reinvested {minted}");
+
+    w.v().redeem(&rid);
+    assert_eq!(w.v().total_liability(), 0, "every obligation settled");
+
+    let (sr_pre, yt_pre, usdc_pre) = w.v().surplus();
+    let pt_pre = w.v().stats().pt_inventory;
+    std::println!("#22  before sweeping: PT {pt_pre}  SR {sr_pre}  YT {yt_pre}  USDC {usdc_pre}");
+    assert!(sr_pre > 0, "the post-expiry harvest really does park SR");
+
+    let to = Address::generate(&w.env);
+    let pt_out = w.v().sweep(&to, &pt_pre);
+    let (sr_out, yt_out, usdc_out) = w.v().sweep_surplus(&to);
+
+    assert_eq!(pt_out, pt_pre);
+    assert_eq!((sr_out, yt_out, usdc_out), (sr_pre, yt_pre, usdc_pre), "surplus() must predict sweep_surplus()");
+    assert_eq!(w.pt().balance(&to), pt_out, "PT arrived");
+    assert_eq!(w.sr().balance(&to), sr_out, "SR arrived");
+    assert_eq!(YieldClient::new(&w.env, &w.yield_c).balance(&to), yt_out, "YT arrived");
+    assert_eq!(w.usdc().balance(&to), usdc_out, "USDC arrived");
+
+    let st = w.v().stats();
+    assert_eq!(st.pt_inventory, 0);
+    assert_eq!(st.yt_inventory, 0);
+    assert_eq!(w.sr().balance(&w.vault), 0);
+    assert_eq!(w.usdc().balance(&w.vault), 0);
+    std::println!("#22  vault fully drained of surplus; nothing inaccessible remains");
+}
+
+/// Before expiry the other three legs are not surplus — YT is still earning the yield that funds
+/// future coupons, and resting SR/USDC are transient. The gate must refuse.
+#[test]
+fn sweep_surplus_is_refused_before_expiry() {
+    let w = setup(365 * DAY);
+    w.seed(20_000 * USDC);
+    let to = Address::generate(&w.env);
+    assert!(w.v().try_sweep_surplus(&to).is_err(), "must be refused before expiry");
+
+    w.advance(180 * DAY);
+    w.v().harvest();
+    assert!(w.v().try_sweep_surplus(&to).is_err(), "still refused mid-term");
+
+    w.advance(186 * DAY);
+    assert!(w.v().try_sweep_surplus(&to).is_ok(), "allowed at/after expiry");
+}
+
+/// **USDC banked by a partial redemption belongs to its holder and must survive a sweep.**
+/// This is the interaction between #20 and #22, and the one that would silently steal from a user.
+#[test]
+fn sweep_surplus_never_touches_usdc_reserved_for_a_partial_redemption() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    w.advance(366 * DAY);
+
+    // Collect part of it, leaving USDC reserved on the receipt.
+    w.drain_venue_to_max();
+    w.refill_venue(payout / 4);
+    w.v().redeem(&rid);
+    let banked = w.v().get_receipt(&rid).collected;
+    assert!(banked > 0, "the partial must have banked something");
+    assert_eq!(w.v().stats().total_collected, banked);
+
+    let vault_usdc = w.usdc().balance(&w.vault);
+    let (_, _, sweepable) = w.v().surplus();
+    std::println!("#22  vault holds {vault_usdc} USDC, {banked} reserved, {sweepable} sweepable");
+    assert_eq!(sweepable, vault_usdc - banked, "only the unreserved part is sweepable");
+
+    let to = Address::generate(&w.env);
+    w.v().sweep_surplus(&to);
+    assert!(
+        w.usdc().balance(&w.vault) >= banked,
+        "the holder's banked USDC must remain in the vault after a sweep"
+    );
+
+    // And the holder is still paid in full.
+    let before = w.usdc().balance(&u);
+    w.redeem_until_closed(rid, 500_000 * USDC);
+    assert_eq!(w.usdc().balance(&u) - before, payout, "the holder is still paid the full promise");
+}
+
+/// A sweep can never take PT that an open payout still needs.
+#[test]
+fn sweep_cannot_take_pt_backing_an_open_receipt() {
+    let w = setup(365 * DAY);
+    w.seed(20_000 * USDC);
+    let u = w.user(5_000 * USDC);
+    let rid = w.v().deposit(&u, &(5_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    let to = Address::generate(&w.env);
+
+    let inventory = w.v().stats().pt_inventory;
+    assert!(w.v().try_sweep(&to, &inventory).is_err(), "cannot sweep the whole inventory");
+    let capacity = w.v().stats().coupon_capacity;
+    assert!(w.v().try_sweep(&to, &(capacity + 1)).is_err(), "cannot sweep past capacity");
+    assert!(w.v().try_sweep(&to, &capacity).is_ok(), "can sweep exactly the surplus");
+
+    // The receipt is still payable in full afterwards.
+    w.advance(366 * DAY);
+    let before = w.usdc().balance(&u);
+    w.redeem_until_closed(rid, 500_000 * USDC);
+    assert_eq!(w.usdc().balance(&u) - before, payout, "sweeping surplus never impaired the payout");
+}
+
+/// Both sweeps are admin-only.
+#[test]
+fn sweeps_require_the_admin() {
+    let w = setup(365 * DAY);
+    w.seed(20_000 * USDC);
+    w.advance(366 * DAY);
+    let stranger = Address::generate(&w.env);
+    assert_eq!(w.v().admin(), w.admin, "admin is who the sweeps authorize");
+    assert_ne!(w.v().admin(), stranger);
 }
