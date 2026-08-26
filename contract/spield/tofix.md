@@ -98,6 +98,7 @@ first. The v2 testnet stack was checked the same way this round and **does** mat
 |---|---|---|---|---|
 | [3](#3-p0--b_rate-deep-dip-freezes-exits) | `b_rate` deep dip freezes exits | strategy | **P0** | **Decide the TVL cap number.** Mechanism built and live; `deposit_cap` reads `0` on chain |
 | [26](#26-p2--two-lp-path-defects-survived-into-srmarket) | LP path: dust add + add-liquidity DoS | srmarket | **P1** ↑ | **Both reproduced in v2 today** — `shares > 0` guard, caller-chosen tolerance |
+| [34](#34-p1--the-markets-reported-rate-and-price-never-respond-to-trading) | Reported rate/price frozen — the anchor is a fixpoint | srmarket | **P1** | **NEW 2026-08-26.** `implied_apy()` / `pt_price()` never move, at any trade size |
 | [20](#20-p1--srvaultredeem-still-has-no-partial-path) | Vault redeem all-or-nothing | srvault | **P1** | **Give `srvault::redeem` the partial path `Sr` already has** |
 | [22](#22-p1--srvaultsweep-recovers-pt-only) | SR / YT / USDC inventory is one-way | srvault | **P1** | **Extend `sweep` past the PT leg** — measured 248.53 SR stranded |
 | [23](#23-p1--the-watchtowers-four-open-items) | Watchtower gaps | ops | **P1** | **4 items:** vault probe reads a non-existent fn; no `package.json`; latched false alarm; v1 wrapper redeploy |
@@ -233,6 +234,70 @@ re-pricing the LP's entry. The cost is a wasted fee, not a bad fill.
 `tofix_26b_*` and `tofix_26c_*` in `contracts/srmarket/src/tofix_audit.rs` currently assert green on
 a defect that is present. Either would have caught this if it tested the defect's actual shape —
 trade first for 26b, target `add_liquidity` for 26c.
+
+---
+
+## 34. P1 — The market's reported rate and price never respond to trading
+
+*New 2026-08-26, found while attempting the `scalar_root` calibration. No existing test covers it.*
+
+### The logic that is wrong
+
+`srmarket::implied_apy()` and `pt_price()` return the same values no matter how much the pool trades.
+Measured across six trade sizes on an identical 500,000/500,000 pool:
+
+```
+size%  |    exec px (SR/PT) |  pt_price view |    implied_apy
+     1 |        0.955277387 |   952380952309 |    50000000075
+     2 |        0.955789963 |   952380952309 |    50000000075
+     5 |        0.957329114 |   952380952309 |    50000000075
+    10 |        0.959905081 |   952380952309 |    50000000075
+    25 |        0.967833557 |   952380952309 |    50000000075
+    50 |        0.982709845 |   952380952309 |    50000000075
+```
+
+**Execution is correct** — realised price rises 0.9553 → 0.9827 with size, so slippage is real and
+there is no free arbitrage. **Only the reported views are frozen**, identically at every size: the
+40-unit change in `implied_apy` is fixed-point rounding, not a response.
+
+Confirmed on the live testnet market, whose reserves are visibly skewed after real trading:
+
+```
+reserves      PT 58.937365 / SR 44.8906318      (~1.31:1)
+implied_apy   5.0000050221%                     (still exactly its seeded rate)
+```
+
+### Why
+
+`curve::try_params` derives the anchor so that the price at the proportion it is handed is *by
+definition* the target price — the comment says so:
+
+```rust
+// rate_anchor = target_price + logit(prop)/rate_scalar, so price(prop) == target_price now.
+```
+
+`Self::sync_implied_rate` (`contracts/srmarket/src/lib.rs:899`) then hands it the **post-trade**
+reserves and reads the price back at **that same** proportion. The stored rate is a **fixpoint** and
+the update is a mathematical no-op. `pt_price()` is pinned the same way.
+
+This defeats the curve's stated intent — its module docs open with *"The anchor is recomputed, not
+pinned at par … Pendle re-derives the anchor."*
+
+### Possible fixes
+
+Pendle's `_updateMarketState` anchors on the **pre-trade** state and prices the **post-trade**
+proportion. `sync_implied_rate` must do the same: build `Params` from the reserves as they were
+before the trade, compute the proportion from the new reserves, read `try_price_at` with that
+mismatched pair, and store the rate derived from it. The asymmetry is the whole mechanism.
+
+Check separately that a proportional `add_liquidity` / `remove_liquidity` stays rate-neutral under
+the fix rather than assuming it.
+
+### Test gap
+
+`srmarket::test::pt_still_converges_to_par_with_a_dynamic_anchor` advances only **time** and never
+trades, so it passes on `target_price = exp(-rate · years)` walking to par as `years → 0`. It never
+exercises the anchor's response to flow — the same failure shape as the misaimed 26b/26c tests.
 
 ---
 
@@ -545,7 +610,7 @@ where noted) live.
 | **3** | `SR_DEPOSIT_CAP` → `Sr::set_deposit_cap` | **`0` = uncapped** on chain | Loss appetite for a deep `b_rate` dip. The only bound on how much money is exposed to the one failure mode that has no code fix. **This is the blocking one.** |
 | **20** | `LIQUIDITY_HAIRCUT_BPS` = 100 (1%) | 1% | Blend's real `max_util` headroom. `available_liquidity()` is the pool's raw token balance — an **upper** bound, since Blend also refuses withdrawals that push utilization past its ceiling. 1% is a guess; measure the gap against the live pool. |
 | **20** | Watchtower utilization threshold | warns above **85%** | Fired on its first run — Blend testnet USDC was at 85.4%. Either the threshold is too tight for a venue that normally sits there, or 85% genuinely is the danger zone. Decide which, or it becomes another latched alarm. |
-| **31** | `scalar_root` | **40** (SCALAR_12) live on testnet | Expected flow. Measured: a single 2,000 USDC buy (2% of the USDC side) moves the quote 4.990% → **4.406%**, and six months later it is still 4.361% — with a fixed anchor nothing pulls it back until someone trades the other way. This sets how much flow the venue absorbs before its headline rate stops matching the vault's. `testcando.md` §12. |
+| **31** | `scalar_root` | **40** (SCALAR_12) live on testnet | **Blocked on item 34.** `srmarket`'s reported rate does not move with flow, so its sensitivity is currently unmeasurable. The 4.990% → 4.406% figure previously recorded here was measured on the **v1** market (`contracts/market/`), a different curve — it does not transfer. Re-measure on `srmarket` once the anchor is fixed. `testcando.md` §12. |
 | **26c** | LP ratio band `(hi/1000)+1` = 0.1% | hardcoded | Should become a caller-supplied `min_shares` — see item 26c. Until then, the number is the DoS surface. |
 | **23c** | PT-conservation baseline | none | 11 stroops of rehearsal counterfeit are latching the alarm. Burn them or record a signed offset. |
 
@@ -599,12 +664,14 @@ purity that item 27 wanted lives in the separate view functions instead.
 Recorded so they are not re-investigated. Each has a passing acceptance test that goes red if the
 property breaks.
 
-**31 — the fixed par anchor holds the implied rate across a full term.**
-*`market::test::the_pools_implied_apy_holds_its_rate_over_the_term_without_re_anchoring`* — on a pool
-seeded at exactly 5.000% and left untouched, total idle drift is **11.3 bps over eleven months**
+**31 — the fixed par anchor holds the implied rate across a full term — in the v1 market only.**
+*`market::test::the_pools_implied_apy_holds_its_rate_over_the_term_without_re_anchoring`* — on a v1
+pool seeded at exactly 5.000% and left untouched, total idle drift is **11.3 bps over eleven months**
 (4.990% at +1mo → 4.887% at +11mo); the price's march to par and the shrinking time base cancel
-almost exactly. Test asserts a <25 bps bound. **See [Calibration](#calibration--decisions-nobody-has-made-yet)
-for what this leaves open on `scalar_root`.**
+almost exactly. Test asserts a <25 bps bound.
+
+**This test is in `contracts/market/` — the v1 market — and says nothing about `srmarket`,** which
+has a different curve implementation. Do not carry its numbers forward; see item 34.
 
 **32 — position ownership auth is correctly scoped, not merely present.**
 *`wrapper::test::a_stranger_cannot_act_on_someone_elses_position`* — the suite's other negative auth
@@ -629,7 +696,7 @@ Scope was `testcando.md` §0 plus §13's on-chain conservation law. Still open, 
   systematic auth matrix (**partially closed** — item 32 covers the wrapper's position-ownership
   case; admin, strategy, vault and market auth are untouched).
 * **Phase 3** — §4 AMM/curve edges, §8 pure-math properties, §9 remaining resource budgets, §12
-  mainnet-parameter profile (**now also needs a `scalar_root` depth calibration** — item 31), §14
+  mainnet-parameter profile (**now also needs a `scalar_root` depth calibration**, blocked on item 34), §14
   launch-seed calibration (closed in source via `seed_pt_for_apy` — **but note that function is not
   on the deployed v1 market**).
 * **Phase 4** — §5 ecosystem stateful fuzz, §15 adversarial simulation, §7 event contracts, §10
