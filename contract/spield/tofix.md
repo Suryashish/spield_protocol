@@ -76,6 +76,9 @@ separately.
 
 **Needs a number, not code:** see [Calibration](#calibration--decisions-nobody-has-made-yet).
 
+**How to close what is left:** [`resolution.md`](./resolution.md) explains each remaining item in
+plain language — the problem, how to decide, and what to run.
+
 **Also gating launch, and never `tofix.md`'s scope:** `testcando.md` §18 — the §12
 mainnet-parameter profile and the audit decision.
 

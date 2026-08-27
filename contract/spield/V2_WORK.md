@@ -4,31 +4,40 @@ This document turns the open **v2** findings in [`tofix.md`](./tofix.md) into an
 
 Verification basis: **2026-08-26**. Every claim below was re-tested against the current tree or read from a live network this round. Local suite: **510 Rust tests green**; release WASM builds clean with zero warnings; SDK **218 tests green** through the documented `pnpm run test:unit`.
 
-## Status — what is now done
+## Status
 
-Twelve of fourteen items are **implemented, tested and green**. The two that remain are calibration decisions that need numbers rather than code. Completed items keep their reasoning, marked ✅ DONE.
+**Twelve of fourteen items are implemented, tested and green.** The two that remain are calibration
+decisions that need numbers rather than code.
 
-| | Item | Status |
-|---|---|---|
-| §1 | SR deposit cap | ⬜ **Open — needs a number.** Its *description* was wrong and is corrected below |
-| §2 | Market's reported rate frozen | ✅ **DONE** — anchor pre-trade, quote responds and scales |
-| §3 | Zero-share LP additions | ✅ **DONE** — guard added, misaimed test replaced |
-| §4 | `add_liquidity` tolerance | ✅ **DONE** — `min_shares` added, misaimed test replaced |
-| §5 | Resumable `srvault` redeem | ✅ **DONE** — `collected` banking, invariant widened, 8 tests |
-| §6 | Recover surplus SR/YT/USDC | ✅ **DONE** — `sweep_surplus`, expiry-gated, 5 tests |
-| §7 | Monitors runnable | ✅ **DONE** — own package; vault probe fixed; SDK pinned to 17.x |
-| §8 | 11-stroop PT alarm | ✅ **DONE** — burned on testnet; watchtower reports all six invariants holding |
-| §9 | TTL keep-alive | ✅ **DONE** — three contract entry points, all four in the SDK |
-| §10 | `srvault` SDK surface | ✅ **DONE** — full typed client including the resumable-redeem surface |
-| §11 | pnpm test command | ✅ **DONE** — `pnpm run test:unit` passes 218 |
-| §12 | Liquidity haircut | ✅ **DONE** — cap computed, and the residual measured at **0 bps** across 50–94% utilization |
-| §13 | Utilization alert | ⬜ **Open** — needs the threshold decision |
-| §14 | `scalar_root` | ⬜ **Open, unblocked** — §2 makes it measurable |
+This is the **only** status table in this document — an earlier revision carried a second one below
+and it went stale, which is what duplicated state does. Completed items keep their full reasoning in
+place, marked ✅ DONE.
 
-**Two extra fixes, not previously listed:**
+| | Item | Pri | Type | Status |
+|---|---|---|---|---|
+| [§1](#1-choose-and-apply-an-sr-deposit-cap) | SR deposit cap | P0 | Risk decision | ⬜ **Open — needs a number.** Its *description* was wrong and is corrected below |
+| [§2](#2-the-markets-reported-rate-and-price-never-respond-to-trading---done) | Market's reported rate frozen | P1 | Contract | ✅ **DONE** — anchor pre-trade, quote responds and scales |
+| [§3](#3-reject-liquidity-additions-that-mint-zero-lp-shares---done) | Zero-share LP additions | P1 | Contract | ✅ **DONE** — guard added, misaimed test replaced |
+| [§4](#4-add-caller-controlled-protection-to-add_liquidity---done) | `add_liquidity` tolerance | P1 | Contract/API | ✅ **DONE** — `min_shares` added, misaimed test replaced |
+| [§5](#5-make-srvault-redemptions-resumable---done) | Resumable `srvault` redeem | P1 | Contract | ✅ **DONE** — `collected` banking, invariant widened, 8 tests |
+| [§6](#6-allow-safe-recovery-of-surplus-sr-yt-and-usdc---done) | Recover surplus SR/YT/USDC | P1 | Contract | ✅ **DONE** — `sweep_surplus`, expiry-gated, 5 tests |
+| [§7](#7-make-the-monitoring-scripts-independently-runnable---done) | Monitors runnable | P1 | Operations | ✅ **DONE** — own package, SDK pinned to 17.x |
+| [§8](#8-reconcile-the-permanent-11-stroop-pt-alarm---done) | 11-stroop PT alarm | P1 | Operations | ✅ **DONE** — burned on testnet; all six invariants holding |
+| [§9](#9-add-ttl-keep-alive-coverage-contract--sdk---done) | TTL keep-alive | P2 | Contract + SDK | ✅ **DONE** — three contract entry points, all four in the SDK |
+| [§10](#10-add-the-complete-srvault-interface-to-the-sdk---done) | `srvault` SDK surface | P2 | SDK/product | ✅ **DONE** — full typed client including the resumable surface |
+| [§11](#11-repair-the-documented-pnpm-test-command---done) | pnpm test command | P2 | Tooling | ✅ **DONE** — `pnpm run test:unit` passes 218 |
+| [§12](#12-calibrate-the-redemption-liquidity-haircut---done) | Liquidity haircut | Decision | Risk parameter | ✅ **DONE** — cap computed; residual **measured at 0 bps** across 50–94% utilization |
+| [§13](#13-calibrate-the-blend-utilization-alert) | Utilization alert | Decision | Monitoring | ⬜ **Open** — pick warning/critical levels for the coverage ratio |
+| [§14](#14-calibrate-the-markets-scalar_root) | `scalar_root` | Decision | Market parameter | ⬜ **Open** — unblocked by §2, first readings below |
+
+**Two extra fixes, not originally listed:**
 
 * **`sr::test`'s mock strategy diverged from the real adapter on the one path its headline test was named for.** This produced a false claim about v2's behaviour that reached §1 and the risk disclosure. Details under §1.
 * The monitor scripts needed a dependency pin as well as a package manifest — `@stellar/stellar-sdk` 13.x cannot decode a simulation response that carries `stateChanges`. Details under §7.
+
+**Nothing is on chain yet.** See [the implementation order](#recommended-implementation-order).
+
+**For the three open items**, [`resolution.md`](./resolution.md) explains each in plain language — what the problem is, how to decide, and exactly what to run. It also covers the two items in `tofix.md` that are not tracked here (the old v1 issuer, and the two app rules).
 
 ## Revision note — what changed since the first draft
 
@@ -59,27 +68,6 @@ Terms used below:
 - **YT** is the yield token, representing the right to yield.
 - **LP shares** represent ownership of the PT/SR liquidity pool.
 - **TVL** is the total value deposited in the protocol.
-
-## Priority summary
-
-| Priority | Work | Type | Status |
-|---|---|---|---|
-| P0 | Choose and apply an SR deposit cap | Risk/deployment decision | ⬜ needs a number |
-| P1 | Fix the market's frozen implied rate and PT price | Contract fix | ✅ done |
-| P1 | Reject liquidity additions that mint zero LP shares | Contract fix | ✅ done |
-| P1 | Add caller-controlled protection to `add_liquidity` | Contract/API fix | ✅ done |
-| P1 | Make `srvault` redemptions resumable | Contract fix | ⬜ open |
-| P1 | Allow safe recovery of surplus SR, YT, and USDC | Contract fix | ⬜ open |
-| P1 | Make the monitoring scripts independently runnable | Operations fix | ✅ done |
-| P1 | Reconcile the permanent 11-stroop PT alarm | Operations fix | ⬜ needs a live tx |
-| P2 | Add TTL keep-alive coverage | Contract + SDK fix | ✅ done |
-| P2 | Add the complete `srvault` interface to the SDK | SDK/product fix | ⬜ blocked on §5 |
-| P2 | Repair the documented pnpm test command | Tooling fix | ✅ done |
-| Decision | Calibrate the redemption-liquidity haircut | Risk parameter | ✅ done — measured at 0 bps |
-| Decision | Calibrate the Blend utilization alert | Monitoring parameter | ⬜ needs measurement |
-| Decision | Calibrate `scalar_root` | Market parameter | ⬜ unblocked by §2 |
-
----
 
 ## 1. Choose and apply an SR deposit cap
 
