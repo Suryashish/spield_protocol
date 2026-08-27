@@ -206,6 +206,7 @@ export const getOwnerReceipts = async (owner: string, maxScan = 64): Promise<Rec
         rateBps: toNum(v.rate_bps),
         maturity: toNum(v.maturity),
         open: Boolean(v.open),
+        collected: toBig(v.collected),
       });
     }
   }
@@ -515,6 +516,25 @@ export const deposit = (wallet: string, amount: string): Promise<WriteResult> =>
 export const redeem = (wallet: string, receiptId: number): Promise<WriteResult> => {
   if (!SR_DEPLOYED || !SR_CONTRACTS?.vault) return vaultNotDeployed();
   return writeContract(wallet, SR_CONTRACTS.vault, 'redeem', [u64(receiptId)]);
+};
+
+/**
+ * USDC a receipt still needs before it can be paid out. `0n` means it is ready (or already closed).
+ *
+ * Read this **after** a `redeem`: the call is resumable, so during a venue liquidity crunch it
+ * collects what it can, banks the progress against the receipt, and returns without paying. A
+ * non-zero result here is the signal that the exit is unfinished — the money is not lost or stuck,
+ * the user simply has to come back.
+ */
+export const redeemRemaining = async (receiptId: number): Promise<bigint> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS?.vault) return 0n;
+  try {
+    return toBig(
+      await readContract<unknown>(SR_CONTRACTS.vault, 'redeem_remaining', [u64(receiptId)]),
+    );
+  } catch {
+    return 0n;
+  }
 };
 
 /**

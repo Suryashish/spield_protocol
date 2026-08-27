@@ -9,7 +9,7 @@ import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { type Receipt } from '@/lib/vault';
-import { harvest, redeem } from '@/lib/v2adapters';
+import { harvest, redeem, redeemRemaining } from '@/lib/v2adapters';
 import { formatUsd } from '@/lib/soroban';
 import { VAULT_DEPLOYED } from '@/lib/config';
 
@@ -67,28 +67,49 @@ const ReceiptRow = ({
   // when the post-redeem refresh drops it: idle → redeeming (during the tx) → redeemed (on
   // success, until refresh removes the row). On failure we fall back to idle and the toast
   // (from useTxAction) carries the error.
-  const [phase, setPhase] = useState<'idle' | 'redeeming' | 'redeemed'>('idle');
+  //
+  // `partial` is the fourth outcome, and the one that needs explaining to a user. A redeem is
+  // resumable: if the lending venue is short on cash it collects what it can, banks the progress
+  // against the receipt, and returns WITHOUT paying out. The transaction succeeded, the money is
+  // safe and reserved — but less arrived than expected, and without this the user would have no
+  // idea why.
+  const [phase, setPhase] = useState<'idle' | 'redeeming' | 'redeemed' | 'partial'>('idle');
+  const [stillOwed, setStillOwed] = useState<bigint>(0n);
+
+  // A receipt can arrive already part-collected, from a previous session.
+  const carriedOver = receipt.collected > 0n ? receipt.payout - receipt.collected : 0n;
+  const outstanding = stillOwed > 0n ? stillOwed : carriedOver;
+  const isPartial = phase === 'partial' || (phase === 'idle' && carriedOver > 0n);
+  const collectedSoFar = receipt.payout - outstanding;
 
   const handleRedeem = async () => {
     if (!address) return;
     setPhase('redeeming');
     const ok = await run('Redeem', () => redeem(address, receipt.receiptId));
-    // On success keep the "Redeemed" state visible until the parent refresh removes this row;
-    // on failure return the row to its normal, retryable state.
-    setPhase(ok ? 'redeemed' : 'idle');
+    if (!ok) {
+      setPhase('idle');
+      return;
+    }
+    // The transaction succeeded — but did it finish? Ask the contract rather than assuming.
+    const remaining = await redeemRemaining(receipt.receiptId);
+    setStillOwed(remaining);
+    setPhase(remaining > 0n ? 'partial' : 'redeemed');
   };
 
   const redeemTitle = !address
     ? 'Connect your wallet to redeem'
     : !matured
       ? `Matures ${fmtRelative(receipt.maturity, now)} · ${fmtDate(receipt.maturity)}`
-      : 'Redeem this matured receipt for its full fixed payout';
+      : isPartial
+        ? 'Collect the rest of this payout'
+        : 'Redeem this matured receipt for its full fixed payout';
 
   return (
     <div
       className={cn(
         'flex flex-col gap-3 well rounded-lg p-3 transition-opacity sm:flex-row sm:items-center sm:justify-between',
         phase === 'redeemed' && 'opacity-50',
+        isPartial && 'ring-1 ring-amber-500/40',
       )}
     >
       <div className="flex items-center gap-3">
@@ -106,16 +127,30 @@ const ReceiptRow = ({
             <span className="text-brand-text">+{formatUsd(coupon)} coupon</span>
             <span>{bpsToPct(receipt.rateBps)}% fixed</span>
           </div>
+          {isPartial && (
+            <p className="mt-1.5 max-w-prose text-xs leading-relaxed text-amber-600 dark:text-amber-500">
+              <span className="font-medium">Partly withdrawn.</span> We could only collect{' '}
+              {formatUsd(collectedSoFar)} of {formatUsd(receipt.payout)} right now — the lending pool
+              is short on available cash. The rest is safe and reserved for you. Redeem again later
+              to collect the remaining {formatUsd(outstanding)}.
+            </p>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock size={12} />
-          {phase === 'redeemed' ? 'Redeemed' : matured ? 'Matured' : fmtRelative(receipt.maturity, now)}
+          {phase === 'redeemed'
+            ? 'Redeemed'
+            : isPartial
+              ? 'Partly withdrawn'
+              : matured
+                ? 'Matured'
+                : fmtRelative(receipt.maturity, now)}
         </span>
         <Button
           size="sm"
-          disabled={busy || !matured || !address || phase !== 'idle'}
+          disabled={busy || !matured || !address || phase === 'redeeming' || phase === 'redeemed'}
           onClick={handleRedeem}
           className="h-8 gap-1.5 text-xs font-semibold"
           title={redeemTitle}
@@ -127,7 +162,13 @@ const ReceiptRow = ({
           ) : (
             <ShieldCheck size={13} />
           )}
-          {phase === 'redeeming' ? 'Redeeming…' : phase === 'redeemed' ? 'Redeemed' : 'Redeem'}
+          {phase === 'redeeming'
+            ? 'Redeeming…'
+            : phase === 'redeemed'
+              ? 'Redeemed'
+              : isPartial
+                ? 'Collect rest'
+                : 'Redeem'}
         </Button>
       </div>
     </div>

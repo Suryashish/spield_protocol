@@ -1,0 +1,102 @@
+# Scheduled on-chain upkeep for Spield.
+#
+# ## Why this is here and not on Vercel
+#
+# The site is a static Vite build — after deploy there is no process left running, so nothing can
+# call a contract on a timer. The `server/` project is a serverless function, which only wakes when
+# a request arrives and is then killed by a timeout: Vercel allows 60s by default and 300s at most,
+# while a full keeper pass is dozens of transactions each waiting ~5s for confirmation, i.e. minutes.
+# It would time out partway through, every time.
+#
+# GitHub Actions has a 6-hour job limit and a real scheduler, which is the shape this work needs.
+#
+# ## Setup (once)
+#
+#   Settings → Secrets and variables → Actions
+#     Secret    STELLAR_KEEPER_SECRET   an S… secret seed for a funded account that pays the fees.
+#                                       This key SPENDS. Fund it with a little XLM and nothing else —
+#                                       the bumps are permissionless, so it never needs to hold or
+#                                       control user funds.
+#     Variable  STELLAR_RPC             (optional) defaults to testnet
+#     Variable  STELLAR_PASSPHRASE      (optional) defaults to testnet
+#
+# ## Running it by hand
+#
+#   Actions → "Spield keeper" → Run workflow. Leave `dry_run` ticked to preview.
+
+name: Spield keeper
+
+on:
+  schedule:
+    # 04:15 UTC every Monday. Weekly is ample: entries are bumped to cover maturity plus a grace
+    # period, and the network's maximum lifetime is months. This is a safety net, not a heartbeat.
+    - cron: '15 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview only — read the chain, submit nothing'
+        type: boolean
+        default: true
+      max_calls:
+        description: 'Cap submissions this run (0 = no limit)'
+        type: string
+        default: '0'
+
+# Never let two keeper runs overlap: they would share a source account and collide on its
+# transaction sequence number.
+concurrency:
+  group: spield-keeper
+  cancel-in-progress: false
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: contract/spield/scripts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install script dependencies
+        run: npm ci || npm install
+
+      # Read-only. Runs on every invocation, including scheduled ones, so the log always records
+      # what the chain looked like before anything was submitted.
+      - name: Solvency watchtower
+        env:
+          RPC: ${{ vars.STELLAR_RPC }}
+          PASSPHRASE: ${{ vars.STELLAR_PASSPHRASE }}
+        run: |
+          node sr_solvency_monitor.mjs --once \
+            ${RPC:+--rpc "$RPC"} \
+            ${PASSPHRASE:+--passphrase "$PASSPHRASE"}
+        # A solvency alarm must not stop the upkeep — the two are independent, and a frozen venue is
+        # exactly when keeping entries alive matters most. The step is still marked failed so the
+        # run is visibly red.
+        continue-on-error: true
+
+      - name: TTL keeper
+        env:
+          KEEPER_SECRET: ${{ secrets.STELLAR_KEEPER_SECRET }}
+          RPC: ${{ vars.STELLAR_RPC }}
+          PASSPHRASE: ${{ vars.STELLAR_PASSPHRASE }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          MAX_CALLS: ${{ inputs.max_calls || '0' }}
+        run: |
+          if [ -z "$KEEPER_SECRET" ] && [ "$DRY" != "true" ]; then
+            echo "::error::STELLAR_KEEPER_SECRET is not set — add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          node ttl_keeper.mjs \
+            ${DRY:+$([ "$DRY" = "true" ] && echo --dry-run)} \
+            ${KEEPER_SECRET:+--source "$KEEPER_SECRET"} \
+            ${RPC:+--rpc "$RPC"} \
+            ${PASSPHRASE:+--passphrase "$PASSPHRASE"} \
+            --max-calls "${MAX_CALLS:-0}"

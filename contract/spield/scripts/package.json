@@ -7,7 +7,9 @@
   "scripts": {
     "monitor:v1": "node solvency_monitor.mjs",
     "monitor:v2": "node sr_solvency_monitor.mjs",
-    "budget": "node probe_budget.mjs"
+    "budget": "node probe_budget.mjs",
+    "keeper": "node ttl_keeper.mjs",
+    "keeper:dry": "node ttl_keeper.mjs --dry-run"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.0.1"

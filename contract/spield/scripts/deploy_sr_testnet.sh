@@ -67,7 +67,13 @@ MAX_APR_BPS="${MAX_APR_BPS:-30000}"
 #
 # In UNDERLYING base units. 0 = uncapped. Gates deposits only: `redeem` never consults it, so this
 # can never trap anyone. SET THIS BEFORE SEEDING MAINNET.
-SR_DEPOSIT_CAP="${SR_DEPOSIT_CAP:-0}"
+# Launch TVL cap in underlying base units (USDC, 7 decimals). `0` = uncapped.
+#
+# 100 USDC = 1_000_000_000. Chosen 2026-08-27 as a deliberate low starting point: it bounds the
+# uncompensated depositor loss a Blend bad-debt event can cause (see resolution.md §1), and raising
+# it later is a single `set_deposit_cap` call. The cap gates DEPOSITS ONLY — verified on chain, a
+# withdrawal still works when the cap sits below current TVL — so starting low can never trap anyone.
+SR_DEPOSIT_CAP="${SR_DEPOSIT_CAP:-1000000000}"
 
 # ─── Series parameters ───────────────────────────────────────────────────────────────────────────
 MATURITY_DAYS="${MATURITY_DAYS:-90}"

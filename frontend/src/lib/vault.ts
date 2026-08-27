@@ -25,6 +25,14 @@ export type Receipt = {
   /** Maturity, unix seconds. */
   maturity: number;
   open: boolean;
+  /**
+   * USDC already collected toward `payout` by an earlier partial redemption, base units.
+   *
+   * Non-zero only when a redeem could not gather the whole payout in one call — the lending venue
+   * was short on cash. The amount is **safe and reserved for this receipt**; a later `redeem`
+   * collects the rest. Zero on the ordinary path.
+   */
+  collected: bigint;
 };
 
 /** The vault's health snapshot (mirrors the contract's `VaultStats`). */
@@ -122,6 +130,8 @@ export const getReceipt = async (receiptId: number): Promise<Receipt | null> => 
       rateBps: toNum(raw.rate_bps),
       maturity: toNum(raw.maturity),
       open: Boolean(raw.open),
+      // v1 receipts have no partial-collection field; the resumable redeem is v2 only.
+      collected: toBig(raw.collected),
     };
   } catch {
     return null;
@@ -168,6 +178,8 @@ export const getOwnerReceipts = async (owner: string, maxScan = 64): Promise<Rec
         rateBps: toNum(raw.rate_bps),
         maturity: toNum(raw.maturity),
         open: true,
+        // v1 receipts have no partial-collection field; the resumable redeem is v2 only.
+        collected: toBig(raw.collected),
       });
     }
   }

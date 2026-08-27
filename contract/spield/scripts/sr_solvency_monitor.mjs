@@ -74,8 +74,12 @@ function fromState(path) {
   return out;
 }
 
-const statePath = arg('state', null);
-const st = statePath ? fromState(statePath) : {};
+// Default to the deploy state file sitting next to this script, resolved against the script's own
+// location rather than the working directory — a scheduler invokes this from wherever it likes, and
+// requiring an explicit --state made it fail in CI while working by hand. `--state` still overrides.
+const DEFAULT_STATE = new URL('./deploy_sr_testnet.state', import.meta.url).pathname;
+const statePath = arg('state', DEFAULT_STATE);
+const st = statePath && fs.existsSync(statePath) ? fromState(statePath) : {};
 
 const CFG = {
   yield: arg('yield', st.YIELD),
@@ -95,9 +99,20 @@ const CFG = {
   // The Blend pool and its reserve asset, for the exit-liquidity probe (`tofix.md` #20).
   pool: arg('pool', st.BLEND_POOL ?? null),
   underlying: arg('underlying', st.USDC_SAC ?? null),
-  // Warn above this utilization, in percent. Blend's own ceiling is 95%; exits get unreliable well
-  // before that, and a watchtower that only fires AT the cliff gives operators no time to react.
-  utilWarn: Number(arg('util-warn', '85')),
+  // ── Exit-liquidity coverage ────────────────────────────────────────────────────────────────
+  //
+  // This replaced a bare utilization threshold (`--util-warn 85`), which was the wrong signal: it
+  // read 85.4% on one run and 70.35% on another without either number saying whether OUR users
+  // could actually get out. Utilization is a property of Blend; what matters is Blend's capacity
+  // measured against OUR position.
+  //
+  //     coverage = what Blend can really pay out / what we have deposited there
+  //
+  // 5x = comfortable, 3x = act. Below 1x somebody is already stuck, so 3x leaves real room to
+  // pause deposits and tell users before that happens. Raise both if withdrawals are expected to
+  // be concentrated in a few large holders, since then one exit can eat the whole buffer.
+  coverWarn: Number(arg('cover-warn', '5')),
+  coverCritical: Number(arg('cover-critical', '3')),
 };
 
 for (const k of ['yield', 'market', 'sr', 'pt']) {
@@ -127,6 +142,13 @@ async function read(contractId, fn, args = []) {
 }
 
 const big = (v) => (typeof v === 'bigint' ? v : BigInt(v ?? 0));
+
+/** 7-decimal base units -> a readable amount. */
+const fmt = (v) => {
+  const neg = v < 0n;
+  const s = (neg ? -v : v).toString().padStart(8, '0');
+  return `${neg ? '-' : ''}${s.slice(0, -7)}.${s.slice(-7)}`;
+};
 
 /**
  * Issued supply of a CLASSIC asset, straight from Horizon. This is the number no contract can
@@ -179,6 +201,7 @@ async function poll() {
   const problems = [];
   const warnings = [];
   let blendUtil = null;
+  let blendCoverage = null;
 
   const [solv, totalPy, totalAccrued, index, ytSupply, reserves, ptSupply] = await Promise.all([
     read(CFG.yield, 'solvency'),
@@ -264,24 +287,48 @@ async function poll() {
   if (CFG.pool && CFG.underlying) {
     try {
       const r = await read(CFG.pool, 'get_reserve', [new Contract(CFG.underlying).address().toScVal()]);
-      // Blend's reserve exposes supplied/borrowed totals; utilization is the ratio.
-      const supplied = big(r?.data?.b_supply ?? r?.b_supply ?? 0n);
-      const borrowed = big(r?.data?.d_supply ?? r?.d_supply ?? 0n);
-      if (supplied > 0n) {
+
+      // Blend's b/d supplies are SHARE counts, not underlying — they must be multiplied by their
+      // rates. The previous version divided the raw share counts, which is only approximately the
+      // utilization because b_rate and d_rate differ.
+      const S12 = 1_000_000_000_000n;
+      const supplied = (big(r?.data?.b_supply ?? 0n) * big(r?.data?.b_rate ?? 0n)) / S12;
+      const borrowed = (big(r?.data?.d_supply ?? 0n) * big(r?.data?.d_rate ?? 0n)) / S12;
+      const maxUtil = big(r?.config?.max_util ?? 0n); // 7-decimal fixed point, 9500000 = 95%
+
+      if (supplied > 0n && maxUtil > 0n) {
         const utilPct = Number((borrowed * 10000n) / supplied) / 100;
-        const freeShare = 100 - utilPct;
-        if (utilPct >= CFG.utilWarn) {
-          warnings.push(
-            `BLEND UTILIZATION ${utilPct.toFixed(1)}% (warn at ${CFG.utilWarn}%) — only ${freeShare.toFixed(1)}% ` +
-            `of supply is free. Large exits through Sr::redeem will revert; users should be routed to ` +
-            `Sr::redeem_partial, and Sr::max_redeemable() is the amount that will actually succeed.`,
+
+        // What Blend can ACTUALLY pay: whichever binds first, its cash on hand or its utilization
+        // ceiling. The raw balance alone overstated this by 12.8% on the live pool.
+        const balance = big(await read(CFG.underlying, 'balance', [new Contract(CFG.pool).address().toScVal()]).catch(() => 0n));
+        const utilCap = supplied - (borrowed * 10_000_000n) / maxUtil;
+        const available = utilCap < balance ? (utilCap > 0n ? utilCap : 0n) : balance;
+
+        const deployed = big(await read(CFG.sr, 'total_assets').catch(() => 0n));
+        const coverage = deployed > 0n ? Number((available * 100n) / deployed) / 100 : Infinity;
+        blendUtil = utilPct;
+        blendCoverage = coverage;
+
+        const detail =
+          `coverage ${Number.isFinite(coverage) ? coverage.toFixed(2) + 'x' : 'n/a'} ` +
+          `(Blend can pay ${fmt(available)}, we hold ${fmt(deployed)}; utilization ${utilPct.toFixed(1)}%)`;
+
+        if (Number.isFinite(coverage) && coverage < CFG.coverCritical) {
+          problems.push(
+            `EXIT LIQUIDITY CRITICAL: ${detail}, below ${CFG.coverCritical}x. Pause deposits and ` +
+            `tell holders. Route exits through Sr::redeem_partial; Sr::max_redeemable() is what ` +
+            `will actually succeed, and srvault::redeem banks partial progress rather than reverting.`,
           );
-        } else {
-          blendUtil = utilPct;
+        } else if (Number.isFinite(coverage) && coverage < CFG.coverWarn) {
+          warnings.push(
+            `EXIT LIQUIDITY LOW: ${detail}, below ${CFG.coverWarn}x. Not yet an incident — watch it, ` +
+            `and prefer Sr::redeem_partial for large exits.`,
+          );
         }
       }
     } catch (e) {
-      warnings.push(`blend utilization probe unavailable: ${String(e?.message ?? e).split('\n')[0]}`);
+      warnings.push(`exit-liquidity probe unavailable: ${String(e?.message ?? e).split('\n')[0]}`);
     }
   }
 
@@ -292,7 +339,7 @@ async function poll() {
   }
   prevTreasury = treasury;
 
-  return { problems, warnings, held, needed, surplus, py, accrued, idx, yt, ptSupply, ptRes, srRes, treasury, blendUtil };
+  return { problems, warnings, held, needed, surplus, py, accrued, idx, yt, ptSupply, ptRes, srRes, treasury, blendUtil, blendCoverage };
 }
 
 // ---------------------------------------------------------------- run
@@ -334,7 +381,13 @@ async function tick() {
   console.log(
     `[${ts}] held=${r.held} needed=${r.needed} surplus=${r.surplus} | total_py=${r.py} ` +
       `pt_supply=${ptLine} yt_supply=${r.yt} | reserves=${r.ptRes}/${r.srRes} | ` +
-      `index=${r.idx} accrued=${r.accrued} treasury=${r.treasury}`,
+      `index=${r.idx} accrued=${r.accrued} treasury=${r.treasury}` +
+      // Print the coverage even when healthy. An operator should be able to see the number
+      // trending toward the threshold, not just learn about it when it crosses.
+      (r.blendCoverage === null
+        ? ''
+        : ` | exit_coverage=${Number.isFinite(r.blendCoverage) ? r.blendCoverage.toFixed(2) + 'x' : '∞'}` +
+          ` (blend_util=${r.blendUtil.toFixed(1)}%)`),
   );
 
   for (const w of r.warnings) console.warn(`  ⚠ ${w}`);
