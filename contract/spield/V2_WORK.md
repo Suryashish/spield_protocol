@@ -556,6 +556,10 @@ stellar tx new payment --source-account alice425 --network testnet \
   --asset SPLDPT5:GCCDH7PS…ASN5EEAYX --amount 11
 ```
 
+*(That was the previous testnet deployment's PT asset. It has since been retired by the 2026-08-27
+redeploy, which issues `SPLDPT6:GDGQUCGA…` from a fresh issuer — conservation on the new stack
+started clean and the monitor has never alarmed on it.)*
+
 Before and after, from the watchtower:
 
 ```

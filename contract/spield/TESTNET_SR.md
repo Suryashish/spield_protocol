@@ -10,16 +10,22 @@ Explorer:           https://stellar.expert/explorer/testnet
 
 ## Addresses
 
+> **Redeployed 2026-08-27.** The previous deployment predates `add_liquidity`'s `min_shares`
+> argument, `Receipt.collected`, the three TTL bump entry points, `srvault::sweep_surplus` and the
+> corrected `strategy::available_liquidity`. The receipt schema changed, so an in-place upgrade
+> would have broken existing receipts — a fresh deploy was the safe route. Old addresses:
+> `scripts/deploy_sr_testnet.state.pre-redeploy-20260827`.
+
 | Contract | Address |
 |---|---|
-| **SR** (Standardized Return) | `CDL44OYHVIZQSQZOPC7P5YWCKPWYAI7LYT62RROKOSVIXFU43YOJ7IF2` |
-| **Strategy** (Blend adapter) | `CCC7C4RGNRHSIHCW4FI2FFEVA5BM5NCLKHM3TK3YA5WR4DDMLGRLJT4Q` |
-| **Yield engine** — *this is also the YT token* | `CDR4LNBYRPNCKXVMJEJ3XMSGEBRLABDSNBY5W327LT2E65MCCWFHS5ZB` |
-| **PT/SR Market** | `CAFY2E5GSDNGL3UCYP7JZ2VZHVR2VHAVX5J3M7SBMA4KZUHRFHV4A74Z` |
-| **Fixed-Rate Vault** | `CAHWXX7DQKAJ733SL7U7IHDG5JHGKIW74JN23AY2WQDESQSV4BW2VBHV` |
-| **SR Router** | `CDXTGSSWYYI3D4YIOJJ32FVWZAE3QRABSDJ2OFEESO3UMG73BV4DI6IT` |
-| **PT SAC** | `CCEJSM4TFAKQ4F5XCMRRRAFHT2DYAXXX5IZMK4MX4SH6M4VT5ZO75S3K` |
-| PT classic asset | `SPLDPT5:GCCDH7PSRAB6SKZPKBGTJYKKUCPSR3SNI3GCCFLTHR2Z6E6ASN5EEAYX` |
+| **SR** (Standardized Return) | `CCOXZUKCZGNJQYNWRLWD3TZFBQH2GNF4SKP65WAN5I63JXEKBAAT7QRX` |
+| **Strategy** (Blend adapter) | `CDTTEX3YMXXNEO7BVWHYO7G4GOJJH5RXO4423RSC25HLZF66NM6J5CSX` |
+| **Yield engine** — *this is also the YT token* | `CCL4K4ZNM2AVSJEHWX47DPOM3MCD7Z5SNJNHEIGV2ICV7CSZZL5Q6GFG` |
+| **PT/SR Market** | `CD5CEGFSBMXPNJUG2HRX7LFZCJ56WF35SMPPWW3OXRR75GBRXVA5WITN` |
+| **Fixed-Rate Vault** | `CAHGFUDCMAYCGPLX5CDIIHMZZVKOKA2KL67DBHU6SQTZLDVQAYJ4AVF5` |
+| **SR Router** | `CCU7J3JYNSO2R3YVYNVB46ZHKRCOIBC566F6MCN5SXGSJXE7HVIWYIFN` |
+| **PT SAC** | `CCW4F7LXRIESZLOA6SJN7MA6FSRM7PMGTXXY7ZAQRDF3BN5M3WHELPYF` |
+| PT classic asset | `SPLDPT6:GDGQUCGAZLMBZBF4CMNVFKVUWWM2RNRU7MYQJGYTZZW43L2QUOLXCOLL` |
 | USDC SAC (Blend's testnet USDC) | `CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU` |
 | Blend pool | `CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF` |
 
@@ -31,7 +37,7 @@ Explorer:           https://stellar.expert/explorer/testnet
 
 | | |
 |---|---|
-| Expiry | `1795384166` (~90 days) |
+| Expiry | `1795603933` (~90 days) |
 | Opening implied APY | **5.00%** — and the pool opened at exactly `50000000358` (5.0000%) |
 | PT price at open | `0.988042` — matching the unit test to 6 dp |
 | `scalar_root` | `40e12` |

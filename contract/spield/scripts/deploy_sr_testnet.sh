@@ -190,7 +190,12 @@ invoke_retry() {  # invoke_retry <contract-id> <args...>
 # as "could not read", NEVER as a match.
 read_view() {
   local out
-  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "$2" 2>/dev/null) || return 0
+  # Forward EVERY remaining argument, not just the function name. This used to pass only "$2", so
+  # any view taking parameters was invoked bare — the CLI then failed on the missing argument, the
+  # `|| return 0` swallowed it, and the caller saw empty output. `compat` reads empty as "the callee
+  # is an older deployment", so a parameterised check reported a version skew that did not exist.
+  # Only `router.quote_buy_pt_with_usdc` takes arguments today, which is why only it failed.
+  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "${@:2}" 2>/dev/null) || return 0
   printf '%s' "$out" | tr -d '"' | tr -d '[:space:]'
 }
 
@@ -609,7 +614,7 @@ if [ "${SEED:-0}" = "1" ] && [ -z "$POOL_SEEDED" ]; then
 
   echo "    adding liquidity (any ratio opens at ${MARKET_APY_BPS}bps — the anchor is dynamic)..."
   stellar contract invoke --id "$SRMARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- add_liquidity \
-    --lp "$ADMIN_ADDR" --pt_in "$PT_BAL" --sr_in "$SR_LEFT" >/dev/null
+    --lp "$ADMIN_ADDR" --pt_in "$PT_BAL" --sr_in "$SR_LEFT" --min_shares 0 >/dev/null
   save_state POOL_SEEDED 1
   echo "    ✓ seeded. reserves = $(read_view "$SRMARKET" reserves)"
   echo "    ✓ implied APY = $(read_view "$SRMARKET" implied_apy)  PT price = $(read_view "$SRMARKET" pt_price)"

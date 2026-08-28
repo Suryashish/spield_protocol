@@ -164,7 +164,11 @@ async function holdersFromEvents(contractIds, startLedger) {
 
   let cursor = null;
   let pages = 0;
-  const MAX_PAGES = 400; // ~80k events; a backstop, not an expected limit
+  // The RPC scans forward from the anchor and returns a page — often empty — for each slice of its
+  // scan budget. Over a ~121k-ledger retention window that is a lot of mostly-empty pages, so the
+  // cap has to be generous or a fresh deployment trips it while finding everything there was.
+  // `--from-ledger` is the real answer when you know when the contracts went live.
+  const MAX_PAGES = 5000;
 
   for (; pages < MAX_PAGES; pages += 1) {
     let page;
@@ -197,8 +201,21 @@ async function holdersFromEvents(contractIds, startLedger) {
     // this report 0 holders while events existed a few thousand ledgers later.
     if (!page.cursor) break;
     cursor = page.cursor;
+
+    // ...but it IS the end once the cursor reaches the tip. The cursor is a Stellar "toid" —
+    // `ledger << 32 | txIndex << 12 | opIndex` — so the ledger it has reached can be read straight
+    // out of it. Without this the scan pages through the whole retention window (~121k ledgers,
+    // mostly empty for a young deployment) and only stops when it hits the page cap: correct, but
+    // far too slow to run in CI.
+    const reached = Number(BigInt(cursor.split('-')[0]) >> 32n);
+    if (reached >= latest) break;
   }
-  if (pages >= MAX_PAGES) console.error(`  event scan hit the ${MAX_PAGES}-page cap; results may be partial`);
+  if (pages >= MAX_PAGES) {
+    console.error(
+      `  ⚠ event scan hit the ${MAX_PAGES}-page cap before reaching ledger ${latest} — some holders ` +
+      `may have been missed. Narrow the window with --from-ledger <n> and re-run.`,
+    );
+  }
   return found;
 }
 

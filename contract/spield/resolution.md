@@ -92,13 +92,20 @@ total_assets      34462732696     (= 3446.27 USDC, deposited before the cap exis
 deposit_headroom            0
 ```
 
-**Note the consequence on testnet:** the cap is *below* what is already deposited there, so
-`deposit_headroom` is 0 and the testnet stack accepts no further deposits. That is correct
-behaviour, not a bug — but if you want to keep testing deposits, raise the testnet cap while
-leaving the deploy default at 100 for mainnet:
+**On the redeployed testnet stack the cap is no longer binding.** The fresh deployment starts from
+zero, so the 100 USDC cap applies to new deposits with real headroom behind it:
+
+```
+deposit_cap    1000000000     (= 100.0000000 USDC)
+total_assets     37880637     (= 3.79 USDC — the seed)
+```
+
+*(On the retired deployment the cap sat below 3,446 USDC of pre-existing deposits, so headroom was 0
+and it accepted nothing further. Correct behaviour, and the reason a fresh deploy was cleaner than
+an upgrade.)* To lift it on testnet for a specific test, without touching the deploy default:
 
 ```bash
-stellar contract invoke --id CDL44OYHVIZQSQZOPC7P5YWCKPWYAI7LYT62RROKOSVIXFU43YOJ7IF2 \
+stellar contract invoke --id CCOXZUKCZGNJQYNWRLWD3TZFBQH2GNF4SKP65WAN5I63JXEKBAAT7QRX \
   --source-account alice425 --network testnet -- set_deposit_cap --cap 0
 ```
 
