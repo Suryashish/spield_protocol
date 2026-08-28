@@ -9,7 +9,7 @@ import {
   restoreConnection,
   watchWallet,
 } from '@/lib/stellar';
-import { rememberedWallet, type WalletId } from '@/lib/wallets';
+import { rememberedWallet, warmWalletProbe, type WalletId } from '@/lib/wallets';
 import { NETWORK } from '@/lib/config';
 import WalletPicker from '@/components/dashboard/layout/WalletPicker';
 
@@ -65,6 +65,24 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     });
+  }, []);
+
+  // Probe which wallets are installed once the app is idle, so the picker can paint
+  // each wallet's real state on its opening frame rather than resolving it while the
+  // modal is already up. Deferred to idle to keep it (and LOBSTR's lazily-imported
+  // signer package) off the critical path.
+  useEffect(() => {
+    const idle = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idle.requestIdleCallback === 'function') {
+      const handle = idle.requestIdleCallback(warmWalletProbe, { timeout: 2000 });
+      return () => idle.cancelIdleCallback?.(handle);
+    }
+    // Safari and older browsers: a short timer is close enough.
+    const timer = setTimeout(warmWalletProbe, 800);
+    return () => clearTimeout(timer);
   }, []);
 
   // Restore a previously authorized session on first load.
