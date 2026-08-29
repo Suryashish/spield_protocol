@@ -34,6 +34,7 @@
 //   --rate <bps>       rate to validate (default: VAULT_RATE_BPS from --state, else 300)
 //   --yield-fee <bps>  engine fee (default: read from the yield contract in --state, else 500)
 //   --margin <bps>     safety margin (default 2500)
+//   --max-apr <bps>    also validate the strategy's MAX_APR_BPS against this venue's rate ceiling
 //   --sample <secs>    b_rate sampling window (default 120; 0 skips measurement AND reconciliation)
 //   --check            exit 2 on FAIL, 3 on WARN — for use as a deploy gate
 //   --advisory         always exit 0, whatever the verdict (testnet, where the rate is a subsidy)
@@ -51,7 +52,7 @@ import {
   scValToNative,
 } from '@stellar/stellar-sdk';
 
-import { calibrate, realizedSupplyApr, utilizationOf, UTIL_SCALAR } from './blend_rate.mjs';
+import { calibrate, checkMaxApr, realizedSupplyApr, utilizationOf, UTIL_SCALAR } from './blend_rate.mjs';
 
 // ---------------------------------------------------------------- args + state
 
@@ -90,6 +91,8 @@ const CFG = {
   rateBps: Number(arg('rate', st.VAULT_RATE_BPS ?? '300')),
   yieldFeeBps: arg('yield-fee', null) === null ? null : Number(arg('yield-fee')),
   marginBps: Number(arg('margin', '2500')),
+  // The strategy's b_rate sanity bound, checked against what this venue can physically produce.
+  maxAprBps: arg('max-apr', null) === null ? null : Number(arg('max-apr')),
   sampleSecs: Number(arg('sample', '120')),
   check: has('check'),
   advisory: has('advisory'),
@@ -248,11 +251,34 @@ const main = async () => {
     if (CFG.advisory && result.verdict !== 'PASS') {
       console.log(`    (advisory mode — not treated as an error)`);
     }
-    console.log(`${line}\n`);
+    console.log(`${line}`);
+  }
+
+  // ── The strategy's rate bound, against what this venue can physically produce ────────────────
+  let maxAprFail = false;
+  if (CFG.maxAprBps !== null) {
+    const m = checkMaxApr(t0.config, bstopRate, CFG.maxAprBps);
+    maxAprFail = !m.ok;
+    if (!CFG.json) {
+      console.log(`  STRATEGY RATE BOUND (max_apr_bps)`);
+      console.log(`    pool max_util           ${pct(m.maxUtil)}${m.reachesThirdBranch ? '   <- ABOVE the 95% kink: the steep r_three branch is reachable' : ''}`);
+      console.log(`    venue rate ceiling      ${bps(m.requiredBps)}   (at max_util, ir_mod 10)`);
+      console.log(`    configured max_apr_bps  ${bps(m.configuredBps)}`);
+      console.log(`    headroom                ${m.headroom.toFixed(2)}x`);
+      console.log(
+        `\n    ${m.ok ? 'PASS' : 'FAIL'}  ${
+          m.ok
+            ? 'the bound sits above anything this venue can produce.'
+            : `the bound is BELOW this venue's ceiling. A legitimate rate spike would panic ` +
+              `RateOutOfBounds\n          and FREEZE EXITS. Raise MAX_APR_BPS to at least ${m.requiredBps}.`
+        }`,
+      );
+      console.log(`${'─'.repeat(78)}\n`);
+    }
   }
 
   if (CFG.advisory || !CFG.check) process.exit(0);
-  if (result.verdict === 'FAIL') process.exit(2);
+  if (result.verdict === 'FAIL' || maxAprFail) process.exit(2);
   if (result.verdict === 'WARN') process.exit(3);
   process.exit(0);
 };

@@ -507,7 +507,7 @@ if [ -z "$VAULT_INIT" ]; then
        --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
        --rpc "$RPC_URL" --passphrase "$NETWORK_PASSPHRASE" \
        --yield-fee 0 \
-       --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --check; then
+       --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --check; then
     echo "    ✓ rate calibration passed"
   else
     CAL_EXIT=$?
@@ -554,7 +554,7 @@ else
        --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
        --rpc "$RPC_URL" --passphrase "$NETWORK_PASSPHRASE" \
        --yield-fee 0 \
-       --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --check; then
+       --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --check; then
     stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
       -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
     echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"

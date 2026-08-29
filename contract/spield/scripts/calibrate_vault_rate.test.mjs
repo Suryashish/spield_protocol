@@ -15,6 +15,10 @@ import assert from 'node:assert/strict';
 import {
   baseBorrowRate,
   calibrate,
+  checkMaxApr,
+  maxSupplyAprCeiling,
+  IR_MOD_MAX,
+  IR_MOD_MIN,
   modelledSupplyApr,
   realizedSupplyApr,
   utilizationOf,
@@ -253,5 +257,60 @@ describe('self-funding property', () => {
         }
       }
     }
+  });
+});
+
+
+// ── The strategy's b_rate sanity bound ───────────────────────────────────────────────────────────
+
+describe('max_apr_bps ceiling', () => {
+  test('ir_mod bounds match what was measured against the real Blend WASM', () => {
+    // calibration_test.rs::calibration_b_ir_mod_bounds, 2026-08-29.
+    assert.equal(IR_MOD_MAX, 10.0);
+    assert.equal(IR_MOD_MIN, 0.1);
+  });
+
+  test('30000 bps clears both live pools, with the headroom the audit reported', () => {
+    const m = checkMaxApr(REAL_MAINNET.config, REAL_MAINNET.bstopRate, 30000);
+    assert.equal(m.ok, true);
+    assert.equal(m.requiredBps, 10801);
+    assert.ok(m.headroom > 2.7 && m.headroom < 2.8, `headroom ${m.headroom}`);
+    assert.equal(m.reachesThirdBranch, false);
+
+    const t = checkMaxApr(REAL_TESTNET.config, REAL_TESTNET.bstopRate, 30000);
+    assert.equal(t.ok, true);
+    assert.equal(t.requiredBps, 11158);
+    assert.equal(t.reachesThirdBranch, false, 'TestnetV2 max_util is exactly at the 95% kink');
+  });
+
+  test('a pool whose max_util reaches the r_three branch FAILS — the defect this guards', () => {
+    const risky = { ...REAL_MAINNET.config, max_util: 9_900_000 };
+    const m = checkMaxApr(risky, REAL_MAINNET.bstopRate, 30000);
+    assert.equal(m.ok, false);
+    assert.equal(m.reachesThirdBranch, true);
+    assert.ok(m.requiredBps > 300_000, `required ${m.requiredBps} should be an order of magnitude up`);
+    assert.ok(m.headroom < 0.1);
+  });
+
+  test('the ceiling rises with max_util and with r_three', () => {
+    const base = maxSupplyAprCeiling(REAL_MAINNET.config, REAL_MAINNET.bstopRate);
+    const higherUtil = maxSupplyAprCeiling({ ...REAL_MAINNET.config, max_util: 9_400_000 }, REAL_MAINNET.bstopRate);
+    const steeper = maxSupplyAprCeiling({ ...REAL_MAINNET.config, r_three: 100_000_000 }, REAL_MAINNET.bstopRate);
+    assert.ok(higherUtil > base, 'a higher max_util must raise the ceiling');
+    // r_three only bites above the kink, so at max_util 90% it must NOT move the ceiling.
+    assert.equal(steeper, base, 'r_three is unreachable below the 95% kink');
+  });
+
+  test('the required bps CEILS, so the gate never blesses a bound one bp too low', () => {
+    const m = checkMaxApr(REAL_MAINNET.config, REAL_MAINNET.bstopRate, 30000);
+    assert.equal(m.requiredBps, Math.ceil(m.ceilingApr * 10_000));
+    assert.equal(checkMaxApr(REAL_MAINNET.config, REAL_MAINNET.bstopRate, m.requiredBps).ok, true);
+    assert.equal(checkMaxApr(REAL_MAINNET.config, REAL_MAINNET.bstopRate, m.requiredBps - 1).ok, false);
+  });
+
+  test('a higher backstop take lowers the ceiling — suppliers receive less', () => {
+    const hi = maxSupplyAprCeiling(REAL_MAINNET.config, 4_000_000);
+    const lo = maxSupplyAprCeiling(REAL_MAINNET.config, 1_000_000);
+    assert.ok(hi < lo);
   });
 });

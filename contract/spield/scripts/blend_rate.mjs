@@ -32,6 +32,13 @@ export const RATE_SCALAR = 1e12;
 export const SECOND_KINK = 0.95;
 /** `ir_mod`'s neutral value. Blend's floor is 0.1 and its ceiling is 100. */
 export const IR_MOD_NEUTRAL = 1.0;
+/**
+ * `ir_mod`'s hard ceiling, MEASURED against the real Blend WASM
+ * (`calibration_test.rs::calibration_b_ir_mod_bounds`, 2026-08-29): sustained over-target
+ * utilization drives it to exactly 10.0, and sustained under-target to exactly 0.1.
+ */
+export const IR_MOD_MAX = 10.0;
+export const IR_MOD_MIN = 0.1;
 
 const SECONDS_PER_YEAR = 365 * 24 * 3600;
 
@@ -192,5 +199,55 @@ export const calibrate = ({
     spotCoverage: proposedBps > 0 ? (netSpotApr * 10_000) / proposedBps : Infinity,
     /** Same, under the stress assumption. Below 1.0 the promise is not funded. */
     stressCoverage: proposedBps > 0 ? (netStressApr * 10_000) / proposedBps : Infinity,
+  };
+};
+
+
+/**
+ * The highest supply APR this venue can physically produce — the ceiling `max_apr_bps` must clear.
+ *
+ * `check_rate_bound_timed` rejects any `b_rate` read implying annualized growth above
+ * `max_apr_bps`, and a rejection makes `current_rate` panic. `current_rate` is the first line of
+ * `redeem`, so **a breach freezes exits during the very crisis that produced the rate**. The bound
+ * therefore has to sit above anything Blend can legitimately do, and "300%, that sounds generous"
+ * is not a calibration — it depends entirely on the pool's own `r_three` and `max_util`.
+ *
+ * Worst case = the steepest borrow rate a borrower can reach (`max_util`), times `ir_mod`'s
+ * measured ceiling, converted to the supply side:
+ *
+ * ```text
+ * ceiling = base_borrow(max_util) x IR_MOD_MAX x max_util x (1 - backstop_take)
+ * ```
+ *
+ * Measured against the real Blend WASM, a pool with FixedV2's curve breaches 30000 bps at ~98%
+ * utilization — reachable only when `max_util` is above the 95% kink, which is why `max_util`
+ * matters as much as `r_three` here.
+ */
+export const maxSupplyAprCeiling = (reserveConfig, bstopRate) => {
+  const maxUtil = reserveConfig.max_util / UTIL_SCALAR;
+  return (
+    baseBorrowRate(maxUtil, reserveConfig) * IR_MOD_MAX * maxUtil * (1 - bstopRate / UTIL_SCALAR)
+  );
+};
+
+/**
+ * Judge a configured `max_apr_bps` against that ceiling.
+ *
+ * `reachesThirdBranch` is called out separately because it is the single condition that separates
+ * "30x headroom" from "exits freeze": below the 95% kink the curve is gentle, above it `r_three`
+ * takes over and the ceiling jumps by more than an order of magnitude.
+ */
+export const checkMaxApr = (reserveConfig, bstopRate, maxAprBps) => {
+  const ceilingApr = maxSupplyAprCeiling(reserveConfig, bstopRate);
+  const requiredBps = Math.ceil(ceilingApr * 10_000);
+  const maxUtil = reserveConfig.max_util / UTIL_SCALAR;
+  return {
+    maxUtil,
+    reachesThirdBranch: maxUtil > SECOND_KINK,
+    ceilingApr,
+    requiredBps,
+    configuredBps: maxAprBps,
+    headroom: requiredBps > 0 ? maxAprBps / requiredBps : Infinity,
+    ok: maxAprBps >= requiredBps,
   };
 };

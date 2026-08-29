@@ -400,7 +400,7 @@ if [ -z "$VAULT_INIT" ]; then
   echo "    calibrating the rate against the live Blend pool (advisory on testnet; ~2 min)..."
   node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
     --pool "$BLEND_POOL" --underlying "$USDC_SAC" --yield-fee 0 \
-    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory || true
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --advisory || true
   stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- initialize --wrapper "$WRAPPER" --underlying "$USDC_SAC" --rate_bps "$VAULT_RATE_BPS" --max_rate_bps "$VAULT_MAX_RATE_BPS" >/dev/null
   save_state VAULT_INIT 1; echo "    vault initialized (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)"
@@ -419,7 +419,7 @@ else
   echo "    vault rate on chain is ${LIVE_RATE}bps but VAULT_RATE_BPS=${VAULT_RATE_BPS} — reconciling..."
   node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
     --pool "$BLEND_POOL" --underlying "$USDC_SAC" --yield-fee 0 \
-    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory --sample 0 || true
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --advisory --sample 0 || true
   stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
   echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"

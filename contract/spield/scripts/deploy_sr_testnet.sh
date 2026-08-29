@@ -515,7 +515,7 @@ if [ -z "$SRVAULT_INIT" ]; then
   echo "    calibrating the rate against the live Blend pool (advisory on testnet; ~2 min)..."
   node "$SCRIPT_DIR/calibrate_vault_rate.mjs" --state "$STATE_FILE" \
     --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
-    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory || true
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --advisory || true
   echo "    initializing vault (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)..."
   invoke_retry "$SRVAULT" initialize --yield_contract "$YIELD" --rate_bps "$VAULT_RATE_BPS" --max_rate_bps "$VAULT_MAX_RATE_BPS"
   save_state SRVAULT_INIT 1; echo "    ✓ vault initialized"
@@ -539,7 +539,7 @@ else
   # Advisory on testnet: Blend's testnet reserve pays ~0.2%, so any usable demo rate reports FAIL.
   node "$SCRIPT_DIR/calibrate_vault_rate.mjs" --state "$STATE_FILE" \
     --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
-    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory --sample 0 || true
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --advisory --sample 0 || true
   invoke_retry "$SRVAULT" set_rate --rate_bps "$VAULT_RATE_BPS"
   echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"
 fi
