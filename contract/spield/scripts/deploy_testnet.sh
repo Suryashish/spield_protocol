@@ -64,7 +64,13 @@ MATURITY="${MATURITY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
 
 # --- Fixed-Rate Vault config ---
 # The fixed APR the vault quotes to depositors, in basis points (500 = 5.00%).
-VAULT_RATE_BPS="${VAULT_RATE_BPS:-500}"
+# The fixed APR the vault quotes. On TESTNET this is unavoidably a SUBSIDY: Blend's testnet USDC
+# reserve pays ~0.2% (ir_mod sits near its 0.1 floor), so no honest fixed rate is fundable there and
+# every coupon comes out of the seed. The number is kept aligned with mainnet's calibrated 300 bps
+# so the demo shows the real product, and the calibration below runs in ADVISORY mode to say so out
+# loud rather than pretending it passes. Never treat a testnet rate as evidence a rate is safe.
+VAULT_RATE_BPS="${VAULT_RATE_BPS:-300}"
+VAULT_RATE_MARGIN_BPS="${VAULT_RATE_MARGIN_BPS:-2500}"
 # Hard ceiling on any future quoted rate (a guardrail; admin can never exceed it).
 VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"
 # Initial PT inventory to seed (USDC base units, 7 decimals). This is the vault's coupon capacity
@@ -388,10 +394,36 @@ if [ -z "$VAULT" ]; then
   echo "    vault = $VAULT"
 else echo "==> [6/8] vault already deployed ($VAULT) — skipping deploy."; fi
 if [ -z "$VAULT_INIT" ]; then
+  # Rate calibration, ADVISORY on testnet — Blend's testnet reserve pays ~0.2%, so this reports
+  # FAIL by design. Printed so the subsidy is visible now rather than when capacity runs out.
+  # `--yield-fee 0`: the v1 wrapper/vault stack charges no protocol fee on yield.
+  echo "    calibrating the rate against the live Blend pool (advisory on testnet; ~2 min)..."
+  node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
+    --pool "$BLEND_POOL" --underlying "$USDC_SAC" --yield-fee 0 \
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory || true
   stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- initialize --wrapper "$WRAPPER" --underlying "$USDC_SAC" --rate_bps "$VAULT_RATE_BPS" --max_rate_bps "$VAULT_MAX_RATE_BPS" >/dev/null
   save_state VAULT_INIT 1; echo "    vault initialized (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)"
 else echo "    vault already initialized — skipping."; fi
+
+# Reconcile the live rate with VAULT_RATE_BPS. `initialize` runs once, so without this a changed
+# VAULT_RATE_BPS would never reach an already-deployed vault and the dashboard — which reads the
+# contract, not this script — would keep quoting the old rate. Advisory calibration on testnet.
+LIVE_RATE="$(stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+  --send=no -- rate_bps 2>/dev/null | tr -d '"[:space:]')"
+if [ -z "$LIVE_RATE" ]; then
+  echo "    !! could not read the vault's live rate — skipping reconciliation."
+elif [ "$LIVE_RATE" = "$VAULT_RATE_BPS" ]; then
+  echo "    ✓ vault rate on chain is ${LIVE_RATE}bps (matches VAULT_RATE_BPS)"
+else
+  echo "    vault rate on chain is ${LIVE_RATE}bps but VAULT_RATE_BPS=${VAULT_RATE_BPS} — reconciling..."
+  node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
+    --pool "$BLEND_POOL" --underlying "$USDC_SAC" --yield-fee 0 \
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory --sample 0 || true
+  stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+    -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
+  echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"
+fi
 
 # Seed the vault's PT inventory so it has coupon capacity. The seeder pulls USDC; the vault mints
 # PT+YT into its own inventory (pure capacity, no liability).

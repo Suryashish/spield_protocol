@@ -143,6 +143,8 @@ the current contract addresses the [live app](https://www.spield.live/) points a
 
 - **Network:** Stellar testnet · **Explorer:** [stellar.expert (testnet)](https://stellar.expert/explorer/testnet)
 - **Vault config:** 5% fixed APR, 20% ceiling · **Market:** 0.30% swap fee, curve anchored at par
+  <br>↳ *What this instance was deployed with. The default is now **3%**, gated by the rate
+  calibration — see `contract/spield/MAINNET.md` §8 and `V2_WORK.md` §15.*
 - **Maturity:** `1783546154` (≈ 2026-07-08 UTC)
 
 > 🔗 Look any contract up live: `https://stellar.expert/explorer/testnet/contract/<address>`

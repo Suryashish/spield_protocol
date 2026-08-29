@@ -51,6 +51,13 @@ const VaultPanel = () => {
   const overCapacity =
     !!liveQuote && amountValid && liveQuote.payout - toBigSafe(amount) > capacity;
 
+  // A vault with NO spare PT cannot back a coupon of any size, so every deposit reverts with
+  // InsufficientCapacity. That is the state a freshly deployed, unseeded vault is in — `deposit`
+  // is a pure config write, `seed` is the only step that spends USDC, and it defaults to zero.
+  // Without this the panel quotes a rate it cannot honour and the user only finds out after typing
+  // an amount and reading a capacity error meant for oversized deposits.
+  const noCapacity = VAULT_DEPLOYED && !!vaultStats && capacity <= 0n;
+
   const rateBps = liveQuote?.rateBps ?? vaultStats?.rateBps ?? 0;
 
   // The vault mints PT + YT to the user under the hood, so — exactly like the raw Deposit door —
@@ -89,11 +96,12 @@ const VaultPanel = () => {
     if (!isConnected) return 'Connect Wallet';
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
     if (paused) return 'Protocol Paused';
+    if (noCapacity) return 'Not accepting deposits';
     if (!amountValid) return 'Enter an amount';
     if (overBalance) return 'Insufficient USDC';
     if (overCapacity) return 'Exceeds vault capacity';
     return 'Lock Fixed Rate';
-  }, [isConnected, onCorrectNetwork, paused, amountValid, overBalance, overCapacity]);
+  }, [isConnected, onCorrectNetwork, paused, noCapacity, amountValid, overBalance, overCapacity]);
 
   // The trustline step needs no amount, so it stays enabled regardless of amount/capacity;
   // every other deposit precondition only applies once trustlines are in place.
@@ -101,6 +109,7 @@ const VaultPanel = () => {
     !VAULT_DEPLOYED ||
     busy ||
     connecting ||
+    noCapacity ||
     (isConnected && (!onCorrectNetwork || paused || !amountValid || overBalance || overCapacity));
 
   const handleClick = async () => {
@@ -189,6 +198,17 @@ const VaultPanel = () => {
               The Fixed-Rate Vault isn&apos;t deployed yet. Run{' '}
               <span className="font-mono">scripts/deploy_testnet.sh</span> and paste the printed
               vault address into <span className="font-mono">config.ts</span>.
+            </span>
+          </div>
+        )}
+
+        {noCapacity && (
+          <div className="flex items-start gap-2 rounded-lg border border-ember/30 bg-ember/10 p-2.5 text-xs text-ember-text">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              This vault has no spare capacity to back a coupon, so it isn&apos;t accepting deposits
+              yet. Its fixed rate is funded from PT inventory the vault already holds — an operator
+              has to seed that before the first deposit.
             </span>
           </div>
         )}

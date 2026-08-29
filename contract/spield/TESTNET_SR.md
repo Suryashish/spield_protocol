@@ -45,6 +45,22 @@ Explorer:           https://stellar.expert/explorer/testnet
 | Yield fee | **500 bps (5%)** → treasury |
 | Treasury swap-fee share | **2000 bps (20%)** → treasury, 80% to LPs |
 | Seed | 200 USDC/side, added at ~1:1 |
+| Vault fixed rate | **300 bps (3.00%)** — was 500 at deploy; `set_rate` 2026-08-29, see below |
+
+> **The vault rate was changed on chain after this deploy.** 500 bps was never calibrated against
+> Blend (`V2_WORK.md` §15); the calibrated default is now 300 and the live vault was moved to match
+> ([tx 35ae9c42](https://stellar.expert/explorer/testnet/tx/35ae9c42a7605e9bfea53a636dcb94b1c4e97c8cc8dd681c928bb5117b819eac)).
+> Open receipts kept their original payout and rate — `set_rate` is forward-only.
+>
+> **The market was NOT moved with it.** Its implied APY is a function of its reserves, not an admin
+> setting: it read **4.72%** after the vault change (having drifted from its 5.00% open through
+> trading). So the dashboard now shows a 3.00% vault rate beside a ~4.7% market rate. That is not a
+> solvency problem — a market rate is *discovered* and funded by whoever sells PT, while a vault rate
+> is *promised* and funded by the vault's own inventory — but it does mean PT currently locks a
+> better fixed rate than the vault does. Realigning them means reseeding or trading the pool, which
+> is a liquidity operation, not a config change. Fresh deploys open the market at the vault's rate
+> (`MARKET_APY_BPS` now derives from `VAULT_RATE_BPS`); see also `tofix.md` #34 on how far a trade
+> may move the headline before it stops resembling the vault's rate.
 
 ## Accounts
 

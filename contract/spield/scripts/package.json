@@ -9,7 +9,9 @@
     "monitor:v2": "node sr_solvency_monitor.mjs",
     "budget": "node probe_budget.mjs",
     "keeper": "node ttl_keeper.mjs",
-    "keeper:dry": "node ttl_keeper.mjs --dry-run"
+    "keeper:dry": "node ttl_keeper.mjs --dry-run",
+    "calibrate": "node calibrate_vault_rate.mjs",
+    "test": "node --test calibrate_vault_rate.test.mjs"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.0.1"

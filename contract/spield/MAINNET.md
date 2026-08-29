@@ -182,7 +182,8 @@ The script (faithful mainnet twin of `deploy_testnet.sh`):
    to the wrapper; adds the deployer's PT/YT trustlines.
 4. Deploys + initializes the **Blend strategy** (→ FixedV2 pool + Circle USDC, `max_apr_bps=30000`).
 5. Initializes the **wrapper** (strategy + PT + YT + maturity, default +90d).
-6. Deploys + initializes the **Fixed-Rate Vault** (5% APR, 20% ceiling); seeds only if
+6. Runs the **rate calibration gate** (§7), then deploys + initializes the **Fixed-Rate Vault**
+   (3% APR, 20% ceiling); seeds only if
    `VAULT_SEED_AMOUNT>0` (default 0).
 7. Deploys + initializes the **Market** (0.30% fee, par anchor); seeds only if
    `MARKET_SEED_AMOUNT>0` (default 0).
@@ -318,4 +319,103 @@ The script is **checkpointed and safe to re-run**:
 - [ ] Frontend made **env-driven** (testnet default + mainnet build target) — planned next.
 - [ ] Sanity-check `max_apr_bps=30000` vs Blend FixedV2's real USDC supply APR (single-digit %; the
       default is a wide, safe ceiling).
+- [ ] Re-run the **rate calibration** (§8) on the day of deploy and confirm `VAULT_RATE_BPS` still
+      PASSes. The deploy gate does this automatically; run it by hand first so the rate is not a
+      surprise. Re-run before every new series — the rate is only fixed *within* a series.
+- [ ] **Seed the vault before the UI offers it.** `VAULT_SEED_AMOUNT` defaults to 0, and a vault
+      with zero `coupon_capacity` reverts every deposit with `InsufficientCapacity`.
 - [ ] Decide real **maturity** (`MATURITY_DAYS`) and **launch liquidity** (vault + market seeds).
+
+---
+
+## 8. Vault rate calibration — what `VAULT_RATE_BPS` may be
+
+`scripts/calibrate_vault_rate.mjs` — run automatically as a **hard gate** before
+`vault.initialize` in `deploy_mainnet.sh`, and advisory on testnet.
+
+### Why the rate is not a free parameter
+
+The vault's coupon is funded by the yield its YT inventory earns in Blend. The promise is always
+**solvent** — `deposit` refuses any coupon not already backed by PT in inventory — but it is only
+**self-funding** when
+
+```
+blend_supply_apr x (1 - yield_fee) > vault_rate
+```
+
+Below that line every deposit consumes seed capital instead of replenishing it. Nothing on chain
+checks it, and nothing ever measured it: `VAULT_RATE_BPS` was a hardcoded `500` in all three deploy
+scripts, picked before any of these numbers were known.
+
+### The rule
+
+Conservative in three compounding steps:
+
+| Step | What it does | Why |
+|---|---|---|
+| **1. Stress** | `util -> min(util_now, target)`, `ir_mod -> min(ir_mod_now, 1.0)` | Assume no input ever improves. A spot rate is not evidence of anything durable — see below. |
+| **2. Fee** | `x (1 - yield_fee_bps/10000)` | The v2 yield engine takes its cut before the vault sees the interest. The v1 wrapper/vault stack charges none (`--yield-fee 0`). |
+| **3. Margin** | `x (1 - margin_bps/10000)`, default **2500 bps** | A fixed rate runs the whole term and cannot be repriced mid-series. |
+
+`PASS` if the rate clears step 3, `WARN` between steps 2 and 3, `FAIL` above step 2 (negative carry
+under stress). Taking `min` in **both** directions is what makes the rule honest: it will not assume
+a depressed `ir_mod` recovers either, which is why testnet correctly fails instead of being flattered
+by a reversion-to-neutral assumption.
+
+This is a *moderate* stress, not a worst case — `ir_mod`'s floor is 0.1, six times below what is
+assumed. The true tail is left to the on-chain capacity check, which caps the total loss at the seed
+however far Blend falls.
+
+### Why `ir_mod` is the thing being stressed
+
+Measured 2026-08-29 on FixedV2 at 80.63% utilization: **7.216% supply APR** — but `ir_mod` was
+**1.49**, i.e. 49% above neutral. That modifier is the entire margin. At neutral `ir_mod` and target
+utilization the same pool pays **4.48%**. A 5% promise is under water there; 3% is not.
+
+| `ir_mod` | supply APR | vs a 3% promise | vs the old 5% |
+|---|---|---|---|
+| 1.49 (measured) | 6.67% | +3.67 pp | +1.67 pp |
+| 1.30 | 5.82% | +2.82 pp | +0.82 pp |
+| 1.15 | 5.15% | +2.15 pp | +0.15 pp |
+| 1.00 (neutral) | 4.48% | +1.48 pp | **-0.52 pp** |
+
+### The model earns its authority every run
+
+The rate curve is reconstructed from Blend's reserve config, not vendored from Blend's source. So
+the tool **measures** the real rate by sampling `b_rate` (the supply index itself) twice and refuses
+to emit a verdict if the model disagrees by more than 25 bps. Verified against both live pools on
+2026-08-29 — mainnet: model 7.212% vs measured 7.216%; testnet: model 0.2143% vs measured 0.214%.
+
+### Running it
+
+```bash
+# mainnet, as the deploy gate runs it (v1 stack -> no engine fee)
+node scripts/calibrate_vault_rate.mjs \
+  --pool CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD \
+  --underlying CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 \
+  --rpc https://mainnet.sorobanrpc.com \
+  --passphrase "Public Global Stellar Network ; September 2015" \
+  --yield-fee 0 --rate 300 --check
+
+# v2 testnet, reading the engine fee from the live yield contract
+node scripts/calibrate_vault_rate.mjs --state scripts/deploy_sr_testnet.state --rate 300 --advisory
+
+# the rule's unit tests (no network)
+node --test scripts/calibrate_vault_rate.test.mjs
+```
+
+Exit codes: `0` pass/advisory, `2` FAIL, `3` WARN, `1` could not determine. To ship a rate the gate
+rejects — a deliberate, funded subsidy — set `VAULT_RATE_OVERRIDE=1`, and size the seed to the loss
+you intend to fund.
+
+### On a re-run, the gate also guards `set_rate`
+
+`vault.initialize` runs exactly once. Every later run of `deploy_mainnet.sh` skips the init block, so
+the script reads the vault's live `rate_bps` afterwards and reconciles it when it differs from
+`VAULT_RATE_BPS` — **behind the same hard calibration gate**. If the calibration fails and
+`VAULT_RATE_OVERRIDE` is not set, no `set_rate` is submitted, the live rate is left exactly as it
+was, and the script aborts.
+
+This matters because the rate you deploy with is not the rate that stays live: the dashboard reads
+the contract, not the script. Changing `VAULT_RATE_BPS` alone changes nothing on an already-deployed
+vault.

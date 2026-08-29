@@ -165,8 +165,11 @@ the spec and Spield's existing flat-bps fee.
 The fee is charged on the **notional**, but the YT buyer only pays `1 − PT_price` of that notional.
 So the fee the YT trader actually feels is **leverage × fee_bps**.
 
-At the **actual `deploy_mainnet.sh` defaults** — 90-day term, 5.00% target APY, 30 bps fee,
-`scalar_root = 40` — buying and immediately reselling 10,000 YT:
+At the `deploy_mainnet.sh` defaults **as of this analysis** — 90-day term, 5.00% target APY, 30 bps
+fee, `scalar_root = 40` — buying and immediately reselling 10,000 YT:
+
+> The target APY default has since been calibrated down to **3.00%** (`MAINNET.md` §8). That changes
+> the PT price these rows start from, not the shape of the leverage arithmetic.
 
 | term | seed ratio | PT price | 10k YT costs | leverage | instant resale | **round-trip cost** |
 |---|---|---|---|---|---|---|

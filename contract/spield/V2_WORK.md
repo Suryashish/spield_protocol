@@ -29,6 +29,7 @@ place, marked ✅ DONE.
 | [§12](#12-calibrate-the-redemption-liquidity-haircut---done) | Liquidity haircut | Decision | Risk parameter | ✅ **DONE** — cap computed; residual **measured at 0 bps** across 50–94% utilization |
 | [§13](#13-calibrate-the-blend-utilization-alert) | Utilization alert | Decision | Monitoring | ⬜ **Open** — pick warning/critical levels for the coverage ratio |
 | [§14](#14-calibrate-the-markets-scalar_root) | `scalar_root` | Decision | Market parameter | ⬜ **Open** — unblocked by §2, first readings below |
+| [§15](#15-calibrate-the-vaults-fixed-rate---done) | Vault fixed rate | **P0** | Risk parameter | ✅ **DONE** — was an uncalibrated hardcoded 5%; rule + gate + 23 tests, rate now 3% |
 
 **Two extra fixes, not originally listed:**
 
@@ -856,6 +857,126 @@ Then re-run the sensitivity measurement on `srmarket` itself — buy and sell sw
 ### Why it must be done
 
 If the curve is too sensitive, moderate trades cause large rate changes. If it is too insensitive, pricing responds too slowly and more liquidity is needed to reflect demand. Neither can be judged until the reported rate reflects reality.
+
+---
+
+## 15. Calibrate the vault's fixed rate — ✅ DONE
+
+**New finding, 2026-08-29.** Not in `tofix.md`, not in the first draft of this document. Found while
+answering "where does the 5% come from?" — the answer was *nowhere*.
+
+### The defect
+
+`VAULT_RATE_BPS=500` was a hardcoded default in all three deploy scripts, written on chain by
+`vault.initialize` and rendered as "Locked APR" in the dashboard. **Nothing derived it from the
+yield source, and no check anywhere compared the two.** Confirmed live: `rate_bps == 500` on both the
+testnet srvault and the mainnet v1 vault.
+
+The promise itself is sound — `srvault::deposit` refuses any coupon not already backed by PT in
+inventory, so a receipt is always payable. What was unchecked is whether the rate is **self-funding**:
+
+```
+blend_supply_apr x (1 - yield_fee) > vault_rate
+```
+
+Below that line the vault pays coupons out of seed capital rather than out of yield. It does not
+revert, it does not alarm — `coupon_capacity` just falls until deposits start failing with
+`InsufficientCapacity`. That is the worst shape a defect can have: silent, slow, and only visible
+once the product stops working.
+
+### Measured, 2026-08-29
+
+Supply APR obtained by sampling `b_rate` (the supply index itself) over ~300 s — ground truth,
+independent of any model of Blend's rate curve.
+
+| venue | utilization | `ir_mod` | supply APR | net of fee | vs the 5% promise |
+|---|---|---|---|---|---|
+| mainnet FixedV2 | 80.63% | 1.4899 | **7.216%** | 7.216% (v1: no engine fee) | +2.22 pp |
+| testnet TestnetV2 | 70.31% | 0.1067 | **0.214%** | 0.203% (v2: 5% fee) | **−4.80 pp** |
+
+Two conclusions, and the second is the important one:
+
+1. **Testnet's 5% was pure subsidy** — 23x the real yield, funded entirely by a 30 USDC seed, capped
+   at ~1,638 USDC of deposits before `InsufficientCapacity`. A testnet rate is not evidence.
+2. **Mainnet's spot margin was an artefact of `ir_mod = 1.49`**, 49% above neutral. At neutral
+   `ir_mod` and target utilization the same pool pays 4.48% — under water against a 5% promise.
+   Break-even was `ir_mod ~ 1.15`, and with utilization already *at* target there is no upward
+   pressure left on the modifier.
+
+### The rule (`scripts/blend_rate.mjs`)
+
+```
+util_stress   = min(util_now, util_target)      -- never assume utilization improves
+ir_mod_stress = min(ir_mod_now, 1.0)            -- never assume the modifier recovers
+r_stress      = supply_apr(util_stress, ir_mod_stress)
+r_net         = r_stress x (1 - yield_fee)
+r_max         = r_net x (1 - margin)            -- margin 2500 bps
+PASS if rate <= r_max;  WARN if <= r_net;  FAIL above
+```
+
+Taking `min` in **both** directions is what makes it honest rather than merely cautious-looking: it
+refuses to flatter testnet by assuming its depressed `ir_mod` reverts to neutral, which is exactly
+how a one-sided "stress" would have passed a 3% testnet rate.
+
+A *moderate* stress, deliberately — `ir_mod`'s floor is 0.1, six times below what is assumed. The
+tail is left to the on-chain capacity check, which caps total loss at the seed however far Blend
+falls.
+
+### The model has to earn it, every run
+
+The rate curve is reconstructed from Blend's reserve config, not vendored from Blend's source. So
+`calibrate_vault_rate.mjs` measures the realized rate from `b_rate` growth on every run and
+**refuses to emit a verdict** if the model disagrees by more than 25 bps. Reconciliation on the live
+pools: mainnet model 7.212% vs measured 7.216%; testnet model 0.2143% vs measured 0.214%.
+
+This is the `tofix_audit` lesson applied — a check that cannot fail is not a check. The two live
+fixtures are pinned in `calibrate_vault_rate.test.mjs`, so a model that stops reproducing a real
+pool's real rate fails in CI rather than in production.
+
+### Shipped
+
+* `scripts/blend_rate.mjs` — the model and the rule, pure and unit-tested.
+* `scripts/calibrate_vault_rate.mjs` — the CLI: reads the venue, measures, reconciles, judges.
+* `scripts/calibrate_vault_rate.test.mjs` — 23 tests, including that the old 500 bps FAILs on
+  mainnet and that a PASS always implies stressed net yield covers the promise.
+* **Hard gate** before `vault.initialize` in `deploy_mainnet.sh` (`VAULT_RATE_OVERRIDE=1` to ship a
+  deliberate subsidy); **advisory** in both testnet scripts, where FAIL is the correct and expected
+  verdict.
+* `VAULT_RATE_BPS` 500 → **300** everywhere; `MARKET_APY_BPS` now follows it instead of being an
+  independently hardcoded 500.
+* Dashboard: a vault with zero `coupon_capacity` now says so and disables the CTA, instead of
+  quoting a rate every deposit would revert on.
+* **Rate reconciliation on every deploy run.** `initialize` runs once, so the init block is skipped
+  on every later run — a changed `VAULT_RATE_BPS` would never have reached an already-deployed
+  vault, and the script would report one rate while the contract quoted another. All three scripts
+  now read the live `rate_bps` after the init block and `set_rate` it when it differs: a no-op
+  assertion after a fresh init, the thing that actually applies a change on a re-run. On mainnet
+  that `set_rate` is behind the same hard calibration gate as the initial write — an uncalibrated
+  rate change would otherwise reintroduce exactly the defect this mechanism exists to prevent.
+
+### Applied to the live testnet vault, 2026-08-29
+
+`srvault` `CAHGFUDCMAYCGPLX5CDIIHMZZVKOKA2KL67DBHU6SQTZLDVQAYJ4AVF5` was deployed with the old
+uncalibrated 500 and the dashboard reads the contract, so the change had to be made on chain:
+`set_rate --rate_bps 300` ([tx 35ae9c42](https://stellar.expert/explorer/testnet/tx/35ae9c42a7605e9bfea53a636dcb94b1c4e97c8cc8dd681c928bb5117b819eac)).
+
+Verified after the fact:
+
+* `rate_bps` 500 → **300**; a 100 USDC quote returns `(100.7275490, 0.7275490, 300)` — 0.7275% over
+  the 88.5 days remaining, which is 3.00% annualized.
+* **Open receipt #0 is untouched**: still `payout 101213659, rate_bps 500`. `set_rate` moves the
+  quote for NEW deposits only; a receipt carries its own payout and rate, so a rate change can never
+  reprice a promise already made. `total_liability` unchanged.
+* Side effect worth having: at 3% the coupon per USDC falls from 0.012136 to 0.007275, so the same
+  19.88 USDC of spare capacity now backs **~2,732 USDC** of deposits instead of ~1,638.
+
+### Still open — an operational obligation, not a code change
+
+The rate is fixed *within* a series, not forever. **Re-run the calibration before every new series.**
+Both deploy paths now enforce it — at first write and on reconciliation — but a bare `set_rate`
+called by hand, outside the scripts, still bypasses the gate. That is a process obligation on the
+admin key, not something the contract can check: `max_rate_bps` bounds the rate at 20%, which is far
+above anything the calibration would clear.
 
 ---
 

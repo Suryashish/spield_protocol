@@ -81,6 +81,9 @@ bTokens; note shares < principal because entry_rate > 1.0 — handled by share-b
 The **Fixed-Rate Vault** (`CBCXK2G2E6ZODUIDYUII52ZRDTBBA7RVOEYTBLV5T5FG2X5EQZPSFZFK`) — the flagship
 "deposit USDC, lock a fixed %" product — is deployed on top of the live wrapper above and
 initialized with a **5% fixed APR** (`rate_bps = 500`) and a **20% ceiling** (`max_rate_bps = 2000`).
+> **Superseded.** `VAULT_RATE_BPS` now defaults to **300** and is gated by the rate calibration
+> (`MAINNET.md` §8, `V2_WORK.md` §15). 500 was never calibrated against Blend and does not clear the
+> gate on mainnet. The 5% above records what *this* instance was deployed with, not what to deploy.
 It read its PT/YT tokens and maturity straight from the wrapper, so it's in lock-step with that
 market.
 
@@ -242,7 +245,9 @@ A scripted deploy lives at [`scripts/deploy_testnet.sh`](scripts/deploy_testnet.
 2. Deploys two SACs for **PT** and **YT**, admined by the wrapper.
 3. Deploys + initializes the **Blend strategy adapter** (pointed at the TestnetV2 pool + USDC).
 4. Deploys + initializes the **wrapper** (strategy + PT + YT + a maturity ~30 days out).
-5. Deploys + initializes the **Fixed-Rate Vault** (on the wrapper; 5% fixed APR, 20% ceiling) and
+5. Runs the **rate calibration** (advisory on testnet — it reports FAIL there by design, because
+   Blend's testnet reserve pays ~0.2%), then deploys + initializes the **Fixed-Rate Vault** (on the
+   wrapper; 3% fixed APR, 20% ceiling) and
    **seeds** its PT capacity (`VAULT_SEED_AMOUNT`, default 5 USDC — needs the deployer to hold USDC).
 6. Prints all the resulting contract IDs (and a ready-to-paste `CONTRACTS` block for the frontend).
 

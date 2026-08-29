@@ -66,8 +66,18 @@ MATURITY_DAYS="${MATURITY_DAYS:-90}"
 MATURITY="${MATURITY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
 
 # ─── Fixed-Rate Vault config ────────────────────────────────────────────────────────────────────
-VAULT_RATE_BPS="${VAULT_RATE_BPS:-500}"        # fixed APR the vault quotes (500 = 5.00%)
+# The fixed APR the vault quotes. NOT a free parameter: the coupon is funded by the yield the
+# vault's YT inventory earns in Blend, so a rate above what Blend actually pays drains seed capital
+# on every deposit. 300 bps is what `scripts/calibrate_vault_rate.mjs` clears against FixedV2 —
+# see MAINNET.md "Vault rate calibration". The previous hardcoded 500 did NOT clear it.
+VAULT_RATE_BPS="${VAULT_RATE_BPS:-300}"        # fixed APR the vault quotes (300 = 3.00%)
 VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"  # hard ceiling admin can ever set (20%)
+# Safety margin the calibration applies on top of a stressed Blend rate, in bps. High on purpose: a
+# fixed rate runs for the whole term and cannot be repriced mid-series.
+VAULT_RATE_MARGIN_BPS="${VAULT_RATE_MARGIN_BPS:-2500}"
+# Set to 1 ONLY to deploy a rate the calibration rejects (a deliberate, funded subsidy). The gate
+# prints the verdict either way; this just stops it aborting the deploy.
+VAULT_RATE_OVERRIDE="${VAULT_RATE_OVERRIDE:-0}"
 # Initial PT inventory to seed = the vault's launch coupon capacity (USDC base units, 7 decimals).
 # This is the ONLY vault step that spends USDC. Default 0 => NO USDC needed to deploy+init the whole
 # protocol (deploy/init are pure config writes paid only in XLM). Seed later via vault.seed when you
@@ -487,6 +497,30 @@ else
   echo "==> [6/8] vault already deployed ($VAULT) — skipping deploy."
 fi
 if [ -z "$VAULT_INIT" ]; then
+  # ─── Rate calibration gate ─────────────────────────────────────────────────────────────────────
+  # Refuses to write a rate this venue cannot fund. The vault's promise stays SOLVENT whatever
+  # Blend does (a coupon must be backed by PT already in inventory or `deposit` reverts), but a
+  # rate above Blend's yield is not SELF-FUNDING: it consumes the seed silently until capacity hits
+  # zero and deposits start reverting. Nothing on chain checks this, so it is checked here.
+  echo "    calibrating the rate against the live Blend pool (samples b_rate; ~2 min)..."
+  if node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
+       --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
+       --rpc "$RPC_URL" --passphrase "$NETWORK_PASSPHRASE" \
+       --yield-fee 0 \
+       --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --check; then
+    echo "    ✓ rate calibration passed"
+  else
+    CAL_EXIT=$?
+    if [ "$VAULT_RATE_OVERRIDE" = "1" ]; then
+      echo "    !! calibration did not pass (exit $CAL_EXIT) — continuing because VAULT_RATE_OVERRIDE=1."
+      echo "       This rate is a SUBSIDY. Size the seed to the loss you intend to fund."
+    else
+      echo "ERROR: ${VAULT_RATE_BPS}bps did not clear the rate calibration (exit $CAL_EXIT)."
+      echo "       Lower VAULT_RATE_BPS to the printed ceiling, or set VAULT_RATE_OVERRIDE=1 to"
+      echo "       deploy it deliberately as a funded subsidy."
+      exit 1
+    fi
+  fi
   echo "    initializing vault..."
   stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
     -- initialize \
@@ -498,6 +532,42 @@ if [ -z "$VAULT_INIT" ]; then
   echo "    vault initialized (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)"
 else
   echo "    vault already initialized — skipping."
+fi
+
+# ─── Reconcile the live rate with VAULT_RATE_BPS ─────────────────────────────────────────────────
+# `initialize` runs ONCE, so on every later run the block above is skipped and a changed
+# VAULT_RATE_BPS would never reach an already-deployed vault: the script would report one rate while
+# the contract quoted another, and the dashboard reads the contract. Runs on BOTH paths — a no-op
+# assertion after a fresh init, and the thing that actually applies a change on a re-run.
+#
+# The calibration is a HARD gate here, exactly as it is for the initial write: an uncalibrated
+# `set_rate` would reintroduce the defect this whole mechanism exists to prevent.
+LIVE_RATE="$(stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+  --send=no -- rate_bps 2>/dev/null | tr -d '"[:space:]')"
+if [ -z "$LIVE_RATE" ]; then
+  echo "    !! could not read the vault's live rate — skipping reconciliation."
+elif [ "$LIVE_RATE" = "$VAULT_RATE_BPS" ]; then
+  echo "    ✓ vault rate on chain is ${LIVE_RATE}bps (matches VAULT_RATE_BPS)"
+else
+  echo "    vault rate on chain is ${LIVE_RATE}bps but VAULT_RATE_BPS=${VAULT_RATE_BPS} — reconciling..."
+  if node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
+       --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
+       --rpc "$RPC_URL" --passphrase "$NETWORK_PASSPHRASE" \
+       --yield-fee 0 \
+       --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --check; then
+    stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+      -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
+    echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"
+  elif [ "$VAULT_RATE_OVERRIDE" = "1" ]; then
+    echo "    !! calibration did not pass — setting anyway because VAULT_RATE_OVERRIDE=1."
+    stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+      -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
+    echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps (SUBSIDY — size the seed to the loss)"
+  else
+    echo "ERROR: ${VAULT_RATE_BPS}bps did not clear the rate calibration; the live rate is unchanged"
+    echo "       at ${LIVE_RATE}bps. Lower VAULT_RATE_BPS, or set VAULT_RATE_OVERRIDE=1."
+    exit 1
+  fi
 fi
 
 if [ "$VAULT_SEED_AMOUNT" -gt 0 ] && [ -z "$VAULT_SEEDED" ]; then

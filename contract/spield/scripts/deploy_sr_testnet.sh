@@ -92,8 +92,20 @@ MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-40000000000000}"     # 40 * 1e12
 # (v1's flat 30 bps cost 0.60% / 40.5%). Contract ceiling is 5%/yr.
 MARKET_LN_FEE_ROOT="${MARKET_LN_FEE_ROOT:-2500000000}"         # 0.0025 * 1e12
 
-# Opening implied APY as a SCALAR_12 fraction. 5.00% = 0.05 * 1e12.
-MARKET_APY_BPS="${MARKET_APY_BPS:-500}"
+# ─── Fixed-Rate Vault ────────────────────────────────────────────────────────────────────────────
+# The fixed APR the vault quotes. On TESTNET this is unavoidably a SUBSIDY: Blend's testnet USDC
+# reserve pays ~0.2% (ir_mod sits near its 0.1 floor), so no honest fixed rate is fundable there and
+# every coupon comes out of the seed. The number is kept aligned with mainnet's calibrated 300 bps
+# so the demo shows the real product, and the calibration below runs in ADVISORY mode to say so out
+# loud rather than pretending it passes. Never treat a testnet rate as evidence a rate is safe.
+VAULT_RATE_BPS="${VAULT_RATE_BPS:-300}"                        # 3.00% fixed (demo; see note above)
+VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"               # 20% on-chain ceiling
+VAULT_RATE_MARGIN_BPS="${VAULT_RATE_MARGIN_BPS:-2500}"         # calibration safety margin
+
+# Opening implied APY as a SCALAR_12 fraction (3.00% = 0.03 * 1e12), derived from the vault rate
+# above — the two headline numbers should not drift apart, and VAULT_RATE_BPS must therefore be
+# defined BEFORE this line.
+MARKET_APY_BPS="${MARKET_APY_BPS:-$VAULT_RATE_BPS}"
 MARKET_INITIAL_APY="${MARKET_INITIAL_APY:-$(( MARKET_APY_BPS * 1000000000000 / 10000 ))}"
 
 # Share of every swap fee routed to the treasury, in bps. 2000 = 20% protocol / 80% LP — the
@@ -106,8 +118,6 @@ MARKET_TREASURY_FEE_SHARE_BPS="${MARKET_TREASURY_FEE_SHARE_BPS:-2000}"
 SEED_PER_SIDE="${SEED_PER_SIDE:-50000000}"                     # 5 USDC per side by default
 
 # ─── Fixed-Rate Vault ────────────────────────────────────────────────────────────────────────────
-VAULT_RATE_BPS="${VAULT_RATE_BPS:-500}"                        # 5.00% fixed
-VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"               # 20% on-chain ceiling
 # USDC of PT coupon capacity to seed. The vault can only promise coupons out of SPARE inventory,
 # so an unseeded vault quotes a rate but refuses every deposit.
 VAULT_SEED_AMOUNT="${VAULT_SEED_AMOUNT:-0}"
@@ -498,10 +508,41 @@ if [ -z "$SRVAULT" ]; then
 else echo "==> [7b] Vault already deployed ($SRVAULT) — skipping."; fi
 
 if [ -z "$SRVAULT_INIT" ]; then
+  # ─── Rate calibration (ADVISORY on testnet) ────────────────────────────────────────────────────
+  # Testnet Blend pays ~0.2%, so this WILL report FAIL — correctly. It is run anyway, and printed,
+  # so the subsidy is visible at deploy time instead of being discovered when capacity runs out.
+  # The same check is a hard gate in `deploy_mainnet.sh`.
+  echo "    calibrating the rate against the live Blend pool (advisory on testnet; ~2 min)..."
+  node "$SCRIPT_DIR/calibrate_vault_rate.mjs" --state "$STATE_FILE" \
+    --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory || true
   echo "    initializing vault (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)..."
   invoke_retry "$SRVAULT" initialize --yield_contract "$YIELD" --rate_bps "$VAULT_RATE_BPS" --max_rate_bps "$VAULT_MAX_RATE_BPS"
   save_state SRVAULT_INIT 1; echo "    ✓ vault initialized"
 else echo "    vault already initialized — skipping."; fi
+
+# ─── Reconcile the live rate with VAULT_RATE_BPS ─────────────────────────────────────────────────
+# `initialize` runs ONCE. On every later run the block above is skipped, so a changed
+# VAULT_RATE_BPS would never reach an already-deployed vault — the script would report one rate
+# while the contract quoted another, and the dashboard reads the contract. This runs on BOTH paths:
+# after a fresh init it is a no-op assertion, and on a re-run it is what actually applies a change.
+# Forward-only by construction: `set_rate` moves the quote for NEW deposits and cannot touch an
+# open receipt, which stores its own payout and rate.
+LIVE_RATE="$(stellar contract invoke --id "$SRVAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+  --send=no -- rate_bps 2>/dev/null | tr -d '"[:space:]')"
+if [ -z "$LIVE_RATE" ]; then
+  echo "    !! could not read the vault's live rate — skipping reconciliation."
+elif [ "$LIVE_RATE" = "$VAULT_RATE_BPS" ]; then
+  echo "    ✓ vault rate on chain is ${LIVE_RATE}bps (matches VAULT_RATE_BPS)"
+else
+  echo "    vault rate on chain is ${LIVE_RATE}bps but VAULT_RATE_BPS=${VAULT_RATE_BPS} — reconciling..."
+  # Advisory on testnet: Blend's testnet reserve pays ~0.2%, so any usable demo rate reports FAIL.
+  node "$SCRIPT_DIR/calibrate_vault_rate.mjs" --state "$STATE_FILE" \
+    --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
+    --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --advisory --sample 0 || true
+  invoke_retry "$SRVAULT" set_rate --rate_bps "$VAULT_RATE_BPS"
+  echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"
+fi
 
 # Seed PT coupon capacity. Without it the vault quotes a rate but every deposit is refused, because
 # a coupon can only be promised out of SPARE inventory.
