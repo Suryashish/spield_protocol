@@ -21,18 +21,29 @@ export type Eip1193Provider = {
   removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
 };
 
-export type CctpSource = {
+type CctpSourceBase = {
   name: string;
   short: string;
   chainId: number;
   domain: number;
-  usdc: Hex;
   fast: boolean;
   explorer: string;
+  explorerSuffix?: string;
   rpcUrl: string;
   nativeSymbol: string;
   nativeDecimals: number;
 };
+
+export type EvmCctpSource = CctpSourceBase & { usdc: Hex; family?: 'evm' };
+export type SolanaCctpSource = CctpSourceBase & {
+  usdc: string;
+  family: 'solana';
+  genesisHash: string;
+};
+export type CctpSource = EvmCctpSource | SolanaCctpSource;
+
+export const isSolanaSource = (source: CctpSource): source is SolanaCctpSource =>
+  source.family === 'solana';
 
 export type CctpConfig = {
   environment: NetworkKey;
@@ -103,6 +114,14 @@ const SOURCES: Record<NetworkKey, CctpSource[]> = {
       explorer: 'https://snowtrace.io/tx/', rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',
       nativeSymbol: 'AVAX', nativeDecimals: 18,
     },
+    {
+      name: 'Solana', short: 'SOL', chainId: 5_000_000, domain: 5,
+      usdc: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', fast: true,
+      family: 'solana', explorer: 'https://solscan.io/tx/',
+      rpcUrl: 'https://api.mainnet-beta.solana.com',
+      genesisHash: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+      nativeSymbol: 'SOL', nativeDecimals: 9,
+    },
   ],
   testnet: [
     {
@@ -158,6 +177,14 @@ const SOURCES: Record<NetworkKey, CctpSource[]> = {
       usdc: '0x3600000000000000000000000000000000000000', fast: false,
       explorer: 'https://testnet.arcscan.app/tx/', rpcUrl: 'https://rpc.testnet.arc.network',
       nativeSymbol: 'USDC', nativeDecimals: 6,
+    },
+    {
+      name: 'Solana Devnet', short: 'SOL', chainId: 5_000_001, domain: 5,
+      usdc: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', fast: true,
+      family: 'solana', explorer: 'https://solscan.io/tx/', explorerSuffix: '?cluster=devnet',
+      rpcUrl: 'https://api.devnet.solana.com',
+      genesisHash: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+      nativeSymbol: 'SOL', nativeDecimals: 9,
     },
   ],
 };
@@ -331,8 +358,12 @@ export const fetchCircleFeeRate = async (
   return bps;
 };
 
-const buildHookData = (recipient: string): Hex => {
-  const recipientBytes = new TextEncoder().encode(recipient);
+export const buildStellarForwarderHookData = (recipient: string): Hex => {
+  const trimmedRecipient = recipient.trim();
+  if (!isValidStellarRecipient(trimmedRecipient)) {
+    throw new Error('The Stellar recipient is invalid.');
+  }
+  const recipientBytes = new TextEncoder().encode(trimmedRecipient);
   const bytes = new Uint8Array(32 + recipientBytes.length);
   new DataView(bytes.buffer).setUint32(28, recipientBytes.length, false);
   bytes.set(recipientBytes, 32);
@@ -370,7 +401,7 @@ export const buildBurnCalldata = ({
   finalityThreshold,
 }: {
   config: CctpConfig;
-  source: CctpSource;
+  source: EvmCctpSource;
   amount: bigint;
   recipient: string;
   maxFee: bigint;
@@ -381,7 +412,7 @@ export const buildBurnCalldata = ({
     throw new Error('The Stellar recipient is invalid.');
   }
   const forwarder = bytesToHex(StrKey.decodeContract(config.forwarder));
-  const hookData = buildHookData(trimmedRecipient);
+  const hookData = buildStellarForwarderHookData(trimmedRecipient);
   if (decodeHookRecipient(hookData) !== trimmedRecipient) {
     throw new Error('The Stellar recipient changed while preparing CCTP hook data.');
   }
@@ -410,7 +441,7 @@ export const getActiveChainId = async (provider: Eip1193Provider): Promise<numbe
 
 export const switchEvmNetwork = async (
   provider: Eip1193Provider,
-  source: CctpSource,
+  source: EvmCctpSource,
 ): Promise<void> => {
   const chainId = `0x${source.chainId.toString(16)}`;
   try {
@@ -439,7 +470,7 @@ export const switchEvmNetwork = async (
 export const getUsdcBalance = async (
   provider: Eip1193Provider,
   address: string,
-  source: CctpSource,
+  source: EvmCctpSource,
 ): Promise<bigint> => {
   const data = encodeFunctionData({
     abi: ERC20_ABI,
@@ -490,7 +521,7 @@ export const estimateSourceGas = async ({
   provider: Eip1193Provider;
   address: string;
   config: CctpConfig;
-  source: CctpSource;
+  source: EvmCctpSource;
   amount: bigint;
   recipient: string;
   maxFee: bigint;

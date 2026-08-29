@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { Keypair, Networks, StrKey, rpc } from '@stellar/stellar-sdk';
+import { Keypair as SolanaKeypair } from '@solana/web3.js';
 import { build } from 'vite';
 import { decodeFunctionData } from 'viem';
 
@@ -17,6 +18,7 @@ const expectedSources = {
     ['OP Mainnet', 10, 2, '0x0b2c639c533813f4aa9d7837caf62653d097ff85', true],
     ['Polygon', 137, 7, '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', false],
     ['Avalanche', 43114, 1, '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E', false],
+    ['Solana', 5_000_000, 5, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', true],
   ],
   testnet: [
     ['Ethereum Sepolia', 11155111, 0, '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', true],
@@ -28,6 +30,7 @@ const expectedSources = {
     ['Unichain Sepolia', 1301, 10, '0x31d0220469e10c4E71834a79b1f276d740d3768F', true],
     ['Linea Sepolia', 59141, 11, '0xFEce4462D57bD51A6A552365A011b95f0E16d9B7', true],
     ['Arc Testnet', 5042002, 26, '0x3600000000000000000000000000000000000000', false],
+    ['Solana Devnet', 5_000_001, 5, '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', true],
   ],
 };
 
@@ -53,13 +56,20 @@ try {
     configFile: false,
     logLevel: 'silent',
     build: {
-      ssr: 'src/lib/cctp.ts',
+      ssr: true,
       outDir: outputDirectory,
       emptyOutDir: true,
-      rollupOptions: { output: { entryFileNames: 'cctp.mjs' } },
+      rollupOptions: {
+        input: {
+          cctp: 'src/lib/cctp.ts',
+          cctpSolana: 'src/lib/cctpSolana.ts',
+        },
+        output: { entryFileNames: '[name].mjs' },
+      },
     },
   });
   const cctp = await import(`${pathToFileURL(join(outputDirectory, 'cctp.mjs')).href}?test=${Date.now()}`);
+  const solana = await import(`${pathToFileURL(join(outputDirectory, 'cctpSolana.mjs')).href}?test=${Date.now()}`);
   const mainnet = cctp.getCctpConfig('mainnet');
   const testnet = cctp.getCctpConfig('testnet');
   const appEnvironment = process.env.VITE_NETWORK?.toLowerCase() === 'mainnet'
@@ -121,6 +131,46 @@ try {
   assert.equal(hook.readUInt32BE(24), 0);
   assert.equal(hook.readUInt32BE(28), Buffer.byteLength(recipient));
   assert.equal(hook.subarray(32).toString('utf8'), recipient);
+
+  const solanaSource = testnet.sources.find((item) => item.family === 'solana');
+  assert.ok(solanaSource);
+  assert.equal(solanaSource.domain, 5);
+  assert.equal(solanaSource.fast, true);
+  const solanaOwner = SolanaKeypair.generate().publicKey;
+  const solanaEvent = SolanaKeypair.generate().publicKey;
+  const solanaInstruction = solana.buildSolanaBurnInstruction({
+    config: testnet,
+    source: solanaSource,
+    owner: solanaOwner,
+    eventAccount: solanaEvent,
+    amount: 1_500_000n,
+    recipient,
+    maxFee: 1_000n,
+    finalityThreshold: cctp.FAST_FINALITY_THRESHOLD,
+  });
+  assert.equal(solanaInstruction.programId.toBase58(), solana.SOLANA_TOKEN_MESSENGER_MINTER_V2.toBase58());
+  assert.equal(solanaInstruction.keys.length, 20);
+  assert.equal(solanaInstruction.keys[0].pubkey.toBase58(), solanaOwner.toBase58());
+  assert.equal(solanaInstruction.keys[1].pubkey.toBase58(), solanaOwner.toBase58());
+  assert.equal(solanaInstruction.keys[11].pubkey.toBase58(), solanaEvent.toBase58());
+  assert.equal(solanaInstruction.keys[11].isSigner, true);
+  const solanaData = Buffer.from(solanaInstruction.data);
+  assert.deepEqual(
+    solanaData.subarray(0, 8),
+    Buffer.from(solana.SOLANA_DEPOSIT_FOR_BURN_WITH_HOOK_DISCRIMINATOR),
+  );
+  assert.equal(solanaData.readBigUInt64LE(8), 1_500_000n);
+  assert.equal(solanaData.readUInt32LE(16), 27);
+  assert.deepEqual(solanaData.subarray(20, 52), Buffer.from(StrKey.decodeContract(testnet.forwarder)));
+  assert.deepEqual(solanaData.subarray(52, 84), Buffer.from(StrKey.decodeContract(testnet.forwarder)));
+  assert.equal(solanaData.readBigUInt64LE(84), 1_000n);
+  assert.equal(solanaData.readUInt32LE(92), cctp.FAST_FINALITY_THRESHOLD);
+  const solanaHookLength = solanaData.readUInt32LE(96);
+  const solanaHook = solanaData.subarray(100);
+  assert.equal(solanaHookLength, solanaHook.length);
+  assert.equal(solanaHook.readUInt32BE(24), 0);
+  assert.equal(solanaHook.readUInt32BE(28), Buffer.byteLength(recipient));
+  assert.equal(solanaHook.subarray(32).toString('utf8'), recipient);
 
   const switchCalls = [];
   let firstSwitch = true;
@@ -185,6 +235,40 @@ try {
       for (const sourceConfig of config.sources) {
         process.stdout.write(`LIVE ${environment.padEnd(7)} ${sourceConfig.name.padEnd(18)} `);
         try {
+          if (cctp.isSolanaSource(sourceConfig)) {
+            const [genesisHash, messengerProgram, tokenProgram, usdcMint, tokenSupply] = await Promise.all([
+              rpcCall(sourceConfig.rpcUrl, 'getGenesisHash'),
+              rpcCall(sourceConfig.rpcUrl, 'getAccountInfo', [
+                solana.SOLANA_MESSAGE_TRANSMITTER_V2.toBase58(),
+                { encoding: 'base64', commitment: 'confirmed' },
+              ]),
+              rpcCall(sourceConfig.rpcUrl, 'getAccountInfo', [
+                solana.SOLANA_TOKEN_MESSENGER_MINTER_V2.toBase58(),
+                { encoding: 'base64', commitment: 'confirmed' },
+              ]),
+              rpcCall(sourceConfig.rpcUrl, 'getAccountInfo', [
+                sourceConfig.usdc,
+                { encoding: 'base64', commitment: 'confirmed' },
+              ]),
+              rpcCall(sourceConfig.rpcUrl, 'getTokenSupply', [
+                sourceConfig.usdc,
+                { commitment: 'confirmed' },
+              ]),
+            ]);
+            const [standardFee, fastFee] = await Promise.all([
+              cctp.fetchCircleFeeRate(config, sourceConfig.domain, cctp.STANDARD_FINALITY_THRESHOLD),
+              cctp.fetchCircleFeeRate(config, sourceConfig.domain, cctp.FAST_FINALITY_THRESHOLD),
+            ]);
+            assert.equal(genesisHash, sourceConfig.genesisHash);
+            assert.equal(messengerProgram.value.executable, true);
+            assert.equal(tokenProgram.value.executable, true);
+            assert.ok(usdcMint.value);
+            assert.equal(tokenSupply.value.decimals, 6);
+            assert.match(standardFee, /^\d+(\.\d+)?$/);
+            assert.match(fastFee, /^\d+(\.\d+)?$/);
+            console.log('RPC/programs/USDC/fees OK');
+            continue;
+          }
           const chainId = await rpcCall(sourceConfig.rpcUrl, 'eth_chainId');
           const messengerCode = await rpcCall(
             sourceConfig.rpcUrl,
@@ -233,7 +317,7 @@ try {
     }
   }
 
-  console.log('CCTP tests passed: configuration, fees, calldata, hook encoding, network switching, and attestation.');
+  console.log('CCTP tests passed: EVM/Solana configuration, fees, burn encoding, Stellar hooks, network switching, and attestation.');
 } finally {
   await rm(outputDirectory, { recursive: true, force: true });
 }

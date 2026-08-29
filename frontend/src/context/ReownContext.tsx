@@ -2,13 +2,19 @@ import type { ReactNode } from 'react';
 import {
   useAppKit,
   useAppKitAccount,
+  useAppKitNetwork,
   useAppKitProvider,
   useDisconnect,
   type Provider as EvmProvider,
 } from '@reown/appkit/react';
+import {
+  type Provider as SolanaProvider,
+} from '@reown/appkit-adapter-solana/react';
+import { solana, solanaDevnet } from '@reown/appkit/networks';
 
 // Importing the config module for its side effect: it calls `createAppKit` once,
 // which must happen before any AppKit hook below runs.
+import { NETWORK_KEY } from '@/lib/config';
 import { isReownConfigured } from '@/lib/reown';
 import type { Eip1193Provider } from '@/lib/cctp';
 
@@ -32,6 +38,16 @@ export type BridgeWallets = {
   disconnectEvm: () => Promise<void>;
   /** The raw EIP-1193 provider for the connected EVM wallet, or undefined. */
   evmProvider: Eip1193Provider | undefined;
+  /** Connected Solana address, scoped to the active AppKit environment. */
+  solanaAddress: string | null;
+  /** Open the wallet modal focused on the Solana namespace. */
+  connectSolana: () => Promise<void>;
+  /** Make AppKit's active Solana CAIP network match the app environment. */
+  ensureSolanaNetwork: () => Promise<void>;
+  /** Disconnect the Solana namespace wallet. */
+  disconnectSolana: () => Promise<void>;
+  /** Reown Solana wallet provider used to sign and submit the CCTP burn. */
+  solanaProvider: SolanaProvider | undefined;
 };
 
 /**
@@ -49,14 +65,24 @@ const DISCONNECTED: BridgeWallets = {
   connectEvm: () => {},
   disconnectEvm: async () => {},
   evmProvider: undefined,
+  solanaAddress: null,
+  connectSolana: async () => {},
+  ensureSolanaNetwork: async () => {},
+  disconnectSolana: async () => {},
+  solanaProvider: undefined,
 };
 
 /** The real implementation — only safe to mount when AppKit has been created. */
 const useConfiguredBridgeWallets = (): BridgeWallets => {
   const { open } = useAppKit();
+  const { switchNetwork } = useAppKitNetwork();
   const { disconnect } = useDisconnect();
   const evm = useAppKitAccount({ namespace: 'eip155' });
   const { walletProvider: evmProvider } = useAppKitProvider<EvmProvider>('eip155');
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  const { walletProvider: solanaProvider } = useAppKitProvider<SolanaProvider>('solana');
+  const solanaNetwork = NETWORK_KEY === 'mainnet' ? solana : solanaDevnet;
+  const ensureSolanaNetwork = () => switchNetwork(solanaNetwork);
 
   return {
     configured: true,
@@ -64,6 +90,14 @@ const useConfiguredBridgeWallets = (): BridgeWallets => {
     connectEvm: () => open({ view: 'Connect', namespace: 'eip155' }),
     disconnectEvm: () => disconnect({ namespace: 'eip155' }),
     evmProvider: evmProvider as Eip1193Provider | undefined,
+    solanaAddress: solanaAccount.isConnected ? solanaAccount.address ?? null : null,
+    connectSolana: async () => {
+      await ensureSolanaNetwork();
+      await open({ view: 'Connect', namespace: 'solana' });
+    },
+    ensureSolanaNetwork,
+    disconnectSolana: () => disconnect({ namespace: 'solana' }),
+    solanaProvider,
   };
 };
 

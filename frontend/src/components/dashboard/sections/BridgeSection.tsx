@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
+import { PublicKey } from '@solana/web3.js';
 import {
   AlertTriangle,
   ArrowDown,
@@ -46,6 +47,7 @@ import {
   getCctpConfig,
   getStellarInclusionFee,
   getUsdcBalance,
+  isSolanaSource,
   isValidStellarRecipient,
   mintAndForward,
   parseUsdcUnits,
@@ -57,6 +59,13 @@ import {
   type SourceGasQuote,
   type TransferMode,
 } from '@/lib/cctp';
+import {
+  createSolanaConnection,
+  estimateSolanaBurnFee,
+  getSolanaUsdcBalance,
+  sendSolanaBurn,
+  type SolanaWalletProvider,
+} from '@/lib/cctpSolana';
 import { NETWORK_KEY } from '@/lib/config';
 import { activeWallet, shortenAddress, signWithWallet } from '@/lib/stellar';
 import AmountField from './AmountField';
@@ -122,7 +131,7 @@ const BridgePanel = ({
     typeof window !== 'undefined' ? window.ethereum : undefined
   ) as Eip1193Provider | undefined;
   const provider = reown.evmProvider ?? (!reown.configured ? injectedProvider : undefined);
-  const sourceAddress = reown.evmAddress ?? injectedAddress;
+  const evmSourceAddress = reown.evmAddress ?? injectedAddress;
   const recipient = stellarWallet.address?.trim() ?? '';
   const bridgeEnvironment = NETWORK_KEY;
   const config = getCctpConfig(bridgeEnvironment);
@@ -137,6 +146,8 @@ const BridgePanel = ({
       availableSources[bridgeEnvironment === 'mainnet' ? 1 : 0],
     [availableSources, bridgeEnvironment, sourceChainId],
   );
+  const sourceIsSolana = isSolanaSource(source);
+  const sourceAddress = sourceIsSolana ? reown.solanaAddress : evmSourceAddress;
 
   const amountUnits = useMemo(() => parseUsdcUnits(amount), [amount]);
   const protocolFeeUnits = useMemo(
@@ -216,7 +227,7 @@ const BridgePanel = ({
   }, [injectedProvider, reown.configured]);
 
   useEffect(() => {
-    if (!provider || !sourceAddress) {
+    if (!sourceAddress || (!sourceIsSolana && !provider)) {
       queueMicrotask(() => {
         setBalance(null);
         setBalanceStatus('idle');
@@ -227,7 +238,19 @@ const BridgePanel = ({
     queueMicrotask(() => { if (active) setBalanceStatus('loading'); });
     void (async () => {
       try {
-        if (await getActiveChainId(provider) !== source.chainId) {
+        if (isSolanaSource(source)) {
+          const nextBalance = await getSolanaUsdcBalance(
+            createSolanaConnection(source),
+            sourceAddress,
+            source,
+          );
+          if (active) {
+            setBalance(nextBalance);
+            setBalanceStatus('ready');
+          }
+          return;
+        }
+        if (!provider || await getActiveChainId(provider) !== source.chainId) {
           throw new Error(`Switch to ${source.name} to view its USDC balance.`);
         }
         const nextBalance = await getUsdcBalance(provider, sourceAddress, source);
@@ -243,7 +266,7 @@ const BridgePanel = ({
       }
     })();
     return () => { active = false; };
-  }, [provider, sourceAddress, source, balanceRefresh]);
+  }, [provider, sourceAddress, source, sourceIsSolana, balanceRefresh]);
 
   useEffect(() => {
     let active = true;
@@ -291,7 +314,7 @@ const BridgePanel = ({
 
   useEffect(() => {
     if (
-      !provider || !sourceAddress || !validAmount || overBalance ||
+      !sourceAddress || (!sourceIsSolana && !provider) || !validAmount || overBalance ||
       !validRecipient || feeStatus !== 'ready'
     ) {
       queueMicrotask(() => setSourceGas(EMPTY_GAS_QUOTE));
@@ -301,17 +324,38 @@ const BridgePanel = ({
     queueMicrotask(() => {
       if (active) setSourceGas({ ...EMPTY_GAS_QUOTE, status: 'loading' });
     });
-    void estimateSourceGas({
-      provider,
-      address: sourceAddress,
-      config,
-      source,
-      amount: amountUnits,
-      recipient,
-      maxFee: maxProtocolFeeUnits,
-      finalityThreshold,
-    }).then((quote) => {
-      if (active) setSourceGas(quote);
+    const quote = (async (): Promise<SourceGasQuote> => {
+      if (isSolanaSource(source)) {
+        const { burnCost, nativeBalance } = await estimateSolanaBurnFee({
+          config,
+          source,
+          owner: new PublicKey(sourceAddress),
+          amount: amountUnits,
+          recipient,
+          maxFee: maxProtocolFeeUnits,
+          finalityThreshold,
+        });
+        return {
+          status: 'ready',
+          approvalRequired: false,
+          approvalCost: null,
+          burnCost,
+          nativeBalance,
+        };
+      }
+      return estimateSourceGas({
+        provider: provider!,
+        address: sourceAddress,
+        config,
+        source,
+        amount: amountUnits,
+        recipient,
+        maxFee: maxProtocolFeeUnits,
+        finalityThreshold,
+      });
+    })();
+    void quote.then((nextQuote) => {
+      if (active) setSourceGas(nextQuote);
     }).catch((error) => {
       if (active) {
         setSourceGas({
@@ -326,6 +370,7 @@ const BridgePanel = ({
     provider,
     sourceAddress,
     source,
+    sourceIsSolana,
     amountUnits,
     validAmount,
     overBalance,
@@ -338,6 +383,14 @@ const BridgePanel = ({
   ]);
 
   const connectSource = useCallback(async () => {
+    if (sourceIsSolana) {
+      if (!reown.configured) {
+        setNotice('A Reown project ID is required to connect a Solana wallet.');
+        return;
+      }
+      await reown.connectSolana();
+      return;
+    }
     if (reown.configured) {
       reown.connectEvm();
       return;
@@ -355,12 +408,13 @@ const BridgePanel = ({
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'EVM wallet connection was cancelled.');
     }
-  }, [injectedProvider, reown, source]);
+  }, [injectedProvider, reown, source, sourceIsSolana]);
 
   const disconnectSource = useCallback(() => {
-    if (reown.configured) void reown.disconnectEvm();
+    if (sourceIsSolana) void reown.disconnectSolana();
+    else if (reown.configured) void reown.disconnectEvm();
     else setInjectedAddress(null);
-  }, [reown]);
+  }, [reown, sourceIsSolana]);
 
   const selectSource = useCallback(async (chainId: string) => {
     const next = config.sources.find((item) => String(item.chainId) === chainId);
@@ -371,14 +425,22 @@ const BridgePanel = ({
     setSourceGas(EMPTY_GAS_QUOTE);
     setNotice('');
     if (!next.fast) setMode('standard');
-    if (!provider || !sourceAddress) return;
+    if (isSolanaSource(next)) {
+      try {
+        await reown.ensureSolanaNetwork();
+      } catch {
+        setNotice(`Could not activate ${next.name} in the connected wallet.`);
+      }
+      return;
+    }
+    if (!provider || !evmSourceAddress) return;
     try {
       await switchEvmNetwork(provider, next);
       setBalanceRefresh((current) => current + 1);
     } catch {
       setNotice(`The automatic network change to ${next.name} was cancelled.`);
     }
-  }, [bridgeEnvironment, config.sources, provider, sourceAddress]);
+  }, [bridgeEnvironment, config.sources, provider, evmSourceAddress, reown]);
 
   const prepareBridge = async () => {
     try {
@@ -390,13 +452,26 @@ const BridgePanel = ({
         stellarWallet.openWalletPicker();
         return;
       }
-      if (!provider) throw new Error('The connected EVM wallet provider is unavailable.');
-      if (await getActiveChainId(provider) !== source.chainId) {
-        await switchEvmNetwork(provider, source);
-        setBalanceRefresh((current) => current + 1);
-      }
       if (!validAmount || overBalance) throw new Error('Enter a valid USDC amount before continuing.');
-      const liveBalance = await getUsdcBalance(provider, sourceAddress, source);
+      let liveBalance: bigint;
+      if (isSolanaSource(source)) {
+        await reown.ensureSolanaNetwork();
+        if (!reown.solanaProvider) {
+          throw new Error('The connected Solana wallet provider is unavailable.');
+        }
+        liveBalance = await getSolanaUsdcBalance(
+          createSolanaConnection(source),
+          sourceAddress,
+          source,
+        );
+      } else {
+        if (!provider) throw new Error('The connected EVM wallet provider is unavailable.');
+        if (await getActiveChainId(provider) !== source.chainId) {
+          await switchEvmNetwork(provider, source);
+          setBalanceRefresh((current) => current + 1);
+        }
+        liveBalance = await getUsdcBalance(provider, sourceAddress, source);
+      }
       setBalance(liveBalance);
       setBalanceStatus('ready');
       if (amountUnits > liveBalance) throw new Error('The amount exceeds your source-wallet USDC balance.');
@@ -421,42 +496,37 @@ const BridgePanel = ({
     const toastId = toast.push({
       kind: 'pending',
       title: 'Bridge USDC',
-      message: 'Verify the approval and CCTP burn in your EVM wallet.',
+      message: `Verify the CCTP burn in your ${sourceIsSolana ? 'Solana' : 'EVM'} wallet.`,
     });
     try {
-      if (!provider || !sourceAddress) throw new Error('Connect an EVM wallet first.');
+      if (!sourceAddress) throw new Error('Connect a source wallet first.');
       if (confirmedMaxFee === null) {
         throw new Error('The Circle fee quote expired. Review a fresh quote before bridging.');
       }
-      if (await getActiveChainId(provider) !== source.chainId) {
-        await switchEvmNetwork(provider, source);
-      }
-      await verifyConnectedRecipient(lockedRecipient);
-      const burnCalldata = buildBurnCalldata({
-        config,
-        source,
-        amount: amountUnits,
-        recipient: lockedRecipient,
-        maxFee: confirmedMaxFee,
-        finalityThreshold,
-      });
-      const allowance = await getAllowance(
-        provider,
-        sourceAddress,
-        source.usdc,
-        config.messenger,
-      );
-      if (allowance < amountUnits) {
-        setStep('approving');
-        setNotice('Approve the exact USDC transfer amount in your EVM wallet.');
-        await sendEvmTransaction(
+      if (!isSolanaSource(source)) {
+        if (!provider) throw new Error('The connected EVM wallet provider is unavailable.');
+        if (await getActiveChainId(provider) !== source.chainId) {
+          await switchEvmNetwork(provider, source);
+        }
+        const allowance = await getAllowance(
           provider,
           sourceAddress,
           source.usdc,
-          buildApprovalCalldata(config.messenger, amountUnits),
+          config.messenger,
         );
+        if (allowance < amountUnits) {
+          setStep('approving');
+          setNotice('Approve the exact USDC transfer amount in your EVM wallet.');
+          await sendEvmTransaction(
+            provider,
+            sourceAddress,
+            source.usdc,
+            buildApprovalCalldata(config.messenger, amountUnits),
+          );
+        }
       }
 
+      await verifyConnectedRecipient(lockedRecipient);
       const latestBps = await fetchCircleFeeRate(config, source.domain, finalityThreshold);
       const latestFee = calculateProtocolFee(amountUnits, latestBps);
       if (latestFee > confirmedMaxFee) {
@@ -469,20 +539,20 @@ const BridgePanel = ({
       setFeeStatus('ready');
       await verifyConnectedRecipient(lockedRecipient);
 
-      try {
-        const [gasPriceHex, burnGasHex, nativeBalanceHex] = await Promise.all([
-          provider.request({ method: 'eth_gasPrice' }) as Promise<`0x${string}`>,
-          provider.request({
-            method: 'eth_estimateGas',
-            params: [{ from: sourceAddress, to: config.messenger, data: burnCalldata }],
-          }) as Promise<`0x${string}`>,
-          provider.request({
-            method: 'eth_getBalance',
-            params: [sourceAddress, 'latest'],
-          }) as Promise<`0x${string}`>,
-        ]);
-        const burnCost = BigInt(gasPriceHex) * BigInt(burnGasHex);
-        const nativeBalance = BigInt(nativeBalanceHex);
+      if (isSolanaSource(source)) {
+        await reown.ensureSolanaNetwork();
+        if (!reown.solanaProvider) {
+          throw new Error('The connected Solana wallet provider is unavailable.');
+        }
+        const { burnCost, nativeBalance } = await estimateSolanaBurnFee({
+          config,
+          source,
+          owner: new PublicKey(sourceAddress),
+          amount: amountUnits,
+          recipient: lockedRecipient,
+          maxFee: confirmedMaxFee,
+          finalityThreshold,
+        });
         setSourceGas({
           status: 'ready',
           approvalRequired: false,
@@ -491,25 +561,67 @@ const BridgePanel = ({
           nativeBalance,
         });
         if (nativeBalance < burnCost) {
-          throw new Error(
-            `Your EVM wallet needs more ${source.nativeSymbol} for the CCTP burn gas.`,
-          );
+          throw new Error(`Your Solana wallet needs more SOL for the CCTP burn fee.`);
         }
         setNotice(
-          `Recipient and fee verified. Estimated burn gas: ${formatTokenUnits(burnCost, source.nativeDecimals, 8)} ${source.nativeSymbol}.`,
+          `Recipient and fee verified. Estimated burn fee: ${formatTokenUnits(burnCost, 9, 9)} SOL.`,
         );
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('needs more')) throw error;
-        setNotice('Recipient and fee verified. Review the wallet’s live gas quote before confirming the burn.');
+        setStep('burning');
+        submittedBurnHash = await sendSolanaBurn({
+          provider: reown.solanaProvider as SolanaWalletProvider,
+          config,
+          source,
+          ownerAddress: sourceAddress,
+          amount: amountUnits,
+          recipient: lockedRecipient,
+          maxFee: confirmedMaxFee,
+          finalityThreshold,
+        });
+      } else {
+        if (!provider) throw new Error('The connected EVM wallet provider is unavailable.');
+        const burnCalldata = buildBurnCalldata({
+          config,
+          source,
+          amount: amountUnits,
+          recipient: lockedRecipient,
+          maxFee: confirmedMaxFee,
+          finalityThreshold,
+        });
+        try {
+          const [gasPriceHex, burnGasHex, nativeBalanceHex] = await Promise.all([
+            provider.request({ method: 'eth_gasPrice' }) as Promise<`0x${string}`>,
+            provider.request({
+              method: 'eth_estimateGas',
+              params: [{ from: sourceAddress, to: config.messenger, data: burnCalldata }],
+            }) as Promise<`0x${string}`>,
+            provider.request({
+              method: 'eth_getBalance',
+              params: [sourceAddress, 'latest'],
+            }) as Promise<`0x${string}`>,
+          ]);
+          const burnCost = BigInt(gasPriceHex) * BigInt(burnGasHex);
+          const nativeBalance = BigInt(nativeBalanceHex);
+          setSourceGas({
+            status: 'ready', approvalRequired: false, approvalCost: null, burnCost, nativeBalance,
+          });
+          if (nativeBalance < burnCost) {
+            throw new Error(`Your EVM wallet needs more ${source.nativeSymbol} for the CCTP burn gas.`);
+          }
+          setNotice(
+            `Recipient and fee verified. Estimated burn gas: ${formatTokenUnits(burnCost, source.nativeDecimals, 8)} ${source.nativeSymbol}.`,
+          );
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('needs more')) throw error;
+          setNotice('Recipient and fee verified. Review the wallet’s live gas quote before confirming the burn.');
+        }
+        setStep('burning');
+        submittedBurnHash = await sendEvmTransaction(
+          provider,
+          sourceAddress,
+          config.messenger,
+          burnCalldata,
+        );
       }
-
-      setStep('burning');
-      submittedBurnHash = await sendEvmTransaction(
-        provider,
-        sourceAddress,
-        config.messenger,
-        burnCalldata,
-      );
       setBurnHash(submittedBurnHash);
       setStep('attesting');
       setNotice('Circle is producing the CCTP attestation. This can take a few minutes.');
@@ -572,7 +684,7 @@ const BridgePanel = ({
 
   const canSubmit = Boolean(
     sourceAddress &&
-    provider &&
+    (sourceIsSolana ? reown.solanaProvider : provider) &&
     validRecipient &&
     stellarNetworkMatches &&
     validAmount &&
@@ -621,7 +733,7 @@ const BridgePanel = ({
           Bridge to Stellar
         </CardTitle>
         <CardDescription>
-          Bring native USDC from supported EVM networks via Circle CCTP V2.
+          Bring native USDC from supported source networks via Circle CCTP V2.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -630,7 +742,7 @@ const BridgePanel = ({
             <span className="size-1.5 rounded-full bg-brand" />
             Circle CCTP V2 · {bridgeEnvironment === 'testnet' ? 'Testnet' : 'Mainnet'}
           </span>
-          <span className="font-medium text-brand-text">EVM → Stellar</span>
+          <span className="font-medium text-brand-text">{sourceIsSolana ? 'Solana' : 'EVM'} → Stellar</span>
         </div>
 
         <SourceWalletPanel
@@ -703,7 +815,7 @@ const BridgePanel = ({
               : amountUnits > MAX_BURN_UNITS
                 ? 'Circle limits a single burn to 10,000,000 USDC.'
                 : balanceStatus === 'error' && sourceAddress
-                  ? `${source.name} balance will load after the wallet changes network.`
+                  ? `${source.name} balance is unavailable from the connected wallet.`
                   : undefined}
             hintTone={overBalance || amountUnits > MAX_BURN_UNITS ? 'ember' : 'muted'}
           />
@@ -817,7 +929,7 @@ const BridgePanel = ({
         </div>
 
         {sourceGasInsufficient && (
-          <InlineNotice tone="error">Your EVM wallet does not have enough {source.nativeSymbol} for the complete gas estimate.</InlineNotice>
+          <InlineNotice tone="error">Your source wallet does not have enough {source.nativeSymbol} for the complete network-fee estimate.</InlineNotice>
         )}
         {feeStatus === 'error' && (
           <InlineNotice tone="error">{feeError} Transfers pause until a verified quote is available.</InlineNotice>
@@ -829,7 +941,7 @@ const BridgePanel = ({
           <InlineNotice tone={step === 'error' ? 'error' : step === 'complete' ? 'success' : 'muted'}>
             {notice}
             {burnHash && (
-              <a href={`${source.explorer}${burnHash}`} target="_blank" rel="noreferrer" className="ml-1 inline-flex items-center gap-1 font-medium underline underline-offset-2">
+              <a href={`${source.explorer}${burnHash}${source.explorerSuffix ?? ''}`} target="_blank" rel="noreferrer" className="ml-1 inline-flex items-center gap-1 font-medium underline underline-offset-2">
                 View burn <ExternalLink size={10} />
               </a>
             )}
@@ -1003,7 +1115,7 @@ const TransferRow = ({ transfer }: { transfer: BridgeTransfer }) => {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {source && (
-          <a href={`${source.explorer}${transfer.hash}`} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="View CCTP burn"><ExternalLink size={14} /></a>
+          <a href={`${source.explorer}${transfer.hash}${source.explorerSuffix ?? ''}`} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="View CCTP burn"><ExternalLink size={14} /></a>
         )}
         {transfer.stellarHash && (
           <a href={`${transfer.environment === 'testnet' ? 'https://stellar.expert/explorer/testnet/tx/' : 'https://stellar.expert/explorer/public/tx/'}${transfer.stellarHash}`} target="_blank" rel="noreferrer" className="text-brand-text hover:text-foreground" title="View Stellar transaction"><CheckCircle2 size={14} /></a>
@@ -1042,7 +1154,7 @@ const BridgeSection = () => {
               <ShieldCheck size={17} className="text-brand-text" /> Powered by Circle CCTP V2
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Native USDC is burned on the source EVM chain, attested by Circle, and minted through the protected Stellar Forwarder.
+              Native USDC is burned on the source chain, attested by Circle, and minted through the protected Stellar Forwarder.
             </p>
             <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
               <li className="flex items-center gap-2"><div className="size-1 rounded-full bg-primary" /> Native USDC end to end</li>
