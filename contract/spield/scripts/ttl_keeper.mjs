@@ -110,6 +110,7 @@ const CFG = {
   passphrase: arg('passphrase', 'Test SDF Network ; September 2015'),
   sr: arg('sr', st.SR ?? null),
   yieldC: arg('yield', st.YIELD ?? null),
+  strategy: arg('strategy', st.STRATEGY ?? null),
   market: arg('market', st.SRMARKET ?? null),
   vault: arg('vault', st.SRVAULT ?? null),
   source: arg('source', null),
@@ -380,6 +381,26 @@ if (stamp) {
   jobs.push([CFG.yieldC, 'stamp_expiry_index', [], 'yield::stamp_expiry_index()']);
 } else if (CFG.stampOnly) {
   console.log('  nothing to stamp (series not expired, or already pinned)');
+}
+
+// BLND emissions (`FINAL_CHECK.md` ECO-02). Read first, submit only if there is something there.
+//
+// Measured on mainnet 2026-08-30, Blend allocates emissions to XLM suppliers and USDC *borrowers*,
+// not USDC suppliers — so this is zero and the run costs one simulation. Allocations rotate each
+// cycle, so it will not necessarily stay zero, and the claim is permissionless with a destination
+// fixed to `strategy.emissions_to()`, meaning this keeper can never redirect the money.
+if (CFG.strategy && !CFG.stampOnly) {
+  try {
+    const claimable = await simulate(CFG.strategy, 'claimable_emissions');
+    const amount = claimable == null ? 0n : BigInt(claimable);
+    if (amount > 0n) {
+      console.log(`  BLND emissions: ${amount} claimable — queuing a claim`);
+      jobs.push([CFG.strategy, 'claim_emissions', [], 'strategy::claim_emissions()']);
+    }
+  } catch (e) {
+    // A deployment predating ECO-02 has no such method; that is the norm, not an incident.
+    void e;
+  }
 }
 
 for (const h of holders) {

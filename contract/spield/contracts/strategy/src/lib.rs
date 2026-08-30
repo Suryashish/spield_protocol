@@ -56,6 +56,8 @@ enum DataKey {
     ReserveIndex,
     /// Rate sanity bound + last-observed rate (defence-in-depth).
     Bound,
+    /// Where claimed BLND emissions are sent. Admin-settable; defaults to the admin.
+    EmissionsTo,
 }
 
 const INSTANCE_BUMP_LO: u32 = 30 * 24 * 60 * 60 / 5; // ~30 days in ledgers (5s close)
@@ -253,6 +255,117 @@ impl BlendStrategy {
     /// Underlying value of `shares` at the live rate.
     pub fn position_value(env: Env, shares: i128) -> i128 {
         let rate = Self::current_rate(env.clone());
+        math::shares_to_underlying(&env, shares, rate).unwrap_or(0)
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // BLND emissions (`FINAL_CHECK.md` ECO-02)
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // Blend pays BLND to the holders of a reserve's b_tokens (suppliers) and d_tokens (borrowers),
+    // when its DAO has allocated emissions to that side. This contract holds the b_tokens for the
+    // whole protocol, so it is the only address Blend will pay, and until now nothing claimed.
+    //
+    // ## The index
+    //
+    // Blend addresses emissions by `reserve_token_index = reserve_index * 2 + res_type`, with
+    // `res_type` 0 for the d_token (borrow) and 1 for the b_token (supply). Spield supplies, so the
+    // index is always `reserve_index * 2 + 1`. Getting this wrong claims nothing rather than
+    // claiming somebody else's — `claim` only ever pays what `from` has accrued.
+    //
+    // ## Measured on mainnet, 2026-08-30
+    //
+    // **USDC *supply* emissions are OFF on the pool Spield uses.** Blend pays XLM suppliers and
+    // USDC *borrowers*; the USDC b_token (index 3) returns `None` from `get_reserve_emissions`, and
+    // the deployed v1 strategy has never accrued a stroop. So this claims zero today.
+    //
+    // It is built anyway because the allocation is not permanent: emission configs carry an
+    // `expiration` and are re-gulped each cycle, so USDC supply can be switched on without warning.
+    // The alternative is noticing months later. [`Self::claimable_emissions`] is the half that
+    // earns its keep now — it lets the monitor say the moment this stops being zero.
+    //
+    // ## Why the destination is fixed and the call is not
+    //
+    // Anyone may trigger it; only [`Self::emissions_to`] can receive. That is the same shape as
+    // `Yield::sweep_surplus`, and it means a stuck keeper key cannot strand the rewards while an
+    // attacker still cannot redirect them.
+
+    /// Emission index for the supply side of our reserve — `reserve_index * 2 + 1`.
+    fn b_token_emission_index(env: &Env) -> u32 {
+        Self::reserve_index(env) * 2 + 1
+    }
+
+    /// BLND accrued to this strategy and not yet claimed. **Pure.** `0` when the pool has no
+    /// emissions configured for our supply side, which is the case on mainnet today.
+    pub fn claimable_emissions(env: Env) -> i128 {
+        let pool = Self::pool_addr(&env);
+        let idx = Self::b_token_emission_index(&env);
+        let me = env.current_contract_address();
+        match PoolClient::new(&env, &pool).get_user_emissions(&me, &idx) {
+            Some(d) => d.accrued,
+            None => 0,
+        }
+    }
+
+    /// **Claim accrued BLND to [`Self::emissions_to`]. Permissionless.**
+    ///
+    /// Returns the amount claimed — `0` when there is nothing, which is not an error and must not
+    /// panic: a keeper calls this on a schedule and an empty claim is the normal case.
+    ///
+    /// BLND is **not** re-supplied into Blend, and that is deliberate rather than lazy. SR is minted
+    /// one-for-one with the b_tokens Blend returns, and its exchange rate is Blend's own `b_rate` —
+    /// not `position / supply`. Re-supplying would therefore mint b_tokens that no SR is entitled
+    /// to: `b_rate` would not move, no redemption could reach the extra value, and `Sr::realizable_rate`
+    /// would start reporting above `Sr::exchange_rate` — a number users could see and never realise.
+    /// Routing BLND to the treasury keeps every SR invariant exactly as it is.
+    pub fn claim_emissions(env: Env) -> i128 {
+        // `pool_addr` panics with NotInitialized if setup never ran — no separate guard needed.
+        let pool = Self::pool_addr(&env);
+        let to = Self::emissions_to(env.clone());
+        let me = env.current_contract_address();
+
+        let ids = Vec::from_array(&env, [Self::b_token_emission_index(&env)]);
+        let claimed = PoolClient::new(&env, &pool).claim(&me, &ids, &to);
+
+        // The strategy emits no events anywhere else; the pool's own `claim` event carries the
+        // amount and destination, so there is nothing this would add.
+        Self::bump_instance(&env);
+        claimed
+    }
+
+    /// Where claimed BLND goes. Defaults to the admin until set.
+    pub fn emissions_to(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::EmissionsTo)
+            .unwrap_or_else(|| Self::current_admin(&env))
+    }
+
+    /// Admin-only. The destination is fixed precisely so that [`Self::claim_emissions`] can be open
+    /// to anyone without letting the caller choose where the money lands.
+    pub fn set_emissions_to(env: Env, to: Address) {
+        Self::current_admin(&env).require_auth();
+        env.storage().instance().set(&DataKey::EmissionsTo, &to);
+        Self::bump_instance(&env);
+    }
+
+    /// **Loss accounting.** What the whole Blend position is really worth right now — live
+    /// `b_rate`, **no** monotonicity guard, **no** write.
+    ///
+    /// [`Self::current_rate`] refuses a fallen rate, which freezes every deposit, sync and
+    /// redemption until [`Self::reset_rate_floor`]. That is the right safety behaviour and the
+    /// wrong behaviour for a question a user is entitled to an answer to during the freeze:
+    /// *how much money actually exists?* This reads the venue and reports it, unguarded.
+    ///
+    /// It is therefore the **only** rate path here that can report a number LOWER than the stored
+    /// high-water mark. Never route a deposit or a redemption through it — the guard exists for a
+    /// reason. `Sr::realizable_rate` composes it into the per-share figure a UI should quote.
+    pub fn position_value_unguarded(env: Env) -> i128 {
+        let pool = Self::pool_addr(&env);
+        let underlying = Self::underlying(env.clone());
+        let rate = PoolClient::new(&env, &pool).get_reserve(&underlying).data.b_rate;
+        let index = Self::reserve_index(&env);
+        let shares = Self::raw_supply_shares(&env, &pool, index);
         math::shares_to_underlying(&env, shares, rate).unwrap_or(0)
     }
 

@@ -33,6 +33,36 @@ CPU has never been close. The busiest passing path uses ~14% of the instruction 
 
 ## 2. Current state, measured on chain
 
+> ### ⚠️ Re-measured 2026-08-30 — **both failures are gone**
+>
+> Against a fresh testnet deployment carrying the `FINAL_CHECK.md` fixes (V2-01's synchronized index,
+> V2-03's snapshot check, `realizable_rate`, `claim_emissions`), **all six router paths fit**, including
+> the two that used to be over budget. The 2026-08-26 table is kept below it for the record.
+>
+> | router path | instructions | % of cpu | entries | status |
+> |---|---|---|---|---|
+> | `buy_pt_with_usdc` | 45.9M | 11.5% | 31 | ✅ |
+> | `sell_pt_for_usdc` | 44.6M | 11.1% | 30 | ✅ |
+> | **`buy_yt_with_usdc`** | **60.3M** | **15.1%** | 37 | ✅ **was ❌** |
+> | **`sell_yt_for_usdc`** | **60.7M** | **15.2%** | 35 | ✅ **was ❌** |
+> | `claim_yield_to_usdc` | 7.4M | 1.9% | 20 | ✅ |
+> | `redeem_py_for_usdc` | 17.9M | 4.5% | 28 | ✅ |
+>
+> Instruction counts fell across the board (`buy_pt` 55.4M → 45.9M) even though V2-01's fix *adds* a
+> Blend `get_reserve` to every trading path. Both effects are real; the reduction is larger.
+>
+> **Two caveats before treating this as settled.** The probe needs a user holding PT *and* YT — with an
+> empty account the YT paths report a balance error that reads like a budget failure, which is what the
+> earlier runs in this file may partly have been. And the deployment is freshly seeded at the planned
+> mainnet shape (5 USDC per side), so it is not a like-for-like environment with 2026-08-26.
+>
+> The live workflow suite confirms it independently: `test_sr_testnet.sh` now prints *"one-transaction
+> USDC->YT now FITS on this network"* and *"one-transaction YT->USDC now FITS again"*.
+>
+> **`probe_budget.mjs` itself needed fixing to produce this table** — see §7.
+
+<details><summary>Historical: 2026-08-26, before the FINAL_CHECK round</summary>
+
 Simulated against testnet, 2026-08-26, after the `sr` and `strategy` upgrades:
 
 | router path | instructions | status |
@@ -59,8 +89,14 @@ Note the CPU column: the busiest path uses **13.9%** of the instruction budget. 
 close to a CPU limit, which is exactly why the first several attempts to fix it — all aimed at
 shaving instructions — got nowhere.
 
-Both failures are handled in the dApp by splitting into two transactions. Both legs of each split
+Both failures were handled in the dApp by splitting into two transactions. Both legs of each split
 work fine alone — this is a limit on *combining* them, not on any single operation.
+
+</details>
+
+**As of 2026-08-30 the dApp no longer needs those splits** — see the re-measurement above. The
+two-transaction YT paths still work and remain the safe fallback; switching them off is a UX change,
+not a correctness one.
 
 Where the work goes, if you need to shave something:
 
@@ -205,6 +241,17 @@ cd website/contract/spield
 `probe_budget.mjs` distinguishes **over budget** (a fact about the path) from a call merely being
 rejected at the size probed (a balance or liquidity limit). Only the first belongs in the table
 above.
+
+**Give `--user` an account holding PT *and* YT.** With an empty account the two YT paths fail on
+balance, print `n/a`, and look indistinguishable from the budget failures this file used to record.
+Set one up with: a PT trustline (`stellar tx new change-trust --line <PT_ASSET_ID>`), a PT buy
+through the router, and a `market.buy_yt_exact_out`.
+
+**Fixed 2026-08-30:** the script crashed with `sim.transactionData.build(...).resources is not a
+function`. Across stellar-sdk versions the XDR accessors changed from **methods** to **plain
+properties**, so `resources()`, `instructions()` and `footprint()` all had to become version-tolerant
+reads. Worth knowing because the failure mode was a hard crash of the release gate itself — a gate
+nobody can run is a gate nobody trusts.
 
 Related: [`AUDITPREP.md`](./AUDITPREP.md) §4 (defects 4b, 5, 7), [`srstack.md`](./srstack.md)
 §7b, [`tofix.md`](./tofix.md) #3 and #20.

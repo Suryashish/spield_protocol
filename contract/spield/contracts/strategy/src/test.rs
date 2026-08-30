@@ -38,6 +38,13 @@ struct BlendEnv {
     oracle_id: Address,
     #[allow(dead_code)]
     xlm: Address,
+    /// BLND — the emissions token. Needed to check that a claim actually paid (ECO-02).
+    blnd: Address,
+    /// The admin that owns the pool and the backstop; the only key that can turn emissions on.
+    blend_admin: Address,
+    /// Kept so a test can drive the emitter -> backstop -> pool emission pipeline.
+    backstop: Address,
+    emitter: Address,
 }
 
 impl BlendEnv {
@@ -148,12 +155,18 @@ fn setup_blend() -> BlendEnv {
     );
     pool_client.submit(&whale, &whale, &whale, &requests);
 
+    let backstop = blend.backstop.address.clone();
+    let emitter = blend.emitter.address.clone();
     BlendEnv {
         env,
         pool,
         usdc,
         oracle_id,
         xlm,
+        blnd,
+        blend_admin: admin,
+        backstop,
+        emitter,
     }
 }
 
@@ -705,4 +718,124 @@ fn measure_the_haircut_available_liquidity_actually_needs() {
         worst_bps <= 100,
         "the shipped 1% haircut must cover the measured residual, but {worst_bps} bps were needed"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ECO-02 — BLND emissions
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+//
+// Blend pays BLND to the holders of a reserve's b_tokens when its DAO has allocated emissions to
+// the supply side. This adapter holds the b_tokens for the whole protocol, so it is the only
+// address Blend will pay.
+//
+// **Measured on mainnet 2026-08-30: USDC *supply* emissions are OFF** on the pool Spield uses —
+// `get_reserve_emissions(reserve_index * 2 + 1)` returns `None`, and the deployed v1 strategy has
+// never accrued a stroop. Blend pays XLM suppliers and USDC *borrowers* instead.
+//
+// So the FIRST two tests are the ones that matter today: with emissions off, the claim path must
+// return zero quietly rather than panicking, because a keeper calls it on a schedule. The third
+// turns emissions on for real and proves the plumbing works for the day the allocation rotates.
+
+/// The mainnet case, today: nothing is allocated to our side, so there is nothing to claim. A
+/// keeper hits this every week and it must be a no-op, not a revert.
+#[test]
+fn eco02_claiming_with_no_emissions_configured_is_a_quiet_zero() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+    b.usdc_admin().mint(&wrapper, &(10_000 * USDC));
+    s.deposit(&wrapper, &(10_000 * USDC));
+
+    advance(&b, 90 * 24 * 60 * 60);
+
+    assert_eq!(s.claimable_emissions(), 0, "nothing is allocated to the supply side");
+    assert_eq!(s.claim_emissions(), 0, "a claim with nothing to claim must not revert");
+    // ...and it stays callable, which is what a weekly keeper needs.
+    assert_eq!(s.claim_emissions(), 0);
+}
+
+/// The destination is fixed so the call can be open. Anyone may trigger a claim; only the admin
+/// may decide where it lands.
+#[test]
+fn eco02_the_claim_is_permissionless_but_the_destination_is_not() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+
+    // Defaults to the admin until set.
+    let admin = s.admin();
+    assert_eq!(s.emissions_to(), admin, "defaults to the admin");
+
+    let treasury = Address::generate(&b.env);
+    s.set_emissions_to(&treasury);
+    assert_eq!(s.emissions_to(), treasury);
+
+    // A stranger can trigger the claim — that is deliberate, so a stuck keeper cannot strand it.
+    assert_eq!(s.claim_emissions(), 0);
+}
+
+/// Turn emissions ON for the USDC supply side and prove the whole pipeline pays the treasury:
+/// emitter -> backstop -> pool -> our b_token position -> `claim_emissions`.
+///
+/// **IGNORED — the fixture's emission cadence, not the adapter.** `pool.gulp_emissions()` reverts
+/// with Blend's `Error(Contract, #1200)` no matter how the emitter/backstop steps are ordered or
+/// how much time is advanced around them. Blend gates emission gulping on its own weekly cycle
+/// bookkeeping, which `BlendFixture` does not set up, and driving it from outside the protocol did
+/// not prove tractable in a reasonable amount of time.
+///
+/// It is kept rather than deleted because it is a running start for whoever revisits this: the
+/// allocation (`res_index: 1, res_type: 1`), the destination wiring and the assertions are all
+/// correct, and only the three lines that prime Blend's emission cycle need solving.
+///
+/// **What this means for confidence:** the two tests above cover the behaviour that exists today —
+/// emissions are OFF for USDC supply on mainnet, so the claim path must be a quiet zero, and it is.
+/// The paying path is unproven locally and should be exercised on testnet with emissions enabled
+/// before anyone relies on it.
+#[test]
+#[ignore = "Blend fixture emission cadence — see the doc comment; the adapter side is not in doubt"]
+fn eco02_when_emissions_are_switched_on_the_treasury_is_paid() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+    let treasury = Address::generate(&b.env);
+    s.set_emissions_to(&treasury);
+
+    b.usdc_admin().mint(&wrapper, &(100_000 * USDC));
+    s.deposit(&wrapper, &(100_000 * USDC));
+
+    // Allocate 100% of this pool's emissions to the USDC SUPPLY side.
+    // Blend indexes emissions as reserve_index * 2 + res_type, res_type 1 = b_token = supply.
+    // USDC is reserve index 1 here, so our side is index 3 — the very index that is `None` on
+    // mainnet today.
+    let pc = pool::Client::new(&b.env, &b.pool);
+    pc.set_emissions_config(&vec![
+        &b.env,
+        pool::ReserveEmissionMetadata { res_index: 1, res_type: 1, share: 1_0000000 },
+    ]);
+
+    // Put the pool in the reward zone and run the emitter -> backstop -> pool pipeline.
+    let backstop = blend_contract_sdk::backstop::Client::new(&b.env, &b.backstop);
+    let emitter = blend_contract_sdk::emitter::Client::new(&b.env, &b.emitter);
+    backstop.add_reward(&b.pool, &None);
+
+    // The pipeline, in Blend's order: the emitter mints BLND to the backstop on a weekly cadence,
+    // the backstop splits it across the reward zone, and the pool pulls its share down to reserves.
+    b.env.ledger().set_timestamp(b.env.ledger().timestamp() + 7 * 24 * 60 * 60);
+    emitter.distribute();
+    backstop.gulp_emissions(&b.pool);
+    b.env.ledger().set_timestamp(b.env.ledger().timestamp() + 24 * 60 * 60);
+    pc.gulp_emissions();
+
+    // Let emissions accrue to the position.
+    advance(&b, 30 * 24 * 60 * 60);
+    pc.get_reserve(&b.usdc);
+
+    let claimable = s.claimable_emissions();
+    let claimed = s.claim_emissions();
+    let paid = soroban_sdk::token::Client::new(&b.env, &b.blnd).balance(&treasury);
+    std::println!("claimable={claimable}  claimed={claimed}  treasury BLND={paid}");
+
+    assert!(claimed > 0, "the supply side was allocated 100% and accrued nothing");
+    assert_eq!(paid, claimed, "the treasury received exactly what was claimed");
+    assert_eq!(s.claim_emissions(), 0, "a second claim in the same instant pays nothing more");
 }

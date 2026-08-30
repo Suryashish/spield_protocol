@@ -60,6 +60,14 @@ use spield_shared::{governance, Error};
 #[contract]
 pub struct SrRouter;
 
+/// The four tokens the router can hold. A plain Rust struct — it never crosses a contract boundary.
+struct Holdings {
+    sr: i128,
+    pt: i128,
+    yt: i128,
+    usdc: i128,
+}
+
 #[contractimpl]
 impl SrRouter {
     pub fn __constructor(env: Env, admin: Address) {
@@ -120,6 +128,8 @@ impl SrRouter {
         min_pt_out: i128,
         deadline_ledger: u32,
     ) -> i128 {
+        // Snapshot BEFORE any work: the exit check is "no richer than we started".
+        let before = Self::holdings(&env);
         Self::ensure_active(&env);
         user.require_auth();
         Self::positive(&env, usdc_in);
@@ -142,7 +152,7 @@ impl SrRouter {
 
         storage::bump_instance(&env);
         events::bought_pt(&env, &user, usdc_in, sr_mid, pt_out);
-        Self::assert_drained(&env);
+        Self::assert_no_accumulation(&env, &before);
         pt_out
     }
 
@@ -200,6 +210,8 @@ impl SrRouter {
         usdc_in: i128,
         deadline_ledger: u32,
     ) -> i128 {
+        // Snapshot BEFORE any work: the exit check is "no richer than we started".
+        let before = Self::holdings(&env);
         Self::ensure_active(&env);
         user.require_auth();
         Self::positive(&env, yt_out);
@@ -231,7 +243,7 @@ impl SrRouter {
 
         storage::bump_instance(&env);
         events::bought_yt(&env, &user, usdc_in, yt_out, 0, sr_refund);
-        Self::assert_drained(&env);
+        Self::assert_no_accumulation(&env, &before);
         sr_spent
     }
 
@@ -245,6 +257,8 @@ impl SrRouter {
         min_usdc_out: i128,
         deadline_ledger: u32,
     ) -> i128 {
+        // Snapshot BEFORE any work: the exit check is "no richer than we started".
+        let before = Self::holdings(&env);
         Self::ensure_active(&env);
         user.require_auth();
         Self::positive(&env, pt_in);
@@ -265,7 +279,7 @@ impl SrRouter {
 
         storage::bump_instance(&env);
         events::sold_pt(&env, &user, pt_in, sr_mid, usdc_out);
-        Self::assert_drained(&env);
+        Self::assert_no_accumulation(&env, &before);
         usdc_out
     }
 
@@ -281,6 +295,8 @@ impl SrRouter {
         min_usdc_out: i128,
         deadline_ledger: u32,
     ) -> i128 {
+        // Snapshot BEFORE any work: the exit check is "no richer than we started".
+        let before = Self::holdings(&env);
         Self::ensure_active(&env);
         user.require_auth();
         Self::positive(&env, yt_in);
@@ -299,7 +315,7 @@ impl SrRouter {
 
         storage::bump_instance(&env);
         events::sold_yt(&env, &user, yt_in, sr_mid, usdc_out);
-        Self::assert_drained(&env);
+        Self::assert_no_accumulation(&env, &before);
         usdc_out
     }
 
@@ -314,6 +330,8 @@ impl SrRouter {
     ///
     /// Deliberately not pausable-gated beyond the router's own switch: this is an exit path.
     pub fn redeem_py_for_usdc(env: Env, user: Address, py_amount: i128, min_usdc_out: i128) -> i128 {
+        // Snapshot BEFORE any work: the exit check is "no richer than we started".
+        let before = Self::holdings(&env);
         Self::ensure_initialized(&env);
         user.require_auth();
         Self::positive(&env, py_amount);
@@ -328,7 +346,7 @@ impl SrRouter {
         let after_expiry = env.ledger().timestamp() >= storage::expiry(&env);
         storage::bump_instance(&env);
         events::redeemed_for_usdc(&env, &user, py_amount, sr_mid, usdc_out, after_expiry);
-        Self::assert_drained(&env);
+        Self::assert_no_accumulation(&env, &before);
         usdc_out
     }
 
@@ -347,6 +365,8 @@ impl SrRouter {
     ///
     /// Returns the USDC paid. Claiming zero is not an error; it returns 0 and touches nothing.
     pub fn claim_yield_to_usdc(env: Env, user: Address, min_usdc_out: i128) -> i128 {
+        // Snapshot BEFORE any work: the exit check is "no richer than we started".
+        let before = Self::holdings(&env);
         Self::ensure_initialized(&env); // an exit — open while the router is paused
         user.require_auth();
 
@@ -362,7 +382,7 @@ impl SrRouter {
 
         storage::bump_instance(&env);
         events::yield_claimed(&env, &user, sr_net, sr_fee, usdc_out);
-        Self::assert_drained(&env);
+        Self::assert_no_accumulation(&env, &before);
         usdc_out
     }
 
@@ -571,20 +591,42 @@ impl SrRouter {
         SrClient::new(env, &storage::get_sr(env)).redeem(&me, user, &sr, &min_usdc_out)
     }
 
-    /// The router must never hold value between transactions. This is the assertion that keeps the
-    /// "holds nothing" claim in the module docs honest rather than aspirational — every entry point
-    /// ends with it, so a future edit that forgets to forward a balance fails loudly in tests.
-    ///
-    /// Checked against the four tokens the router can possibly acquire. A donation made *during*
-    /// the same transaction would trip this; that is the correct outcome, not a bug — the router
-    /// declines to be a custodian even briefly.
-    fn assert_drained(env: &Env) {
+    /// Everything the router can possibly end up holding, read at one instant.
+    fn holdings(env: &Env) -> Holdings {
         let me = env.current_contract_address();
-        let sr = SrClient::new(env, &storage::get_sr(env)).balance(&me);
-        let pt = token::Client::new(env, &storage::get_pt(env)).balance(&me);
-        let yt = YieldClient::new(env, &storage::get_yield(env)).balance(&me);
-        let usdc = token::Client::new(env, &storage::get_underlying(env)).balance(&me);
-        if sr != 0 || pt != 0 || yt != 0 || usdc != 0 {
+        Holdings {
+            sr: SrClient::new(env, &storage::get_sr(env)).balance(&me),
+            pt: token::Client::new(env, &storage::get_pt(env)).balance(&me),
+            yt: YieldClient::new(env, &storage::get_yield(env)).balance(&me),
+            usdc: token::Client::new(env, &storage::get_underlying(env)).balance(&me),
+        }
+    }
+
+    /// **The router must not ACCUMULATE value.** Every entry point snapshots its holdings on the
+    /// way in and ends here, so a future edit that forgets to forward a balance still fails loudly.
+    ///
+    /// ## Why this is `<= before` and not `== 0` (`FINAL_CHECK.md` V2-03)
+    ///
+    /// It used to require all four balances to be exactly zero. The intent was right — refusing to
+    /// trade while holding someone's funds beats quietly spending them — but the absolute made the
+    /// router trivially deniable: **one stroop** of any of the four, sent by anybody for the cost of
+    /// a transaction fee, bricked every route until an admin ran `sweep`. Repeatable indefinitely.
+    /// `a4_the_router_refuses_to_be_a_custodian` never caught it because it donates 100 USDC, and at
+    /// 100 USDC the griefer is the one paying.
+    ///
+    /// Comparing against the entry snapshot keeps the whole of the original property. A donation
+    /// resting on the contract from some earlier transaction is carried through untouched and
+    /// changes nothing; a donation made *during* this transaction, or a leg that forgets to forward,
+    /// still raises a balance above where it started and still fails. The router remains
+    /// non-custodial in the only sense that matters — **it never ends a transaction richer than it
+    /// began** — and `sweep` still exists to recover whatever has been left on it.
+    fn assert_no_accumulation(env: &Env, before: &Holdings) {
+        let after = Self::holdings(env);
+        if after.sr > before.sr
+            || after.pt > before.pt
+            || after.yt > before.yt
+            || after.usdc > before.usdc
+        {
             panic_with_error!(env, Error::SolvencyViolation);
         }
     }

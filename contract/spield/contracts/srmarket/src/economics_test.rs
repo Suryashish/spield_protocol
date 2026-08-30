@@ -544,3 +544,47 @@ fn an_idle_participant_cannot_gain_at_anothers_expense() {
     std::println!("  vs holding, both at exit price: {:+}  <- impermanent loss, expected",
         lp_at_exit - hold_at_exit);
 }
+
+/// **ECO-01, calibrated.** `slicing_a_trade_gets_a_better_price_and_by_how_much` shows the effect
+/// exists at one size. This measures how it scales, because that is what a UI needs in order to
+/// decide when the warning is worth showing — and what to suggest when it does.
+///
+/// The output feeds `frontend/src/lib/srstack.ts::priceImpactAdvice`. If the curve or the seed
+/// convention changes, re-run this and move the thresholds with it.
+#[test]
+fn eco01_how_the_slicing_gain_scales_with_trade_size() {
+    std::println!(
+        "  {:>8} {:>10} {:>12} {:>12} {:>12}",
+        "trade", "% of pool", "1 trade", "5 slices", "gain"
+    );
+    for pct in [1i128, 2, 5, 10, 20] {
+        let pool = 500_000 * USDC;
+        let size = pool * pct / 100;
+
+        let single = {
+            let w = std_setup(YEAR, 500);
+            w.seed(pool, pool);
+            let (u, sr) = w.user_with_sr(size);
+            w.m().swap_exact_sr_for_pt(&u, &sr, &0i128, &0u32)
+        };
+        let sliced = {
+            let w = std_setup(YEAR, 500);
+            w.seed(pool, pool);
+            let (u, sr) = w.user_with_sr(size);
+            let mut total = 0;
+            for _ in 0..5 {
+                total += w.m().swap_exact_sr_for_pt(&u, &(sr / 5), &0i128, &0u32);
+            }
+            total
+        };
+        std::println!(
+            "  {:>8} {:>9}% {:>12} {:>12} {:>11.4}%",
+            size / USDC,
+            pct,
+            single,
+            sliced,
+            (sliced - single) as f64 * 100.0 / single as f64
+        );
+    }
+    std::println!("  A trade under ~2% of the pool gains too little to be worth splitting.");
+}

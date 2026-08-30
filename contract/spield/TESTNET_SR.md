@@ -1,7 +1,11 @@
 # TESTNET_SR.md — the SR stack, live on testnet
 
-**Redeployed 2026-08-25 with governance** against the real **Blend TestnetV2** pool and real testnet
-USDC. Seeded, exercised end to end (**34/34 live workflow checks green**), and wired to the frontend.
+**Redeployed 2026-08-30** against the real **Blend TestnetV2** pool and real testnet USDC, carrying
+every fix from `FINAL_CHECK.md` — V2-01, V2-03, RISK-01 and ECO-02. Seeded to the **planned mainnet
+shape**, wired to the frontend, and cleared through the on-chain budget gate.
+
+> **All six router paths fit**, including `buy_yt_with_usdc` and `sell_yt_for_usdc`, which
+> `budget.md` had recorded as over budget. See `budget.md` §2.
 
 ```
 Network passphrase: Test SDF Network ; September 2015
@@ -10,22 +14,23 @@ Explorer:           https://stellar.expert/explorer/testnet
 
 ## Addresses
 
-> **Redeployed 2026-08-27.** The previous deployment predates `add_liquidity`'s `min_shares`
-> argument, `Receipt.collected`, the three TTL bump entry points, `srvault::sweep_surplus` and the
-> corrected `strategy::available_liquidity`. The receipt schema changed, so an in-place upgrade
-> would have broken existing receipts — a fresh deploy was the safe route. Old addresses:
-> `scripts/deploy_sr_testnet.state.pre-redeploy-20260827`.
+> **Redeployed 2026-08-30.** The previous deployment predates the whole `FINAL_CHECK.md` round:
+> **V2-01** (the market prices on a SYNCHRONIZED index via `yield.py_index_current`), **V2-03** (the
+> router compares against its entry snapshot, so a one-stroop donation can no longer deny every
+> route), **RISK-01** (`sr.realizable_rate` / `realizable_value`) and **ECO-02**
+> (`strategy.claim_emissions`, pointed at the treasury at deploy time). None could be added in place.
+> Old addresses: `scripts/deploy_sr_testnet.state.bak.pre-eco02-20260830-210750`.
 
 | Contract | Address |
 |---|---|
-| **SR** (Standardized Return) | `CCOXZUKCZGNJQYNWRLWD3TZFBQH2GNF4SKP65WAN5I63JXEKBAAT7QRX` |
-| **Strategy** (Blend adapter) | `CDTTEX3YMXXNEO7BVWHYO7G4GOJJH5RXO4423RSC25HLZF66NM6J5CSX` |
-| **Yield engine** — *this is also the YT token* | `CCL4K4ZNM2AVSJEHWX47DPOM3MCD7Z5SNJNHEIGV2ICV7CSZZL5Q6GFG` |
-| **PT/SR Market** | `CD5CEGFSBMXPNJUG2HRX7LFZCJ56WF35SMPPWW3OXRR75GBRXVA5WITN` |
-| **Fixed-Rate Vault** | `CAHGFUDCMAYCGPLX5CDIIHMZZVKOKA2KL67DBHU6SQTZLDVQAYJ4AVF5` |
-| **SR Router** | `CCU7J3JYNSO2R3YVYNVB46ZHKRCOIBC566F6MCN5SXGSJXE7HVIWYIFN` |
-| **PT SAC** | `CCW4F7LXRIESZLOA6SJN7MA6FSRM7PMGTXXY7ZAQRDF3BN5M3WHELPYF` |
-| PT classic asset | `SPLDPT6:GDGQUCGAZLMBZBF4CMNVFKVUWWM2RNRU7MYQJGYTZZW43L2QUOLXCOLL` |
+| **SR** (Standardized Return) | `CDYAM3NGY5I3SUGPCDQUS25MGCIWT2YOBDSWYT6SJNIPN6A6OOUSSCZY` |
+| **Strategy** (Blend adapter) | `CDPNSWSBVBRF52SED6UD7T2VQH6XODLEHXSCFTZHQP73SNYTKIHP5R2B` |
+| **Yield engine** — *this is also the YT token* | `CDS2Q6L3QCUK4KX633M7QH53GC76EVOUAK7WJ54T3AP3J6IGXIM3LURD` |
+| **PT/SR Market** | `CBL7Z3BONITNSWO7NJLT67464HLVVQF5G3REI3XT6KUCK7YNHPICJX5A` |
+| **Fixed-Rate Vault** | `CDKV7Z7FF3DA57LSO2JA6GFKAIDDIDMZD5XWCMV7G5I3E4ZA3NN2NMH7` |
+| **SR Router** | `CDP3VUYH3GEGNOF4XUHKMP5GBTH3SBCL5R3GM5ZTVQAGV7FOAPAQJTGE` |
+| **PT SAC** | `CB3T6FOMAH77Z2FMSA2IEVLQEIYOQRRFP7JMJMJGMUCO6HGOOZJZJ7OC` |
+| PT classic asset | `SPLDPT7:GDTM2UMJEO6LV5HE2SI56IEWNX5OAF5HV2XNZMVZEDXMMPHZUWXSSLQU` |
 | USDC SAC (Blend's testnet USDC) | `CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU` |
 | Blend pool | `CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF` |
 
@@ -37,7 +42,7 @@ Explorer:           https://stellar.expert/explorer/testnet
 
 | | |
 |---|---|
-| Expiry | `1795603933` (~90 days) |
+| Expiry | `1790696291` (**30 days**, matching the mainnet plan) |
 | Opening implied APY | **5.00%** — and the pool opened at exactly `50000000358` (5.0000%) |
 | PT price at open | `0.988042` — matching the unit test to 6 dp |
 | `scalar_root` | `40e12` |

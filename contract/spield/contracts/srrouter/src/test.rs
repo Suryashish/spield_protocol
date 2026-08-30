@@ -618,9 +618,18 @@ fn a_reverted_route_leaves_the_router_empty() {
     assert_eq!(w.usdc_t().balance(&u), 1_000 * USDC, "the user's funds came back");
 }
 
-/// Donated tokens are recoverable by the admin — and only by the admin. This exists because
-/// `assert_drained` would otherwise turn a stranger's 1-stroop gift into a permanent denial of
-/// service on every route.
+/// Donated tokens are recoverable by the admin — and only by the admin.
+///
+/// ## The test now means what its name says (`FINAL_CHECK.md` V2-03)
+///
+/// This used to assert that a donation made every route **revert** until an admin swept, and its own
+/// comment explained why: *"`assert_drained` would otherwise turn a stranger's 1-stroop gift into a
+/// permanent denial of service on every route."* The denial was understood; sweeping was accepted as
+/// the answer. It is not much of one — the griefer pays a stroop and a fee, the admin pays attention
+/// forever, and every route is down in between.
+///
+/// The exit check now compares against the balances held on entry rather than against zero, so a
+/// resting donation is carried and denies nothing. Recovery by `sweep` is unchanged.
 #[test]
 fn donations_are_sweepable_and_do_not_brick_the_router() {
     let w = std_setup(90 * DAY, 500);
@@ -629,17 +638,26 @@ fn donations_are_sweepable_and_do_not_brick_the_router() {
     w.usdc_admin().mint(&w.router, &(5 * USDC));
     assert_eq!(w.usdc_t().balance(&w.router), 5 * USDC);
 
-    // While the donation sits there, routes revert — deliberately, but it must be recoverable.
-    let u = w.new_user(100 * USDC);
-    assert!(w.r().try_buy_pt_with_usdc(&u, &(100 * USDC), &0i128, &NO_DEADLINE).is_err());
+    // The donation sits there and denies nothing.
+    let u = w.new_user(200 * USDC);
+    assert!(
+        w.r().buy_pt_with_usdc(&u, &(100 * USDC), &0i128, &NO_DEADLINE) > 0,
+        "a resting donation must not deny the route"
+    );
+    assert_eq!(
+        w.usdc_t().balance(&w.router),
+        5 * USDC,
+        "the route spent someone else's donation instead of carrying it"
+    );
 
     // The admin already holds USDC from the Blend fixture setup, so measure the delta.
     let admin_before = w.usdc_t().balance(&w.admin);
     assert_eq!(w.r().sweep(&w.usdc), 5 * USDC);
     assert_eq!(w.usdc_t().balance(&w.admin) - admin_before, 5 * USDC);
-    // ...and the router works again.
-    assert!(w.r().buy_pt_with_usdc(&u, &(100 * USDC), &0i128, &NO_DEADLINE) > 0);
+    // ...and the router is clean, and still works.
     w.assert_router_empty("after sweeping a donation");
+    assert!(w.r().buy_pt_with_usdc(&u, &(100 * USDC), &0i128, &NO_DEADLINE) > 0);
+    w.assert_router_empty("after a post-sweep route");
 }
 
 // ===========================================================================

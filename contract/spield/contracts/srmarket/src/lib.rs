@@ -851,9 +851,16 @@ impl SrMarket {
         }
     }
 
-    /// Live index from the yield contract (which reads SR). Mutating-path version.
+    /// Live index from the yield contract, **synchronized** — the one number a value-moving
+    /// transaction prices, transfers, settles reserves and emits events on.
+    ///
+    /// This calls the MUTATING `py_index_current`, not the `py_index` view. The distinction is the
+    /// whole of `FINAL_CHECK.md` V2-01: the view reads SR's stored high-water rate, which lags
+    /// whenever nothing has synced since the last mutation, while the `mint_py`/`redeem_py` these
+    /// paths go on to call synchronize first. Pricing on the stale one moved value to PT sellers,
+    /// short-changed PT buyers, and stranded YT in the pool.
     fn index(env: &Env) -> i128 {
-        YieldClient::new(env, &storage::get_yield(env)).py_index()
+        YieldClient::new(env, &storage::get_yield(env)).py_index_current()
     }
 
     fn index_view(env: &Env) -> i128 {
@@ -1049,6 +1056,7 @@ pub trait YieldContract {
     fn sr_token(env: Env) -> Address;
     fn expiry(env: Env) -> u64;
     fn py_index(env: Env) -> i128;
+    fn py_index_current(env: Env) -> i128;
     fn mint_py(env: Env, from: Address, receiver: Address, sr_in: i128) -> i128;
     fn redeem_py(env: Env, from: Address, receiver: Address, py_amount: i128) -> i128;
     fn transfer(env: Env, from: Address, to: Address, amount: i128);

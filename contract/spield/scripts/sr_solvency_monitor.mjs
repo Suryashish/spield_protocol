@@ -86,6 +86,7 @@ const CFG = {
   yield: arg('yield', st.YIELD),
   market: arg('market', st.SRMARKET),
   sr: arg('sr', st.SR),
+  strategy: arg('strategy', st.STRATEGY ?? null),
   pt: arg('pt', st.PT_SAC),
   ptAsset: arg('pt-asset', st.PT_ASSET_ID),
   rpc: arg('rpc', 'https://soroban-testnet.stellar.org'),
@@ -362,6 +363,28 @@ async function poll() {
     }
   } catch (e) {
     warnings.push(`expiry-stamp probe unavailable: ${String(e?.message ?? e).split('\n')[0]}`);
+  }
+
+  // 8. BLND EMISSIONS — the day this stops being zero, there is revenue to collect.
+  //
+  // Measured on mainnet 2026-08-30: Blend allocates emissions to XLM *suppliers* and USDC
+  // *borrowers*, not USDC suppliers — so Spield's side (`reserve_index * 2 + 1`) has none and this
+  // reads 0. Allocations carry an expiration and rotate each cycle, so that can change without
+  // announcement. This is the line that notices; nothing else in the stack would.
+  if (CFG.strategy) {
+    try {
+      const claimable = big(await read(CFG.strategy, 'claimable_emissions'));
+      if (claimable > 0n) {
+        warnings.push(
+          `BLND EMISSIONS ARE LIVE: ${claimable} stroops claimable — ` +
+            `run strategy.claim_emissions() (permissionless; pays strategy.emissions_to())`,
+        );
+      }
+    } catch (e) {
+      // A deployment predating ECO-02 has no such method. Not a problem, and not worth a warning
+      // on every poll — the absence of emissions revenue is the status quo, not an incident.
+      void e;
+    }
   }
 
   // 7. TREASURY MONOTONIC — revenue is cumulative; a fall means an unexpected outflow path.

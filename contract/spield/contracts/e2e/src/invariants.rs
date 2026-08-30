@@ -27,6 +27,150 @@ use crate::harness::*;
 // to revert. It now calls `sync_rate` first, which ALWAYS writes and so keeps the footprint a
 // function of the call graph alone.
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// V6 — the market must price on a SYNCHRONIZED index (`FINAL_CHECK.md` V2-01)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+//
+// The same stale-rate seam as F1/F1b/F3, one contract over. `srmarket::index()` used to read
+// `yield.py_index()`, a pure VIEW of SR's stored high-water rate, while the `mint_py`/`redeem_py`
+// it then called internally synchronized first — so one transaction ran on two indices. Measured
+// before the fix, at 30 days of unsynced drift on a 10,000-face trade:
+//
+//     swap_exact_pt_for_sr   seller took  +75,811,165 SR from the LPs
+//     swap_exact_sr_for_pt   buyer got    -78,529,349 PT, short-changed
+//     sell_yt_exact_in       seller took     +533,691 SR
+//     buy_yt_exact_out       72,538,390 YT stranded in the pool, unreachable
+//
+// These four tests are the reason it cannot come back. Each drives a route with `advance_unsynced`
+// and asserts the result is IDENTICAL to the same route run after an explicit `sync_rate()` — i.e.
+// that the implicit synchronization inside the trade is doing its job.
+//
+// They caught nothing when first written against the fixed tree, and every one of them fails
+// against the tree before it. That is the point: the pre-existing market tests all advance through
+// `advance()`, which syncs, so the defect's precondition was never set up.
+
+/// Run `prep` on a fresh market, THEN drift `days` without syncing, THEN run `trade`.
+///
+/// **The split is the whole point.** Every funding helper (`user_with_sr`, `mint_py`, …) goes
+/// through `sr::deposit`, which synchronizes. Doing the setup after the drift therefore refreshes
+/// the rate and the trade runs on a fresh index — a test that looks right and proves nothing. The
+/// first version of these tests did exactly that and passed against the unfixed tree.
+///
+/// Returns `(stale, synced)`: the same trade on a world that never synced, and on an identical one
+/// that called `sync_rate()` explicitly first. They must be equal.
+fn stale_vs_synced<S, T: PartialEq + core::fmt::Debug>(
+    days: u64,
+    prep: impl Fn(&World) -> S,
+    trade: impl Fn(&World, &S) -> T,
+) -> (T, T) {
+    // A 365-day term so even the longest drift below stays comfortably pre-expiry: `mint_py` is
+    // refused at maturity, and an expired series would fail these for the wrong reason.
+    let build = || {
+        let w = setup(Cfg { term: 365 * DAY, ..Cfg::default() });
+        w.seed_market(200_000 * USDC, 200_000 * USDC);
+        w
+    };
+
+    let a = build();
+    let sa = prep(&a);
+    a.advance_unsynced(days * DAY); // nothing touches SR from here on
+    let stale = trade(&a, &sa);
+
+    let b = build();
+    let sb = prep(&b);
+    b.advance_unsynced(days * DAY);
+    b.sr().sync_rate(); // the honest baseline: price on a freshly synced rate
+    let synced = trade(&b, &sb);
+
+    (stale, synced)
+}
+
+/// PT -> SR. The stale index divided by a too-low rate and handed the seller too many SR shares,
+/// straight out of the LPs' reserve.
+#[test]
+fn v6_selling_pt_prices_the_same_synced_or_not() {
+    for days in [1u64, 7, 30, 90] {
+        let (stale, synced) = stale_vs_synced(
+            days,
+            |w| {
+                let (u, sr) = w.user_with_sr(20_000 * USDC);
+                w.y().mint_py(&u, &u, &sr);
+                u
+            },
+            |w, u| w.m().swap_exact_pt_for_sr(u, &(10_000 * USDC), &0i128, &NO_DEADLINE),
+        );
+        assert_eq!(stale, synced, "{days}d of drift changed what a PT sale pays");
+    }
+}
+
+/// SR -> PT. This one moved value the OTHER way — the stale index short-changed the buyer.
+#[test]
+fn v6_buying_pt_prices_the_same_synced_or_not() {
+    for days in [1u64, 7, 30, 90] {
+        let (stale, synced) = stale_vs_synced(
+            days,
+            |w| w.user_with_sr(10_000 * USDC),
+            |w, (u, sr)| w.m().swap_exact_sr_for_pt(u, sr, &0i128, &NO_DEADLINE),
+        );
+        assert_eq!(stale, synced, "{days}d of drift changed what a PT purchase delivers");
+    }
+}
+
+/// Sell YT.
+#[test]
+fn v6_selling_yt_prices_the_same_synced_or_not() {
+    for days in [1u64, 7, 30, 90] {
+        let (stale, synced) = stale_vs_synced(
+            days,
+            |w| {
+                let (u, sr) = w.user_with_sr(20_000 * USDC);
+                w.y().mint_py(&u, &u, &sr);
+                u
+            },
+            |w, u| w.m().sell_yt_exact_in(u, &(10_000 * USDC), &0i128, &NO_DEADLINE),
+        );
+        assert_eq!(stale, synced, "{days}d of drift changed what a YT sale pays");
+    }
+}
+
+/// Buy YT exact-out — the route that also STRANDED value. The stale index under-stated the index
+/// used by the nested `mint_py`, so it minted more PT+YT than the trade asked for; the surplus PT
+/// landed in the reserve and the surplus YT was left in the contract, owned by nobody.
+#[test]
+fn v6_buying_yt_prices_the_same_and_strands_nothing() {
+    for days in [1u64, 7, 30, 90] {
+        let (stale, synced) = stale_vs_synced(
+            days,
+            |w| w.user_with_sr(50_000 * USDC).0,
+            |w, u| {
+                let before = w.y().balance(&w.market);
+                let paid = w.m().buy_yt_exact_out(u, &(10_000 * USDC), &(9_000 * USDC), &NO_DEADLINE);
+                (paid, w.y().balance(&w.market) - before)
+            },
+        );
+        assert_eq!(stale, synced, "{days}d of drift changed a YT purchase");
+        assert_eq!(stale.1, 0, "{days}d of drift stranded YT in the market");
+    }
+}
+
+/// The market's own reserve accounting must still hold exactly after a trade on a drifted rate —
+/// the invariant that stayed green throughout the defect, kept here so a future fix cannot trade
+/// one for the other.
+#[test]
+fn v6_reserves_still_track_balances_exactly_after_drift() {
+    let w = setup(Cfg { term: 90 * DAY, ..Cfg::default() });
+    w.seed_market(200_000 * USDC, 200_000 * USDC);
+    let (u, sr) = w.user_with_sr(20_000 * USDC); // funded BEFORE the drift — see `stale_vs_synced`
+    w.y().mint_py(&u, &u, &sr);
+    w.advance_unsynced(30 * DAY);
+    w.m().swap_exact_pt_for_sr(&u, &(10_000 * USDC), &0i128, &NO_DEADLINE);
+
+    let (pt_res, sr_res) = w.m().reserves();
+    assert!(w.pt().balance(&w.market) >= pt_res, "PT reserve exceeds the balance backing it");
+    assert!(w.sr().balance(&w.market) >= sr_res, "SR reserve exceeds the balance backing it");
+    assert_eq!(w.y().balance(&w.market), 0, "the market must hold no YT of its own");
+}
+
 /// `redeem_partial` is the exit of last resort: a crunch must cost the holder extra transactions,
 /// never the exit itself. Thirty days of unsynced drift used to be enough to break it.
 #[test]

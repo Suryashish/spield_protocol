@@ -478,7 +478,7 @@ pool sits in today, and the calibration's stress does not reach it. Full treatme
 | # | Gap | Detail |
 |---|---|---|
 | 1 | ~~`deploy_mainnet.sh` deploys v1 only~~ | ✅ **FIXED.** `deploy_mainnet.sh` is now the **v2 SR stack**, derived from the working `deploy_sr_testnet.sh` with mainnet config and hardening. The v1 script is kept as `deploy_mainnet_v1.sh.retired` because an inert v1 deployment still exists on chain. |
-| 2 | ~~v1 has no deposit cap at all~~ | ✅ **FIXED by #1.** v2 carries `SR_DEPOSIT_CAP`, defaulted to **5 USDC (50000000)** in the new mainnet script — matching the testnet posture. |
+| 2 | ~~v1 has no deposit cap at all~~ | ✅ **FIXED by #1.** v2 carries `SR_DEPOSIT_CAP`, defaulted to **50 USDC (500000000)** in the new mainnet script — the same default as the testnet script. |
 | 3 | **The live mainnet vault is stale** | `rate_bps = 500` (the uncalibrated value), maturity `1788722911` = **2026-09-06**, `coupon_capacity = 0`. It is inert — zero capacity means every deposit reverts — but the rate is wrong and the series expires in days. The reconciliation added to `deploy_mainnet.sh` fixes the rate on the next run. |
 
 ### What to change before a mainnet launch
@@ -604,7 +604,7 @@ A worked bound, at the floor, over a 90-day series:
 
 So a seed of `S` funds roughly `S / 0.00635` USDC of deposits before capacity is exhausted — a
 100 USDC seed covers ~15,700 USDC of deposits for one series in the worst modifier state. Note the
-`SR_DEPOSIT_CAP` of 5 USDC binds long before that, which is the point of setting it low.
+`SR_DEPOSIT_CAP` of 50 USDC binds long before that, which is the point of setting it low.
 
 ### Recommended before launch
 

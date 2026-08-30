@@ -371,6 +371,24 @@ if [ -z "$STRATEGY_INIT" ]; then
   save_state STRATEGY_INIT 1; echo "    ✓ strategy initialized"
 else echo "    strategy already initialized — skipping."; fi
 
+# Point BLND emissions at the TREASURY, not the admin (`FINAL_CHECK.md` ECO-02).
+#
+# `claim_emissions` is permissionless, so its destination lives in storage rather than being chosen
+# by the caller — and it DEFAULTS TO THE ADMIN, which is the wrong account for a revenue line. Set
+# it explicitly here so testnet mirrors mainnet and nobody has to remember later.
+#
+# A no-op today: Blend allocates BLND to XLM suppliers and USDC borrowers, not USDC suppliers
+# (measured on mainnet 2026-08-30). Allocations rotate per cycle, which is why it must already point
+# at the right account before that happens.
+if [ -z "${EMISSIONS_TO_SET:-}" ]; then
+  echo "    pointing BLND emissions at the treasury ($TREASURY_ADDR)..."
+  if invoke_retry "$STRATEGY" set_emissions_to --to "$TREASURY_ADDR" >/dev/null 2>&1; then
+    save_state EMISSIONS_TO_SET 1; echo "    ✓ emissions destination = treasury"
+  else
+    echo "    ⚠ set_emissions_to is not on this binary (pre-ECO-02 strategy) — skipping."
+  fi
+else echo "    emissions destination already set — skipping."; fi
+
 if [ -z "$SR_INIT" ]; then
   # Warm up the strategy's rate bound FIRST. The very first `current_rate()` call CREATES the
   # RateBound ledger entry; doing that create from inside SR's `initialize` makes the simulated

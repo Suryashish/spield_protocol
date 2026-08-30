@@ -513,6 +513,69 @@ impl Sr {
         storage::deposit_cap(&env)
     }
 
+    /// **The honest twin of [`Self::exchange_rate`] — underlying per 1e12 SR, valued on what
+    /// actually exists rather than on the stored high-water mark.**
+    ///
+    /// ```text
+    ///                    total assets that actually exist
+    /// realizable_rate = ----------------------------------  x 1e12
+    ///                          total SR shares
+    /// ```
+    ///
+    /// ## Why this exists
+    ///
+    /// `exchange_rate` is a **high-water mark**: it ratchets up and never falls. That is
+    /// deliberate and load-bearing — it is what stops the whole stack repricing downward on a
+    /// transient dip. But it means that after a real Blend principal loss, every value view built
+    /// on it (`assets_of`, `preview_redeem`, `total_assets`) reports **more** underlying than a
+    /// redemption will actually pay.
+    ///
+    /// `sr/src/test.rs::resetting_the_rate_floor_unfreezes_exits_and_the_loss_lands_pro_rata`
+    /// measures exactly that: after a 20% haircut each holder is correctly paid 800 USDC on a
+    /// 1,000 USDC deposit — pro rata, first exit no better than the second — while
+    /// `exchange_rate` still quotes the pre-loss number.
+    ///
+    /// This is the number to quote instead. A holder's actual claim is:
+    ///
+    /// ```text
+    /// their claim = balance(user) x realizable_rate / 1e12      ( = realizable_value(balance) )
+    /// ```
+    ///
+    /// ## Two properties that make it usable
+    ///
+    /// * **It survives the freeze.** It reads the venue through
+    ///   `strategy::position_value_unguarded`, which has no monotonicity guard, so it keeps
+    ///   answering while `current_rate` is refusing and exits are frozen. That is precisely when
+    ///   somebody needs the number.
+    /// * **It is pure.** No writes anywhere on the path, so the footprint cannot depend on timing.
+    ///
+    /// It can legitimately sit **above** `exchange_rate` in normal operation (it sees accrual the
+    /// stored rate has not synced yet) and **below** it after a loss. Only the second direction is
+    /// interesting, and it is the reason not to build a guarantee claim on top of the first.
+    ///
+    /// Returns `0` when nothing is issued.
+    pub fn realizable_rate(env: Env) -> i128 {
+        let supply = tok::total_supply(&env);
+        if supply <= 0 {
+            return 0;
+        }
+        let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
+        let assets = strategy.position_value_unguarded();
+        if assets <= 0 {
+            return 0;
+        }
+        math::mul_div_floor(&env, assets, SCALAR_12, supply).unwrap_or(0)
+    }
+
+    /// What `shares` are **actually** worth right now — the pro-rata claim, not the high-water
+    /// quote. See [`Self::realizable_rate`]. Panic-free (`0` = no quote).
+    pub fn realizable_value(env: Env, shares: i128) -> i128 {
+        if shares <= 0 {
+            return 0;
+        }
+        math::shares_to_underlying(&env, shares, Self::realizable_rate(env.clone())).unwrap_or(0)
+    }
+
     /// Underlying currently deployed through this wrapper, **marked to market** — supply valued at
     /// the stored rate. This is the dashboard number; it is NOT what the cap measures.
     ///

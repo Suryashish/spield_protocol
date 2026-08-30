@@ -32,6 +32,19 @@ pub trait YieldStrategy {
     /// precise yield/principal figure without the caller needing to know the live rate.
     fn redeem_underlying(env: Env, to: Address, amount: i128) -> i128;
 
+    /// Underlying this strategy's **entire** position is really worth right now, read live from
+    /// the venue with **no monotonicity guard**.
+    ///
+    /// This is the loss-accounting view, and it is deliberately the only rate path that survives a
+    /// venue principal loss. [`Self::deposit`]/[`Self::redeem`] sit behind `current_rate`, which
+    /// refuses a fallen rate and freezes the stack until an admin resets the floor — correct as a
+    /// safety guard, useless for answering "how much money actually exists?". This answers it, and
+    /// keeps answering it during the freeze.
+    ///
+    /// **Pure.** No writes, so it is safe from any context and its footprint never depends on
+    /// timing (see `Sr::exchange_rate` for the testnet failure that rule exists to prevent).
+    fn position_value_unguarded(env: Env) -> i128;
+
     /// The current exchange rate (Blend `b_rate`), SCALAR_12. Monotonic non-decreasing. This is
     /// "the index" — read live, never pushed by a key. Applies the sanity bound internally.
     fn current_rate(env: Env) -> i128;

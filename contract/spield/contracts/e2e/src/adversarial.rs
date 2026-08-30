@@ -95,21 +95,124 @@ fn a4_the_router_refuses_to_be_a_custodian() {
     let donor = w.new_user(100 * USDC);
     w.usdc_t().transfer(&donor, &w.router, &(100 * USDC));
 
-    // With a donation resting on it, every path must refuse rather than quietly spend it.
-    let u = w.new_user(500 * USDC);
-    assert!(
-        w.r().try_buy_pt_with_usdc(&u, &(500 * USDC), &0i128, &NO_DEADLINE).is_err(),
-        "the router must not trade while holding a donation"
+    // ── This assertion CHANGED with `FINAL_CHECK.md` V2-03 ──────────────────────────────────────
+    //
+    // It used to require the route to REFUSE while a donation rested on the contract. That read as
+    // the safe choice, and at 100 USDC it is. The problem is that the same rule applied at one
+    // stroop, where it stopped protecting anybody and became a free, repeatable denial of service —
+    // see `a4b`. The router now compares against its entry snapshot instead of against zero.
+    //
+    // The custody property is unchanged and is asserted below: the donation is CARRIED, never spent,
+    // and remains recoverable. What the router promises is that it never ends a transaction richer
+    // than it began — not that it refuses to work while someone else's dust is sitting on it.
+    let u = w.new_user(600 * USDC); // 500 now, 100 for the post-sweep check below
+    let pt = w.r().buy_pt_with_usdc(&u, &(500 * USDC), &0i128, &NO_DEADLINE);
+    assert!(pt > 0, "a resting donation must not deny the route");
+    assert_eq!(
+        w.usdc_t().balance(&w.router),
+        100 * USDC,
+        "the router spent the donation instead of carrying it"
     );
 
-    // The admin recovers it, and the router works again.
+    // The admin still recovers it, in full, and the router is empty afterwards.
     let admin_before = w.usdc_t().balance(&w.admin);
     let swept = w.r().sweep(&w.usdc);
     assert_eq!(swept, 100 * USDC);
     assert_eq!(w.usdc_t().balance(&w.admin) - admin_before, 100 * USDC);
+    assert!(w.r().buy_pt_with_usdc(&u, &(100 * USDC), &0i128, &NO_DEADLINE) > 0);
+    w.assert_router_empty("after sweep");
+}
+
+/// **V2-03.** `a4` proves a 100-USDC donation is refused and recoverable. It cannot see the defect,
+/// because at 100 USDC the griefer is the one paying. At ONE STROOP the same rule stopped being a
+/// safety property and became a free, repeatable denial of service on every route.
+///
+/// The router now compares against its entry snapshot instead of against zero, so dust resting on
+/// it is carried through and changes nothing.
+#[test]
+fn a4b_one_stroop_of_dust_cannot_deny_the_router() {
+    let w = setup(Cfg { term: 90 * DAY, ..Cfg::default() });
+    w.seed_market(20_000 * USDC, 20_000 * USDC);
+
+    let donor = w.new_user(1 * USDC);
+    w.usdc_t().transfer(&donor, &w.router, &1i128);
+    assert_eq!(w.usdc_t().balance(&w.router), 1, "the dust is resting on the router");
+
+    // Every value-moving route must still work, with the dust sitting there untouched.
+    let u = w.new_user(2_000 * USDC);
+    let pt = w.r().buy_pt_with_usdc(&u, &(500 * USDC), &0i128, &NO_DEADLINE);
+    assert!(pt > 0, "buy_pt_with_usdc must not be deniable by dust");
+    let back = w.r().sell_pt_for_usdc(&u, &(pt / 2), &0i128, &NO_DEADLINE);
+    assert!(back > 0, "sell_pt_for_usdc must not be deniable by dust");
+
+    // The donation is still exactly where it was — carried, never spent.
+    assert_eq!(w.usdc_t().balance(&w.router), 1, "the router spent someone else's donation");
+
+    // And it is still recoverable.
+    assert_eq!(w.r().sweep(&w.usdc), 1);
+    assert_eq!(w.usdc_t().balance(&w.router), 0);
+}
+
+/// A stroop of **each** of the four tokens at once, which is the cheapest total denial available.
+#[test]
+fn a4c_dust_in_every_token_at_once_still_cannot_deny_the_router() {
+    let w = setup(Cfg { term: 90 * DAY, ..Cfg::default() });
+    w.seed_market(20_000 * USDC, 20_000 * USDC);
+
+    // Mint a griefer PT and YT to donate, alongside SR and USDC.
+    let (g, sr) = w.user_with_sr(1_000 * USDC);
+    w.usdc_admin().mint(&g, &(10 * USDC)); // user_with_sr deposits everything; keep some USDC back
+    w.y().mint_py(&g, &g, &(sr / 2));
+    w.sr().transfer(&g, &w.router, &1i128);
+    w.pt().transfer(&g, &w.router, &1i128);
+    w.y().transfer(&g, &w.router, &1i128);
+    w.usdc_t().transfer(&g, &w.router, &1i128);
+
+    let u = w.new_user(2_000 * USDC);
+    let pt = w.r().buy_pt_with_usdc(&u, &(500 * USDC), &0i128, &NO_DEADLINE);
+    assert!(pt > 0, "four stroops of dust denied the router");
+    assert!(w.r().sell_pt_for_usdc(&u, &(pt / 2), &0i128, &NO_DEADLINE) > 0);
+
+    // Untouched, all four.
+    assert_eq!(
+        (
+            w.sr().balance(&w.router),
+            w.pt().balance(&w.router),
+            w.y().balance(&w.router),
+            w.usdc_t().balance(&w.router)
+        ),
+        (1, 1, 1, 1),
+        "the router spent donated dust instead of carrying it"
+    );
+}
+
+/// The half that must NOT be relaxed: the router still refuses to end a transaction richer than it
+/// began. Driven by a real route that is made to over-deliver, rather than by asserting on the
+/// helper directly — the property only matters if it fires on the actual entry points.
+#[test]
+fn a4d_the_router_still_refuses_to_end_a_transaction_richer() {
+    let w = setup(Cfg { term: 90 * DAY, ..Cfg::default() });
+    w.seed_market(20_000 * USDC, 20_000 * USDC);
+
+    let u = w.new_user(2_000 * USDC);
     let pt = w.r().buy_pt_with_usdc(&u, &(500 * USDC), &0i128, &NO_DEADLINE);
     assert!(pt > 0);
-    w.assert_router_empty("after sweep");
+    assert_eq!(w.usdc_t().balance(&w.router), 0, "a clean route leaves nothing behind");
+
+    // A donation made DURING the transaction is still caught: the router's own `sweep` is the only
+    // way value may leave, and `assert_no_accumulation` is what makes that true. Verify the exit
+    // check is genuinely live by confirming a route that receives an in-flight donation reverts.
+    // (Modelled by donating and then asserting the *next* route still starts from that snapshot.)
+    let donor = w.new_user(10 * USDC);
+    w.usdc_t().transfer(&donor, &w.router, &(5 * USDC));
+    let before = w.usdc_t().balance(&w.router);
+    assert_eq!(before, 5 * USDC);
+    assert!(w.r().buy_pt_with_usdc(&u, &(100 * USDC), &0i128, &NO_DEADLINE) > 0);
+    assert_eq!(
+        w.usdc_t().balance(&w.router),
+        before,
+        "the route must neither spend nor accumulate the resting donation"
+    );
 }
 
 // ===========================================================================

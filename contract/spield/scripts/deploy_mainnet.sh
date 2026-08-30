@@ -22,7 +22,7 @@
 #    3.00%, so a rate that fails the gate is a mistake rather than an accepted testnet subsidy.
 #  * `MAX_APR_BPS` is validated against FixedV2's own rate ceiling (see `blendcalibration.md` §4).
 #  * The issuer cannot be friendbot-funded — it must exist and hold XLM before the run.
-#  * `SR_DEPOSIT_CAP` defaults to **5 USDC**, deliberately tiny for launch.
+#  * `SR_DEPOSIT_CAP` defaults to **50 USDC** (`500_000_000` base units), deliberately small for launch.
 #
 # ── Prerequisites ────────────────────────────────────────────────────────────────────────────────
 #  * `stellar` CLI >= 22, `curl`, `python3`, `node` (for the rate calibration gate).
@@ -414,6 +414,26 @@ if [ -z "$STRATEGY_INIT" ]; then
     --wrapper "$SR" --pool "$BLEND_POOL" --underlying "$USDC_SAC" --max_apr_bps "$MAX_APR_BPS" >/dev/null
   save_state STRATEGY_INIT 1; echo "    ✓ strategy initialized"
 else echo "    strategy already initialized — skipping."; fi
+
+# Point BLND emissions at the TREASURY, not the admin (`FINAL_CHECK.md` ECO-02).
+#
+# `claim_emissions` is permissionless on purpose, so its destination is fixed in storage rather than
+# chosen by the caller. That destination DEFAULTS TO THE ADMIN, which is wrong for a revenue line:
+# the admin key becomes a cold multisig, while the treasury is the account that is supposed to
+# receive protocol income. Set it explicitly at deploy so nobody has to remember later.
+#
+# Harmless if it is a no-op today — Blend currently allocates BLND to XLM suppliers and USDC
+# borrowers, not USDC suppliers, so there is nothing to claim (measured on mainnet 2026-08-30).
+# Allocations rotate each cycle, which is exactly why this must already be pointed correctly.
+if [ -z "${EMISSIONS_TO_SET:-}" ]; then
+  echo "    pointing BLND emissions at the treasury ($TREASURY_ADDR)..."
+  if invoke_retry "$STRATEGY" set_emissions_to --to "$TREASURY_ADDR" >/dev/null 2>&1; then
+    save_state EMISSIONS_TO_SET 1; echo "    ✓ emissions destination = treasury"
+  else
+    echo "    ⚠ set_emissions_to is not on this binary (pre-ECO-02 strategy) — skipping."
+    echo "      Emissions would default to the admin. Redeploy the strategy to fix."
+  fi
+else echo "    emissions destination already set — skipping."; fi
 
 if [ -z "$SR_INIT" ]; then
   # Warm up the strategy's rate bound FIRST. The very first `current_rate()` call CREATES the

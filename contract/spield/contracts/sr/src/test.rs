@@ -151,6 +151,13 @@ impl MockStrategy {
 
     /// The real adapter's guard: `b_rate` is documented monotonic, so a dip is treated as a fault
     /// and **panics** — which is exactly `tofix.md` #3.
+    /// Mirrors `spield-strategy::position_value_unguarded`: the RAW rate, no bound, no write.
+    pub fn position_value_unguarded(env: Env) -> i128 {
+        let rate: i128 = env.storage().instance().get(&MK::Rate).unwrap();
+        let shares: i128 = env.storage().instance().get(&MK::Shares).unwrap_or(0);
+        math::shares_to_underlying(&env, shares, rate).unwrap_or(0)
+    }
+
     pub fn current_rate(env: Env) -> i128 {
         let rate: i128 = env.storage().instance().get(&MK::Rate).unwrap();
         let guarded: bool = env.storage().instance().get(&MK::Guarded).unwrap_or(true);
@@ -312,6 +319,101 @@ fn resetting_the_rate_floor_unfreezes_exits_and_the_loss_lands_pro_rata() {
          SR still quotes exchange_rate {} (unchanged high-water).",
         w.sr().exchange_rate()
     );
+}
+
+/// **The number a UI must quote after a loss.** `exchange_rate` is a high-water mark and keeps
+/// reporting the pre-loss value; `realizable_rate` reports what actually exists. This pins the gap.
+#[test]
+fn realizable_rate_reports_the_loss_while_exchange_rate_still_over_promises() {
+    let w = setup(true);
+    let u = w.user(1_000 * USDC);
+    let shares = w.sr().deposit(&u, &u, &(1_000 * USDC), &0i128);
+
+    let rate_before = w.sr().exchange_rate();
+    let realizable_before = w.sr().realizable_rate();
+    assert_eq!(realizable_before, rate_before, "no loss yet: the two agree");
+
+    // A 20% haircut. Exits are frozen until the admin resets, but the QUESTION must still answer.
+    w.st().set_rate(&(SCALAR_12 * 80 / 100));
+
+    let quoted = w.sr().preview_redeem(&shares);
+    let honest = w.sr().realizable_value(&shares);
+    std::println!(
+        "after a 20% haircut: exchange_rate {} vs realizable_rate {}",
+        w.sr().exchange_rate(),
+        w.sr().realizable_rate()
+    );
+    std::println!("  preview_redeem quotes {quoted}, realizable_value says {honest}");
+
+    assert_eq!(w.sr().exchange_rate(), rate_before, "high-water must not fall");
+    assert_eq!(w.sr().realizable_rate(), SCALAR_12 * 80 / 100, "realizable must fall");
+    assert_eq!(honest, 800 * USDC, "the honest claim is 80% of the deposit");
+    assert!(quoted > honest, "and the high-water view over-promises by exactly the loss");
+    assert_eq!(quoted - honest, 200 * USDC);
+}
+
+/// The view is useless unless it predicts reality. Redeem after the reset and check the number
+/// `realizable_value` gave DURING the freeze is what the venue actually paid.
+#[test]
+fn realizable_value_predicts_what_redemption_actually_pays() {
+    let w = setup(true);
+    let u = w.user(1_000 * USDC);
+    let shares = w.sr().deposit(&u, &u, &(1_000 * USDC), &0i128);
+
+    w.st().set_rate(&(SCALAR_12 * 80 / 100));
+    let predicted = w.sr().realizable_value(&shares); // quoted while exits are still frozen
+
+    w.st().reset_rate_floor();
+    let before = w.usdc_balance(&u);
+    let paid = w.sr().redeem(&u, &u, &shares, &0i128);
+
+    std::println!("predicted during the freeze: {predicted}, actually paid: {paid}");
+    assert_eq!(paid, w.usdc_balance(&u) - before, "paid what was reported");
+    assert_eq!(predicted, paid, "the honest view is actionable, not decorative");
+}
+
+/// Pro-rata across MORE than two holders, with unequal sizes and a partial exit interleaved —
+/// the ordering freedom the two-holder test cannot exercise. Nobody may beat anybody else.
+#[test]
+fn a_loss_lands_pro_rata_across_many_holders_in_any_exit_order() {
+    let w = setup(true);
+    let sizes = [100i128, 250, 1_000, 3_000];
+    let users: std::vec::Vec<(Address, i128)> = sizes
+        .iter()
+        .map(|n| {
+            let u = w.user(n * USDC);
+            let sh = w.sr().deposit(&u, &u, &(n * USDC), &0i128);
+            (u, sh)
+        })
+        .collect();
+
+    w.st().set_rate(&(SCALAR_12 * 75 / 100)); // 25% haircut
+    w.st().reset_rate_floor();
+
+    // Everyone's per-share outcome must be identical regardless of position in the queue.
+    let mut per_share = std::vec::Vec::new();
+    for (i, (u, sh)) in users.iter().enumerate() {
+        // The third holder splits their exit in two, to prove slicing confers nothing either.
+        let paid = if i == 2 {
+            let half = sh / 2;
+            w.sr().redeem(u, u, &half, &0i128) + w.sr().redeem(u, u, &(sh - half), &0i128)
+        } else {
+            w.sr().redeem(u, u, sh, &0i128)
+        };
+        std::println!("holder {i}: {} shares -> {paid} USDC", sh);
+        per_share.push((paid, *sh));
+    }
+
+    // paid/shares must match for everyone, to within a stroop of flooring.
+    let (p0, s0) = per_share[0];
+    for (p, sh) in &per_share {
+        let lhs = p * s0;
+        let rhs = p0 * sh;
+        assert!(
+            (lhs - rhs).abs() <= s0.max(*sh),
+            "exit order or slicing changed the payout: {p}/{sh} vs {p0}/{s0}"
+        );
+    }
 }
 
 /// The freeze applies to the whole share balance, not just large exits — so a holder cannot slip

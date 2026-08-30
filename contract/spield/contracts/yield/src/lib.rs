@@ -447,6 +447,24 @@ impl Yield {
         Self::index_view(&env)
     }
 
+    /// **The mutating index — the number every value-MOVING path must price on.**
+    ///
+    /// [`Self::py_index`] is a pure view and may lag SR by one sync. That is harmless for a quote
+    /// and wrong for a trade: `srmarket` used to price on the view while the `mint_py`/`redeem_py`
+    /// it then called internally used *this* one, so a single transaction ran on two different
+    /// indices (`FINAL_CHECK.md` V2-01). Anything that moves value calls this instead.
+    ///
+    /// **Mutating**: refreshes SR from the strategy and ratchets the stored index. `sr::sync_rate`
+    /// ALWAYS writes, so the footprint stays a function of the call graph alone and cannot depend
+    /// on timing — the property that the 2026-08-24 testnet footprint failure taught us to keep.
+    ///
+    /// Calling this and then `mint_py`/`redeem_py` in the same transaction is **consistent, not
+    /// doubled**: the ledger timestamp is fixed for the transaction, so the second sync observes
+    /// the same `b_rate` and returns the same index.
+    pub fn py_index_current(env: Env) -> i128 {
+        Self::index_current(&env)
+    }
+
     /// Mutating: refresh SR from the strategy first, then take the max with our stored index.
     /// Used by every value-moving path, so none of them can run on a stale rate.
     fn live_index_synced(env: &Env) -> i128 {

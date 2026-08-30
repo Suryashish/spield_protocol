@@ -107,6 +107,9 @@ const PATHS = [
 
 console.log(`router ${ROUTER}\nsource ${source}\n`);
 
+/** Read an XDR field that may be a method (older stellar-sdk) or a property (newer). */
+const get = (obj, key) => (typeof obj[key] === 'function' ? obj[key]() : obj[key]);
+
 let overBudget = 0;
 for (const [fn, args] of PATHS) {
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET })
@@ -124,9 +127,14 @@ for (const [fn, args] of PATHS) {
     console.log(`  ${fn.padEnd(22)} ${budget ? 'OVER BUDGET' : 'n/a        '}  ${err}`);
     continue;
   }
-  const r = sim.transactionData.build().resources();
-  const insns = r.instructions();
-  const entries = r.footprint().readOnly().length + r.footprint().readWrite().length;
+  // XDR accessors changed shape across stellar-sdk versions: `resources`/`instructions`/`footprint`
+  // used to be METHODS and are plain PROPERTIES in the version currently in scripts/node_modules.
+  // Read either, so a future SDK bump does not silently break the release gate again.
+  const td = sim.transactionData.build();
+  const r = get(td, 'resources');
+  const insns = Number(get(r, 'instructions'));
+  const fp = get(r, 'footprint');
+  const entries = get(fp, 'readOnly').length + get(fp, 'readWrite').length;
   const pct = ((insns * 100) / TX_MAX_INSTRUCTIONS).toFixed(1);
   console.log(
     `  ${fn.padEnd(22)} OK           insns ${String(insns).padStart(9)} (${pct.padStart(4)}% of cpu)  entries ${entries}`,
