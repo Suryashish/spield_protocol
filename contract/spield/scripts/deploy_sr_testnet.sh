@@ -65,18 +65,34 @@ MAX_APR_BPS="${MAX_APR_BPS:-30000}"
 # and mitigates it by bounding the worst case. The tracker specified that bound as an *operational*
 # control; it is enforced on chain instead, because a cap that lives in a runbook is not a cap.
 #
-# In UNDERLYING base units. 0 = uncapped. Gates deposits only: `redeem` never consults it, so this
-# can never trap anyone. SET THIS BEFORE SEEDING MAINNET.
-# Launch TVL cap in underlying base units (USDC, 7 decimals). `0` = uncapped.
+# 50 USDC = 500_000_000. Deliberately small for a guarded launch.
 #
-# 100 USDC = 1_000_000_000. Chosen 2026-08-27 as a deliberate low starting point: it bounds the
-# uncompensated depositor loss a Blend bad-debt event can cause (see resolution.md §1), and raising
-# it later is a single `set_deposit_cap` call. The cap gates DEPOSITS ONLY — verified on chain, a
-# withdrawal still works when the cap sits below current TVL — so starting low can never trap anyone.
-SR_DEPOSIT_CAP="${SR_DEPOSIT_CAP:-1000000000}"
+# This is a GLOBAL cap, not a vault cap: `sr::deposit` is the only path that mints SR, and every
+# route in goes through it — vault depositors (`srvault::deposit` -> `acquire_py` -> `SrClient::
+# deposit`), liquidity providers (LP needs PT+SR; PT is stripped from SR), and direct SR holders.
+# So this one number bounds every USDC that can enter the protocol, LPs included.
+#
+# **It also counts the operator's own seeding.** `vault.seed` and the AMM seed both deposit through
+# `sr::deposit`, so the working rule is:
+#
+#     cap = what you seed + what you will let users deposit
+#
+# `sr::deposit_headroom()` reports what is left. What it bounds is NOT operator loss: per
+# V2_WORK.md §1 it is "the maximum depositor loss that can occur uncompensated, with recovery gated
+# on your key" — a Blend bad-debt event freezes every mutation until an admin calls
+# `strategy::reset_rate_floor`. At 50 USDC and a 20% planning haircut that is ~10 USDC.
+#
+# The cap gates DEPOSITS ONLY — verified on chain, a withdrawal still works when the cap sits below
+# current TVL — so starting low can never trap anyone. Raising it is one `set_deposit_cap` call;
+# LOWERING it below current TVL blocks all new deposits until TVL falls back under it.
+SR_DEPOSIT_CAP="${SR_DEPOSIT_CAP:-500000000}"
 
 # ─── Series parameters ───────────────────────────────────────────────────────────────────────────
-MATURITY_DAYS="${MATURITY_DAYS:-90}"
+# 30 days, not 90: a shorter series commits a smaller subsidy, runs a full lifecycle inside a month,
+# and gives an earlier natural exit point. In Blend's worst rate state the vault drains ~0.212% of
+# deposits per 30-day series vs ~0.635% at 90 days — a seed stretches 3x further. Fixed once
+# deployed; it cannot be changed mid-series.
+MATURITY_DAYS="${MATURITY_DAYS:-30}"
 EXPIRY="${EXPIRY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
 
 # Protocol share of YT interest, in bps. Pendle takes 5%; the on-chain ceiling is 10%.

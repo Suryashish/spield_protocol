@@ -1,239 +1,266 @@
 #!/usr/bin/env bash
+# =================================================================================================
+# deploy_mainnet.sh — deploy the **v2 SR stack** to Stellar MAINNET, against real Blend + real USDC.
 #
-# Spield v2 — MAINNET deploy against the real Blend FixedV2 pool + real Circle USDC.
+#   USDC ──deposit──► SR ──mint_py──► PT (SAC) + YT (the yield contract itself)
+#                      │                  │
+#                      └──── PT/SR AMM ───┘
 #
-# ⚠️  THIS SPENDS REAL MONEY. Read MAINNET.md in full before running. The script pauses for an
-#     explicit "yes" confirmation before it does anything irreversible.
+# This replaces the v1 wrapper/vault/market mainnet script, kept as
+# `deploy_mainnet_v1.sh.retired` because an (inert, unseeded, expiring) v1 deployment does exist on
+# chain. **v2 is the only stack going forward.**
 #
-# It is a faithful mainnet twin of scripts/deploy_testnet.sh — SAME contract WASMs (the contracts
-# are network-agnostic; nothing in the Rust changes for mainnet), only the addresses, the network
-# passphrase, and the safety guards differ.
+# ── THIS SPENDS REAL MONEY ───────────────────────────────────────────────────────────────────────
+# Deploy + initialize cost XLM only. The steps that spend USDC are opt-in and default to OFF:
+#   * `VAULT_SEED_AMOUNT` — PT coupon capacity for the Fixed-Rate Vault (default 0)
+#   * `SEED=1` + `SEED_PER_SIDE`  — AMM liquidity (default off)
+# Nothing here can move a user's funds; every mutating entry point is admin- or SR-gated.
 #
-# Prereqs (see MAINNET.md §Accounts):
-#   * Run inside WSL with the Stellar CLI 26.x + Rust toolchain.
-#   * Two funded mainnet identities exist in the Stellar CLI:
-#       - $SOURCE  (default: spield_deployer)        — deploys + inits + seeds; holds XLM AND USDC.
-#       - $ISSUER  (default: spield_issuer_mainnet)  — DEDICATED PT/YT issuer; holds XLM only.
-#     (A Stellar asset's issuer can't hold its own asset, so PT/YT MUST be issued by a separate
-#      account from any account that will hold PT/YT — incl. the deployer.)
+# ── What differs from the testnet script ─────────────────────────────────────────────────────────
+#  * Blend **FixedV2** + **real Circle USDC**, not the testnet pool and faucet token.
+#  * The vault rate calibration is a **HARD GATE**, not advisory: mainnet Blend genuinely funds
+#    3.00%, so a rate that fails the gate is a mistake rather than an accepted testnet subsidy.
+#  * `MAX_APR_BPS` is validated against FixedV2's own rate ceiling (see `blendcalibration.md` §4).
+#  * The issuer cannot be friendbot-funded — it must exist and hold XLM before the run.
+#  * `SR_DEPOSIT_CAP` defaults to **5 USDC**, deliberately tiny for launch.
 #
-# RESUMABLE: every address/checkpoint is written to a STATE FILE the instant it's created
-# (default: scripts/deploy_mainnet.state). If the script stops midway (e.g. the deployer runs out of
-# XLM), just top up and RE-RUN the same command — it reloads the state file and SKIPS every step that
-# already completed, picking up exactly where it left off instead of redeploying. A step that never
-# landed on-chain costs nothing (failed txs aren't charged), so a stop is non-wasteful.
+# ── Prerequisites ────────────────────────────────────────────────────────────────────────────────
+#  * `stellar` CLI >= 22, `curl`, `python3`, `node` (for the rate calibration gate).
+#  * `SOURCE` funded with XLM (see MAINNET.md for the budget).
+#  * `ISSUER` — a SEPARATE funded account. It signs PT issuance and is then locked (irreversible).
+#  * USDC on `SOURCE` only if you intend to seed.
 #
-# Usage:
-#   bash scripts/deploy_mainnet.sh                          # uses spield_deployer + spield_issuer_mainnet
-#   SOURCE=mykey ISSUER=myissuer bash scripts/deploy_mainnet.sh
-#   YES=1 bash scripts/deploy_mainnet.sh                    # skip the interactive confirmation (CI)
-#   STATE_FILE=/path/to/run.state bash scripts/deploy_mainnet.sh   # custom checkpoint file
-#   FRESH=1 bash scripts/deploy_mainnet.sh                  # ignore + overwrite any existing state (start over)
+# ── Usage ────────────────────────────────────────────────────────────────────────────────────────
+#   ./scripts/deploy_mainnet.sh                      # deploy + initialize (resumable)
+#   VAULT_SEED_AMOUNT=50000000 ./scripts/deploy_mainnet.sh   # ...and seed 5 USDC of coupon capacity
+#   SEED=1 ./scripts/deploy_mainnet.sh               # ...and seed the AMM (needs USDC)
+#   REDEPLOY=srmarket ./scripts/deploy_mainnet.sh    # replace only the market
+#
+# Every step is checkpointed, so a failed run resumes where it stopped.
+# =================================================================================================
 set -euo pipefail
 
+# ─── Identities ──────────────────────────────────────────────────────────────────────────────────
 SOURCE="${SOURCE:-spield_deployer}"
-ISSUER="${ISSUER:-spield_issuer_mainnet}"
 NETWORK="${NETWORK:-mainnet}"
-# The Public network passphrase. The Stellar CLI also needs a mainnet RPC to simulate/submit.
+# The PT issuer. A FRESH=1 run needs a NEW issuer if the old one was locked (see [7]).
+ISSUER="${ISSUER:-spield_pt_issuer}"
+# Where protocol revenue lands (yield fee + the treasury share of swap fees).
+TREASURY_KEY="${TREASURY_KEY:-$SOURCE}"
+
 NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Public Global Stellar Network ; September 2015}"
 RPC_URL="${RPC_URL:-https://mainnet.sorobanrpc.com}"
-# Horizon is used ONLY to read the issuer account back after the lockdown (§13). Soroban RPC has
-# no view of classic account signers, so the verification has to come from here.
 HORIZON_URL="${HORIZON_URL:-https://horizon.stellar.org}"
-
-# How we point the CLI at mainnet. If you've run `stellar network add mainnet ...` you can instead
-# export NETWORK=mainnet and the CLI uses the saved network; otherwise we pass passphrase + rpc.
+# Passphrase + RPC rather than `--network mainnet`: the CLI has no mainnet network configured by
+# default, and `--network mainnet` fails with "Invalid URL Bring Your Own" on a fresh machine.
 NET_ARGS=(--network-passphrase "$NETWORK_PASSPHRASE" --rpc-url "$RPC_URL")
 
-# ─── VERIFIED MAINNET ADDRESSES (see MAINNET.md; verified on-chain 2026-06-08) ──────────────────
-# Blend FixedV2 lending pool — holds ONLY XLM/USDC/EURC (deep, blue-chip; no thin-asset oracle
-# surface). NOT YieldBloxV2 (CCCCIQSD...) which was drained $10.8M in Feb 2026 via oracle
-# manipulation on a thin asset. FixedV2 is the post-exploit-safe yield source. Status: active.
+# ─── External dependencies (Blend MAINNET) ───────────────────────────────────────────────────────
+# Blend FixedV2 — reserves are XLM / USDC / EURC only (deep, blue-chip; no thin-asset oracle
+# surface). NOT YieldBloxV2 (CCCCIQSD...), drained $10.8M in Feb 2026 via oracle manipulation on a
+# thin asset. Verified against blend-utils/mainnet.contracts.json key "FixedV2".
 BLEND_POOL="${BLEND_POOL:-CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD}"
-# Real Circle USDC as a Soroban contract (SAC). Derived deterministically from Circle's mainnet
-# issuer + confirmed against Blend's mainnet.contracts.json; live decimals() == 7.
+# Real Circle USDC as a Soroban contract (SAC); live decimals() == 7.
 USDC_SAC="${USDC_SAC:-CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75}"
-# Circle's USDC as a classic asset (for trustlines / sending USDC around).
 USDC_ASSET="${USDC_ASSET:-USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN}"
 
-# Rate sanity bound: max ANNUAL b_rate growth, in bps, pro-rated by elapsed time on each read (so
-# read frequency is irrelevant — calibrate ONLY against Blend's real max supply APR). FixedV2's USDC
-# supply rate is single-digit %; 30000 = 300% APR is a generous defence-in-depth ceiling.
+# ─── Strategy parameters ─────────────────────────────────────────────────────────────────────────
+# Defence-in-depth ceiling on b_rate growth (300% APR). Set generously above Blend's real max.
 MAX_APR_BPS="${MAX_APR_BPS:-30000}"
-# Maturity: default ~90 days from now (unix seconds). On mainnet a real bond term is longer than the
-# 30d demo term used on testnet — override MATURITY_DAYS to taste.
-MATURITY_DAYS="${MATURITY_DAYS:-90}"
-MATURITY="${MATURITY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
 
-# ─── Fixed-Rate Vault config ────────────────────────────────────────────────────────────────────
+# ─── Launch TVL cap (`tofix.md` #3) ──────────────────────────────────────────────────────────────
+# #3 accepts a real residual — a deep Blend bad-debt event freezes every mutation, exits included —
+# and mitigates it by bounding the worst case. The tracker specified that bound as an *operational*
+# control; it is enforced on chain instead, because a cap that lives in a runbook is not a cap.
+#
+# 50 USDC = 500_000_000. Deliberately small for a guarded launch.
+#
+# This is a GLOBAL cap, not a vault cap: `sr::deposit` is the only path that mints SR, and every
+# route in goes through it — vault depositors (`srvault::deposit` -> `acquire_py` -> `SrClient::
+# deposit`), liquidity providers (LP needs PT+SR; PT is stripped from SR), and direct SR holders.
+# So this one number bounds every USDC that can enter the protocol, LPs included.
+#
+# **It also counts the operator's own seeding.** `vault.seed` and the AMM seed both deposit through
+# `sr::deposit`, so the working rule is:
+#
+#     cap = what you seed + what you will let users deposit
+#
+# `sr::deposit_headroom()` reports what is left. What it bounds is NOT operator loss: per
+# V2_WORK.md §1 it is "the maximum depositor loss that can occur uncompensated, with recovery gated
+# on your key" — a Blend bad-debt event freezes every mutation until an admin calls
+# `strategy::reset_rate_floor`. At 50 USDC and a 20% planning haircut that is ~10 USDC.
+#
+# The cap gates DEPOSITS ONLY — verified on chain, a withdrawal still works when the cap sits below
+# current TVL — so starting low can never trap anyone. Raising it is one `set_deposit_cap` call;
+# LOWERING it below current TVL blocks all new deposits until TVL falls back under it.
+SR_DEPOSIT_CAP="${SR_DEPOSIT_CAP:-500000000}"
+
+# ─── Series parameters ───────────────────────────────────────────────────────────────────────────
+# 30 days, not 90: a shorter series commits a smaller subsidy, runs a full lifecycle inside a month,
+# and gives an earlier natural exit point. In Blend's worst rate state the vault drains ~0.212% of
+# deposits per 30-day series vs ~0.635% at 90 days — a seed stretches 3x further. Fixed once
+# deployed; it cannot be changed mid-series.
+MATURITY_DAYS="${MATURITY_DAYS:-30}"
+EXPIRY="${EXPIRY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
+
+# Protocol share of YT interest, in bps. Pendle takes 5%; the on-chain ceiling is 10%.
+YIELD_FEE_BPS="${YIELD_FEE_BPS:-500}"
+
+# ─── Market parameters ───────────────────────────────────────────────────────────────────────────
+# Curve steepness. With a DYNAMIC anchor this only controls price impact — it no longer drives the
+# seed ratio, so any PT:SR ratio opens the pool at MARKET_APY_BPS.
+MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-40000000000000}"     # 40 * 1e12
+
+# ANNUALIZED fee root, SCALAR_12: fee_rate = exp(ln_fee_root * years_to_expiry).
+# 0.25%/yr, chosen from `calibrate_the_fee_root`: PT round trip 0.17%, YT round trip 13.3%
+# (v1's flat 30 bps cost 0.60% / 40.5%). Contract ceiling is 5%/yr.
+MARKET_LN_FEE_ROOT="${MARKET_LN_FEE_ROOT:-2500000000}"         # 0.0025 * 1e12
+
+# ─── Fixed-Rate Vault ────────────────────────────────────────────────────────────────────────────
 # The fixed APR the vault quotes. NOT a free parameter: the coupon is funded by the yield the
-# vault's YT inventory earns in Blend, so a rate above what Blend actually pays drains seed capital
-# on every deposit. 300 bps is what `scripts/calibrate_vault_rate.mjs` clears against FixedV2 —
-# see MAINNET.md "Vault rate calibration". The previous hardcoded 500 did NOT clear it.
-VAULT_RATE_BPS="${VAULT_RATE_BPS:-300}"        # fixed APR the vault quotes (300 = 3.00%)
-VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"  # hard ceiling admin can ever set (20%)
-# Safety margin the calibration applies on top of a stressed Blend rate, in bps. High on purpose: a
-# fixed rate runs for the whole term and cannot be repriced mid-series.
-VAULT_RATE_MARGIN_BPS="${VAULT_RATE_MARGIN_BPS:-2500}"
-# Set to 1 ONLY to deploy a rate the calibration rejects (a deliberate, funded subsidy). The gate
-# prints the verdict either way; this just stops it aborting the deploy.
-VAULT_RATE_OVERRIDE="${VAULT_RATE_OVERRIDE:-0}"
-# Initial PT inventory to seed = the vault's launch coupon capacity (USDC base units, 7 decimals).
-# This is the ONLY vault step that spends USDC. Default 0 => NO USDC needed to deploy+init the whole
-# protocol (deploy/init are pure config writes paid only in XLM). Seed later via vault.seed when you
-# actually have USDC and have confirmed the wiring. Keep small for the first mainnet launch.
+# vault's YT inventory earns in Blend, so a rate above what Blend pays drains seed capital on every
+# deposit. 300 bps is what `scripts/calibrate_vault_rate.mjs` clears against FixedV2.
+#
+# Under v2's economics the ceiling is **312 bps**, not the 336 the fee-free v1 path showed: the
+# yield engine takes YIELD_FEE_BPS (5%) of the YT interest before the vault ever sees it. The gate
+# reads that fee from the live yield contract, so it cannot drift out of sync with this file.
+# See `blendcalibration.md` §11-12 and `MAINNET.md` §8.
+#
+# Unlike testnet — where Blend pays ~0.2% and ANY fixed rate is a subsidy — mainnet genuinely funds
+# this rate today, so the calibration below is a HARD GATE rather than advisory.
+VAULT_RATE_BPS="${VAULT_RATE_BPS:-300}"                        # 3.00% fixed
+VAULT_MAX_RATE_BPS="${VAULT_MAX_RATE_BPS:-2000}"               # 20% on-chain ceiling
+VAULT_RATE_MARGIN_BPS="${VAULT_RATE_MARGIN_BPS:-2500}"         # calibration safety margin
+# Set to 1 ONLY to ship a rate the gate rejects — a deliberate, funded subsidy.
+VAULT_RATE_OVERRIDE="${VAULT_RATE_OVERRIDE:-0}"         # calibration safety margin
+
+# Opening implied APY as a SCALAR_12 fraction (3.00% = 0.03 * 1e12), derived from the vault rate
+# above — the two headline numbers should not drift apart, and VAULT_RATE_BPS must therefore be
+# defined BEFORE this line.
+MARKET_APY_BPS="${MARKET_APY_BPS:-$VAULT_RATE_BPS}"
+MARKET_INITIAL_APY="${MARKET_INITIAL_APY:-$(( MARKET_APY_BPS * 1000000000000 / 10000 ))}"
+
+# Share of every swap fee routed to the treasury, in bps. 2000 = 20% protocol / 80% LP — the
+# inverse of Pendle, which gives LPs only 20%. Contract ceiling is 5000 (50%).
+MARKET_TREASURY_FEE_SHARE_BPS="${MARKET_TREASURY_FEE_SHARE_BPS:-2000}"
+
+# ─── Seeding (only runs with SEED=1) ─────────────────────────────────────────────────────────────
+# USDC (7 decimals) put into EACH side of the pool. The PT side is minted by stripping SR, so the
+# deployer needs ≈ 2 x this much USDC in total.
+SEED_PER_SIDE="${SEED_PER_SIDE:-50000000}"                     # 5 USDC per side, only with SEED=1
+
+# ─── Fixed-Rate Vault ────────────────────────────────────────────────────────────────────────────
+# USDC of PT coupon capacity to seed. The vault can only promise coupons out of SPARE inventory,
+# so an unseeded vault quotes a rate but refuses every deposit.
 VAULT_SEED_AMOUNT="${VAULT_SEED_AMOUNT:-0}"
 
-# ─── Market (PT/USDC time-decay AMM) config ─────────────────────────────────────────────────────
-MARKET_FEE_BPS="${MARKET_FEE_BPS:-30}"          # 0.30% swap fee
-MARKET_MAX_FEE_BPS="${MARKET_MAX_FEE_BPS:-100}" # ceiling admin can ever set (1%)
-MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-40000000000000}"  # 40 * 1e12 (curve steepness root)
-MARKET_RATE_ANCHOR="${MARKET_RATE_ANCHOR:-1000000000000}"   # 1.0 * 1e12 (PT anchored at par)
-# The pool's **USDC side** at launch (USDC base units). The PT side is NOT equal to this — it is
-# CALIBRATED from the target APY (see below). The ONLY market step that spends USDC. Default 0 =>
-# deploy+init need no USDC; add liquidity later once funded.
-MARKET_SEED_AMOUNT="${MARKET_SEED_AMOUNT:-0}"
-# The implied APY the pool should OPEN at. Defaults to the vault's advertised fixed rate, so the two
-# products quote the same number on day one (testcando §18).
-#
-# ⚠️  WHY THE SEED IS NOT 1:1 — this was a real bug. `rate_anchor` is pinned at par so PT converges
-# to 1.0 at maturity (the IL-minimizing property). The direct consequence is that a BALANCED pool
-# (proportion 0.5) prices PT at exactly par and implies **0% APY** — so a 1:1 seed shipped a venue
-# where buying PT and holding to maturity LOST the 0.30% swap fee. Measured before the fix:
-# 100 USDC -> 99.21 USDC. Positive yield requires a PT-HEAVY pool.
-#
-# `market.seed_pt_for_apy(usdc, bps)` derives how heavy, on chain, from the same curve math the
-# pricing uses. At the defaults (90d, 5.00%, scalar_root 40) that is ≈ **6.96 PT per 1 USDC**.
-#
-# 💰 BUDGET: the deployer needs ≈ MARKET_SEED_AMOUNT × (1 + ratio) in USDC — about **8×** the USDC
-# side at the defaults, since the PT leg is minted from USDC. Size MARKET_SEED_AMOUNT accordingly.
-# (The PT is not spent: it redeems 1:1 at maturity or comes back via remove_liquidity.)
-MARKET_TARGET_APY_BPS="${MARKET_TARGET_APY_BPS:-$VAULT_RATE_BPS}"
-
-# ─── Checkpoint / resume state ───────────────────────────────────────────────────────────────────
-# The state file accumulates `KEY=value` lines (contract addresses + step-complete markers). It's
-# sourced on startup so a re-run already knows everything the previous run accomplished. Each step is
-# guarded so it only runs if its checkpoint is absent — making the whole script idempotent & resumable.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/deploy_mainnet.state}"
+# A NEW file: `deploy_mainnet.state` belongs to the retired v1 run and still holds live v1 contract
+# ids. Resuming from it would silently mix the two generations.
+STATE_FILE="${STATE_FILE:-$SCRIPT_DIR/deploy_mainnet_v2.state}"
+[ "${FRESH:-0}" = "1" ] && rm -f "$STATE_FILE"
 
-if [ "${FRESH:-0}" = "1" ]; then
-  rm -f "$STATE_FILE"
-fi
-
-# ─── Selective redeploy: REDEPLOY=market[,vault] ────────────────────────────────────────────────
-# Replace ONE already-deployed contract in place, keeping every other address. Use this — never
-# FRESH=1 — when a contract's code or ABI changed after the stack was already deployed.
-#
-#   FRESH=1           deletes the state file  ⇒  redeploys wrapper + strategy + vault + market AND
-#                     re-creates both PT/YT SACs, re-hands SAC admin, and recomputes the maturity.
-#                     EVERY address changes. Correct only for a brand-new deployment.
-#   REDEPLOY=market   keeps every existing address, the PT/YT SACs and the pinned SAVED_MATURITY,
-#                     and re-runs only the market's deploy + initialize steps.
-#
-# Only leaf contracts are offered, because the rest genuinely cannot be replaced on their own:
-#   * wrapper  — PT/YT SAC admin was handed to the CURRENT wrapper, and the issuer can no longer
-#                call set_admin, so a fresh wrapper could never mint PT/YT. Needs new SACs ⇒ FRESH=1.
-#   * strategy — the wrapper stores the strategy address in its one-shot initialize(), so nothing
-#                can re-point it at a replacement. Needs a new wrapper ⇒ FRESH=1.
+# ─── Selective redeploy ──────────────────────────────────────────────────────────────────────────
+# srmarket is the only leaf that can be replaced alone. `yield` cannot: PT SAC admin was handed to
+# the CURRENT yield contract and the issuer may be locked, so a replacement could never mint PT.
+# `sr` cannot: the yield contract stores it in a one-shot initialize.
 REDEPLOY="${REDEPLOY:-}"
 if [ -n "$REDEPLOY" ]; then
-  if [ ! -f "$STATE_FILE" ]; then
-    echo "ERROR: REDEPLOY=$REDEPLOY needs an existing deployment to redeploy into, but there is no"
-    echo "       state file at $STATE_FILE. For a first deploy, run with no REDEPLOY."
-    exit 1
-  fi
+  [ -f "$STATE_FILE" ] || { echo "ERROR: REDEPLOY needs an existing $STATE_FILE"; exit 1; }
   CLEAR_KEYS=""
-  IFS=',' read -r -a REDEPLOY_PARTS <<< "$REDEPLOY"
-  for part in "${REDEPLOY_PARTS[@]}"; do
-    case "$part" in
-      market) CLEAR_KEYS="$CLEAR_KEYS MARKET MARKET_INIT MARKET_MINTED MARKET_SEEDED MARKET_SEED_PT" ;;
-      vault)  CLEAR_KEYS="$CLEAR_KEYS VAULT VAULT_INIT VAULT_SEEDED" ;;
-      wrapper|strategy)
-        echo "ERROR: REDEPLOY=$part is refused — it cannot work in isolation and would leave a"
-        echo "       half-broken stack (see the comment above this check). Use FRESH=1 for a"
-        echo "       brand-new deployment instead, and migrate any TVL off the old one first."
-        exit 1 ;;
-      *)
-        echo "ERROR: unknown REDEPLOY component '$part'. Supported: market, vault."
-        exit 1 ;;
+  IFS=',' read -r -a PARTS <<< "$REDEPLOY"
+  for p in "${PARTS[@]}"; do
+    case "$p" in
+      srmarket|market) CLEAR_KEYS="$CLEAR_KEYS SRMARKET SRMARKET_INIT POOL_SEEDED" ;;
+      # The router is the one component that IS safely replaceable in isolation: it holds no funds,
+      # has no privileges over anything, and derives its whole topology from the market at
+      # `initialize`. Swapping it strands nothing.
+      srrouter|router) CLEAR_KEYS="$CLEAR_KEYS SRROUTER SRROUTER_INIT" ;;
+      srvault|vault) CLEAR_KEYS="$CLEAR_KEYS SRVAULT SRVAULT_INIT VAULT_SEEDED" ;;
+      sr|yield) echo "ERROR: REDEPLOY=$p cannot work in isolation (see comment). Use FRESH=1."; exit 1 ;;
+      *) echo "ERROR: unknown REDEPLOY component '$p'. Supported: srmarket, srrouter, srvault."; exit 1 ;;
     esac
   done
-  # Clearing DEPLOY_COMPLETE is what re-opens the script; without it the run exits early below.
   CLEAR_KEYS="$CLEAR_KEYS DEPLOY_COMPLETE"
-
-  STATE_BACKUP="$STATE_FILE.bak.$(date +%Y%m%d-%H%M%S)"
-  cp "$STATE_FILE" "$STATE_BACKUP"
-  echo "==> REDEPLOY=$REDEPLOY — forgetting these checkpoints:"
-  for k in $CLEAR_KEYS; do
-    OLD_LINE=$(grep -E "^$k=" "$STATE_FILE" | tail -1 || true)
-    if [ -n "$OLD_LINE" ]; then echo "      - $OLD_LINE"; fi
-  done
+  cp "$STATE_FILE" "$STATE_FILE.bak.$(date +%Y%m%d-%H%M%S)"
   CLEAR_RE=$(echo $CLEAR_KEYS | tr ' ' '|')
   grep -Ev "^($CLEAR_RE)=" "$STATE_FILE" > "$STATE_FILE.tmp" || true
   mv "$STATE_FILE.tmp" "$STATE_FILE"
-  echo "    previous state backed up to: $STATE_BACKUP"
-  echo "    ⚠ The old contracts stay live on chain — nothing is destroyed, they simply stop being"
-  echo "      the ones this deployment points at. WITHDRAW ANY LIQUIDITY / POSITIONS FROM THEM"
-  echo "      FIRST: a replaced market keeps its reserves, and no one will be trading against it."
+  echo "==> REDEPLOY=$REDEPLOY — cleared: $CLEAR_KEYS"
+  echo "    ⚠ The old market stays live and KEEPS ITS RESERVES. Withdraw liquidity from it first."
   echo
 fi
 
-# Variables that may be restored from the state file (declare so `set -u` is happy when absent).
-WRAPPER=""; STRATEGY=""; VAULT=""; MARKET=""; PT_SAC=""; YT_SAC=""
-PT_ADMIN_SET=""; YT_ADMIN_SET=""; TRUSTLINES_SET=""
-STRATEGY_INIT=""; WRAPPER_INIT=""; VAULT_INIT=""; MARKET_INIT=""
-VAULT_SEEDED=""; MARKET_MINTED=""; MARKET_SEEDED=""; SAVED_MATURITY=""; DEPLOY_COMPLETE=""
-MARKET_SEED_PT=""
-ISSUER_LOCKED=""
+# Declared so `set -u` is happy before the state file is sourced.
+SR=""; STRATEGY=""; YIELD=""; SRMARKET=""; SRVAULT=""; SRROUTER=""; PT_SAC=""
+STRATEGY_INIT=""; SR_INIT=""; YIELD_INIT=""; SRMARKET_INIT=""; SRVAULT_INIT=""; VAULT_SEEDED=""
+SRROUTER_INIT=""
+PT_ADMIN_SET=""; PT_TRUSTLINE=""; POOL_SEEDED=""; ISSUER_LOCKED=""
+SAVED_EXPIRY=""; DEPLOY_COMPLETE=""
 
 if [ -f "$STATE_FILE" ]; then
-  echo "==> Resuming from existing state file: $STATE_FILE"
+  echo "==> Resuming from $STATE_FILE"
   # shellcheck disable=SC1090
   source "$STATE_FILE"
-  # Maturity MUST be stable across resumes (strategy/wrapper/vault/market all share it). If a prior
-  # run persisted it, reuse that value rather than recomputing a new "now + Nd" that would mismatch.
-  if [ -n "$SAVED_MATURITY" ]; then MATURITY="$SAVED_MATURITY"; fi
+  [ -n "$SAVED_EXPIRY" ] && EXPIRY="$SAVED_EXPIRY"
 fi
 
-# If a previous run already finished everything, don't rebuild/redeploy — just reprint the addresses.
-if [ -n "$DEPLOY_COMPLETE" ]; then
-  echo "==> This deploy already completed (per $STATE_FILE). Nothing to do."
-  echo "    wrapper=$WRAPPER  strategy=$STRATEGY  vault=$VAULT  market=$MARKET"
-  echo "    PT=$PT_SAC  YT=$YT_SAC"
-  echo "    (To start a brand-new deployment, run with FRESH=1 or delete the state file.)"
-  exit 0
-fi
+save_state() { printf '%s=%q\n' "$1" "$2" >> "$STATE_FILE"; printf -v "$1" '%s' "$2"; }
 
-# Append a KEY=value checkpoint and also set it live in this shell.
-save_state() {  # save_state KEY VALUE
-  local key="$1" val="$2"
-  printf '%s=%q\n' "$key" "$val" >> "$STATE_FILE"
-  printf -v "$key" '%s' "$val"
+# Submit a state-changing invoke, retrying on the transient footprint failure.
+#
+# `strategy::current_rate` writes its RateBound only CONDITIONALLY (`if rate > last_rate || now >
+# last_ts`) and also bumps its instance TTL. Whether a write happens therefore depends on how much
+# time passed between simulation and execution, so a simulated footprint can record the entry
+# read-only and then need it read-write at execution — the host rejects that with
+# `storage: exceeded_limit / outside of the footprint`. Re-simulating fixes it.
+# Observed repeatedly on testnet 2026-08-24.
+invoke_retry() {  # invoke_retry <contract-id> <args...>
+  local id="$1"; shift
+  local n=0
+  until stellar contract invoke --id "$id" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- "$@" >/dev/null 2>&1; do
+    n=$((n+1))
+    if [ "$n" -ge 4 ]; then
+      echo "ERROR: '$*' on $id failed after $n attempts." >&2
+      return 1
+    fi
+    echo "    (retry $n after a transient footprint failure)" >&2
+    sleep 3
+  done
+  return 0
 }
 
-# Read a no-arg view from a contract, stripped of quotes/whitespace. Pure simulation, costs nothing.
-# Empty string on any failure — callers must treat empty as "could not read", never as a match.
-read_view() {  # read_view <contract-id> <no-arg view fn>
+# Read a no-arg view. Pure simulation, costs nothing. Empty on failure — callers must treat empty
+# as "could not read", NEVER as a match.
+read_view() {
   local out
-  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "$2" 2>/dev/null) || return 0
+  # Forward EVERY remaining argument, not just the function name. This used to pass only "$2", so
+  # any view taking parameters was invoked bare — the CLI then failed on the missing argument, the
+  # `|| return 0` swallowed it, and the caller saw empty output. `compat` reads empty as "the callee
+  # is an older deployment", so a parameterised check reported a version skew that did not exist.
+  # Only `router.quote_buy_pt_with_usdc` takes arguments today, which is why only it failed.
+  out=$(stellar contract invoke --id "$1" --source-account "$SOURCE" "${NET_ARGS[@]}" -- "${@:2}" 2>/dev/null) || return 0
   printf '%s' "$out" | tr -d '"' | tr -d '[:space:]'
 }
 
-# Signers on the PT/YT issuer that can still sign (weight > 0), as "KEY WEIGHT" lines.
-# Prints the single token `UNKNOWN` if the account could not be inspected — callers must fail
+# Signers on the PT issuer that can still sign (weight > 0), as "KEY WEIGHT" lines.
+# Prints the single token `UNKNOWN` if the account could not be inspected — callers MUST fail
 # closed on that rather than assume a safe state.
 issuer_live_signers() {
-  local json
-  json=$(curl -s --max-time 20 "$HORIZON_URL/accounts/$ISSUER_ADDR" 2>/dev/null) || true
-  if [ -z "$json" ] || ! command -v python3 >/dev/null 2>&1; then
-    echo "UNKNOWN"; return 0
-  fi
+  local json n=0
+  # Retry: the public Horizon intermittently returns nothing under load, and a dropped read is
+  # indistinguishable from "cannot inspect". Since the caller FAILS CLOSED on UNKNOWN (correctly),
+  # a transient blip would otherwise block a legitimate lockdown. Retry the read, never the guard.
+  while [ "$n" -lt 5 ]; do
+    json=$(curl -s --max-time 20 "$HORIZON_URL/accounts/$ISSUER_ADDR" 2>/dev/null) || true
+    [ -n "$json" ] && break
+    n=$((n+1)); sleep 3
+  done
+  if [ -z "$json" ] || ! command -v python3 >/dev/null 2>&1; then echo "UNKNOWN"; return 0; fi
   ISSUER_JSON="$json" python3 -c '
 import json, os, sys
 try:
-    acct = json.loads(os.environ["ISSUER_JSON"])
-    signers = acct["signers"]
+    signers = json.loads(os.environ["ISSUER_JSON"])["signers"]
 except Exception:
     print("UNKNOWN"); sys.exit(0)
 for s in signers:
@@ -242,179 +269,247 @@ for s in signers:
 ' 2>/dev/null || echo "UNKNOWN"
 }
 
-# ─── Resolve addresses ──────────────────────────────────────────────────────────────────────────
+# Fail loudly if a read-back does not match, instead of deploying on top of a broken wiring.
+expect() {  # expect <label> <actual> <wanted>
+  if [ "$2" != "$3" ]; then
+    echo "ERROR: $1 mismatch"; echo "       got:    ${2:-<unreadable>}"; echo "       wanted: $3"; exit 1
+  fi
+  echo "    ✓ $1"
+}
+
+# The issuer must already exist and hold XLM. There is no friendbot on mainnet, and generating a
+# key here would produce an unfunded account that fails several steps later, after the run has
+# already spent fees.
+if ! stellar keys address "$ISSUER" >/dev/null 2>&1; then
+  echo "ERROR: issuer identity '$ISSUER' does not exist."
+  echo "       Create and fund it first (it needs XLM for the PT issuance + lockdown):"
+  echo "         stellar keys generate $ISSUER"
+  echo "         # then send it XLM from a funded account"
+  exit 1
+fi
+
+# ─── Mainnet preflight ───────────────────────────────────────────────────────────────────────────
+# One deliberate pause before anything is written to a public ledger. `CONFIRM=1` skips it for CI.
+if [ "${CONFIRM:-0}" != "1" ] && [ -t 0 ]; then
+  echo
+  echo "  ┌──────────────────────────────────────────────────────────────────────────────┐"
+  echo "  │  MAINNET DEPLOY — this writes to the public Stellar network.                 │"
+  echo "  └──────────────────────────────────────────────────────────────────────────────┘"
+  echo "    deployer   : $SOURCE"
+  echo "    issuer     : $ISSUER   (will be LOCKED irreversibly unless LOCK_ISSUER=0)"
+  echo "    Blend pool : $BLEND_POOL   (FixedV2)"
+  echo "    USDC       : $USDC_SAC   (real Circle USDC)"
+  echo "    vault rate : ${VAULT_RATE_BPS}bps    TVL cap: ${SR_DEPOSIT_CAP} base units"
+  echo "    maturity   : $EXPIRY  (+${MATURITY_DAYS}d)"
+  echo "    USDC spend : vault seed ${VAULT_SEED_AMOUNT}, AMM seed $([ "${SEED:-0}" = "1" ] && echo "$(( SEED_PER_SIDE * 2 ))" || echo 0)"
+  echo
+  printf "    Type 'deploy' to continue: "
+  read -r reply
+  [ "$reply" = "deploy" ] || { echo "    aborted."; exit 1; }
+  echo
+fi
+
 ADMIN_ADDR=$(stellar keys address "$SOURCE")
 ISSUER_ADDR=$(stellar keys address "$ISSUER")
+TREASURY_ADDR=$(stellar keys address "$TREASURY_KEY")
+# Asset code is configurable: a FRESH redeploy needs a code/issuer pair whose SAC admin is not
+# already bound to a previous yield contract.
+PT_CODE="${PT_CODE:-SPLDPT}"
+PT_ASSET="$PT_CODE:$ISSUER_ADDR"
 
-echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  SPIELD v2 — MAINNET DEPLOY  (THIS SPENDS REAL XLM AND USDC)      ║"
-echo "╚══════════════════════════════════════════════════════════════════╝"
-echo "  Network      : $NETWORK  ($NETWORK_PASSPHRASE)"
-echo "  RPC          : $RPC_URL"
-echo "  Deployer     : $SOURCE  = $ADMIN_ADDR"
-echo "  PT/YT issuer : $ISSUER  = $ISSUER_ADDR"
-echo "  Blend pool   : $BLEND_POOL   (FixedV2)"
-echo "  USDC SAC     : $USDC_SAC"
-echo "  Maturity     : $MATURITY  (+${MATURITY_DAYS}d)"
-echo "  Vault seed   : $VAULT_SEED_AMOUNT base units   Market seed: $MARKET_SEED_AMOUNT base units"
-echo "  Max APR bps  : $MAX_APR_BPS"
-echo "  State file   : $STATE_FILE"
+# ── Trust the RECORDED asset over the reconstructed one ──────────────────────────────────────────
+#
+# On a resumed run the deployment's real PT asset is whatever `PT_ASSET_ID` says, and that is not
+# necessarily `$PT_CODE:$(stellar keys address $ISSUER)`. The lockdown **burns the issuer identity**,
+# so `spield_sr_issuer` gets regenerated afterwards and the key name then resolves to a brand-new,
+# unlocked account that never issued anything.
+#
+# Caught on 2026-08-25: a resume aborted with "the issuer is NOT locked" naming
+# GDTM2UMJ… (weight 1) while the asset actually in use, SPLDPT5:GCCDH7PS…, was correctly locked
+# (weight 0). The fail-closed behaviour was right; the account it was checking was not.
+#
+# This is the same defect class as `AUDITPREP.md` §4 item 3 — an asset identity reconstructed from
+# parts instead of read from where it was recorded. Reconstruct only when there is nothing recorded.
+if [ -n "${PT_ASSET_ID:-}" ]; then
+  PT_ASSET="$PT_ASSET_ID"
+  RECORDED_ISSUER="${PT_ASSET_ID#*:}"
+  if [ "$RECORDED_ISSUER" != "$ISSUER_ADDR" ]; then
+    echo "==> NOTE: using the RECORDED PT issuer $RECORDED_ISSUER"
+    echo "          (the '$ISSUER' key now resolves to $ISSUER_ADDR — expected after a lockdown,"
+    echo "           which burns the identity. The recorded asset is the one the contracts use.)"
+    ISSUER_ADDR="$RECORDED_ISSUER"
+  fi
+  PT_CODE="${PT_ASSET_ID%%:*}"
+fi
+
+echo "==> Deployer ($SOURCE): $ADMIN_ADDR"
+echo "==> PT issuer ($ISSUER): $ISSUER_ADDR"
+echo "==> Treasury:            $TREASURY_ADDR"
+echo "==> Blend pool:          $BLEND_POOL"
+echo "==> USDC SAC:            $USDC_SAC"
+echo "==> Expiry:              $EXPIRY (+${MATURITY_DAYS}d)"
+echo "==> Fee root:            $MARKET_LN_FEE_ROOT (0.25%/yr)   Opening APY: ${MARKET_APY_BPS}bps"
+echo "==> Yield fee:           ${YIELD_FEE_BPS}bps   Treasury swap share: ${MARKET_TREASURY_FEE_SHARE_BPS}bps"
+echo "==> State file:          $STATE_FILE"
 echo
 
-# Hard guard: confirm before doing anything irreversible. (Skipped automatically when resuming a
-# run that already created contracts — you already confirmed on the first pass.)
-if [ "${YES:-0}" != "1" ] && [ -z "$WRAPPER" ]; then
-  read -r -p "Type 'deploy mainnet' to proceed: " CONFIRM
-  if [ "$CONFIRM" != "deploy mainnet" ]; then
-    echo "Aborted (no confirmation)."; exit 1
-  fi
+if [ -n "$DEPLOY_COMPLETE" ]; then
+  echo "==> Already completed. sr=$SR yield=$YIELD srmarket=$SRMARKET PT=$PT_SAC"
+  echo "    (FRESH=1 for a brand-new deployment, REDEPLOY=srmarket to replace the market.)"
+  exit 0
 fi
 
-# Pin the maturity into the state on the very first run so every contract shares one value across
-# resumes. (No-op on resume — it's already saved.)
-if [ -z "$SAVED_MATURITY" ]; then save_state SAVED_MATURITY "$MATURITY"; fi
+[ -z "$SAVED_EXPIRY" ] && save_state SAVED_EXPIRY "$EXPIRY"
+# Record the external dependencies too, so downstream tooling reads them from the deployment record
+# rather than re-deriving them from its own defaults. The solvency monitor's Blend utilization probe
+# (`tofix.md` #20) needs both, and a monitor pointed at the wrong pool is worse than no monitor.
+save_state BLEND_POOL "$BLEND_POOL"
+save_state USDC_SAC "$USDC_SAC"
 
-echo "==> [1/8] Building + optimizing WASMs (wasm-opt — shrinks the binary => lower mainnet"
-echo "          install/rent fees; behaviour identical, but the code hash differs from testnet)..."
-# --optimize runs wasm-opt over each release WASM after the (already opt-level=z, lto, strip) build.
+# ─── [1/9] Build ─────────────────────────────────────────────────────────────────────────────────
+echo "==> [1/9] Building + optimizing WASMs..."
 stellar contract build --optimize >/dev/null
 WASM_DIR="target/wasm32v1-none/release"
-# `build --optimize` writes <name>.optimized.wasm next to the plain build output. Fall back to the
-# unoptimized file if (on an older CLI) the optimized one isn't produced.
 pick_wasm() { if [ -f "$1.optimized.wasm" ]; then echo "$1.optimized.wasm"; else echo "$1.wasm"; fi; }
+SR_WASM=$(pick_wasm "$WASM_DIR/spield_sr")
 STRAT_WASM=$(pick_wasm "$WASM_DIR/spield_strategy")
-WRAP_WASM=$(pick_wasm "$WASM_DIR/spield_wrapper")
-VAULT_WASM=$(pick_wasm "$WASM_DIR/spield_vault")
-MARKET_WASM=$(pick_wasm "$WASM_DIR/spield_market")
-echo "    using:"
-for w in "$STRAT_WASM" "$WRAP_WASM" "$VAULT_WASM" "$MARKET_WASM"; do
-  printf "      %8s  %s\n" "$(wc -c < "$w" 2>/dev/null || echo '?')" "$w"
+YIELD_WASM=$(pick_wasm "$WASM_DIR/spield_yield")
+MARKET_WASM=$(pick_wasm "$WASM_DIR/spield_srmarket")
+VAULT_WASM=$(pick_wasm "$WASM_DIR/spield_srvault")
+ROUTER_WASM=$(pick_wasm "$WASM_DIR/spield_srrouter")
+for f in "$SR_WASM" "$STRAT_WASM" "$YIELD_WASM" "$MARKET_WASM" "$VAULT_WASM"; do
+  [ -f "$f" ] || { echo "ERROR: missing $f"; exit 1; }
 done
+echo "    sr=$(basename "$SR_WASM") strategy=$(basename "$STRAT_WASM") yield=$(basename "$YIELD_WASM") market=$(basename "$MARKET_WASM")"
 
-# admin bound ATOMICALLY by __constructor at deploy (after `--`), so the deploy->initialize window
-# can't be front-run: only this admin can complete initialize(). Rotate to a MULTISIG post-deploy.
-# NOTE: admin = the deployer (a single hot key). That is functionally fine to KEEP — a single-key
-# admin runs the protocol identically, and admin powers can't steal funds / mint unbacked tokens /
-# bypass the upgrade timelock. Rotating to a multisig (§6 in MAINNET.md) is RECOMMENDED for real
-# TVL (so one key compromise isn't fatal), not required to operate.
-if [ -z "$WRAPPER" ]; then
-  echo "==> [2/8] Deploying the wrapper contract (need its address to admin PT/YT)..."
-  W=$(stellar contract deploy --wasm "$WRAP_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- --admin "$ADMIN_ADDR")
-  save_state WRAPPER "$W"
-  echo "    wrapper = $WRAPPER"
+# ─── [2/9] SR ────────────────────────────────────────────────────────────────────────────────────
+# SR first: the strategy's initialize binds the one contract allowed to call it, and that is SR.
+# The admin is bound ATOMICALLY by __constructor, so the deploy→initialize window cannot be
+# front-run — only this admin can finish setup.
+if [ -z "$SR" ]; then
+  echo "==> [2/9] Deploying SR (Standardized Return)..."
+  save_state SR "$(stellar contract deploy --wasm "$SR_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR")"
+  echo "    sr = $SR"
+else echo "==> [2/9] SR already deployed ($SR) — skipping."; fi
+
+# ─── [3/9] Strategy ──────────────────────────────────────────────────────────────────────────────
+if [ -z "$STRATEGY" ]; then
+  echo "==> [3/9] Deploying the Blend strategy adapter..."
+  save_state STRATEGY "$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR")"
+  echo "    strategy = $STRATEGY"
+else echo "==> [3/9] Strategy already deployed ($STRATEGY) — skipping."; fi
+
+if [ -z "$STRATEGY_INIT" ]; then
+  echo "    initializing strategy (caller=SR, pool=$BLEND_POOL)..."
+  stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- initialize \
+    --wrapper "$SR" --pool "$BLEND_POOL" --underlying "$USDC_SAC" --max_apr_bps "$MAX_APR_BPS" >/dev/null
+  save_state STRATEGY_INIT 1; echo "    ✓ strategy initialized"
+else echo "    strategy already initialized — skipping."; fi
+
+if [ -z "$SR_INIT" ]; then
+  # Warm up the strategy's rate bound FIRST. The very first `current_rate()` call CREATES the
+  # RateBound ledger entry; doing that create from inside SR's `initialize` makes the simulated
+  # footprint disagree with execution and the transaction traps. Calling it directly here does the
+  # create in its own transaction, so SR's init only ever updates an entry that already exists.
+  # (Observed on testnet 2026-08-24 — the deploy failed exactly once, here, until this was added.)
+  echo "    warming up the strategy rate bound (first current_rate creates its ledger entry)..."
+  invoke_retry "$STRATEGY" current_rate
+  echo "    initializing SR (discovers its underlying from the strategy)..."
+  invoke_retry "$SR" initialize --strategy "$STRATEGY"
+  save_state SR_INIT 1; echo "    ✓ SR initialized"
+else echo "    SR already initialized — skipping."; fi
+
+# Apply the TVL cap on every run, not just the first: it is the one parameter an operator is most
+# likely to want to change between runs, and re-reading it from the environment each time makes the
+# script the single source of truth for it.
+if [ "${SR_DEPOSIT_CAP}" != "0" ]; then
+  echo "    setting the launch TVL cap to $SR_DEPOSIT_CAP underlying base units..."
+  invoke_retry "$SR" set_deposit_cap --cap "$SR_DEPOSIT_CAP"
+  echo "    ✓ cap set (headroom now $(read_view "$SR" deposit_headroom))"
 else
-  echo "==> [2/8] wrapper already deployed ($WRAPPER) — skipping."
+  echo "    ⚠ SR_DEPOSIT_CAP=0 — SR is UNCAPPED. tofix.md #3 requires a cap before mainnet."
 fi
 
-PT_ASSET="SPLDPT:$ISSUER_ADDR"
-YT_ASSET="SPLDYT:$ISSUER_ADDR"
+# ─── [4/9] Yield contract (PT/YT engine + the YT token) ──────────────────────────────────────────
+if [ -z "$YIELD" ]; then
+  echo "==> [4/9] Deploying the yield contract (PT/YT engine; IS the YT token)..."
+  save_state YIELD "$(stellar contract deploy --wasm "$YIELD_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR" --treasury "$TREASURY_ADDR")"
+  echo "    yield = $YIELD   (this address IS the YT token)"
+else echo "==> [4/9] Yield contract already deployed ($YIELD) — skipping."; fi
 
-# SAC ids are DETERMINISTIC (asset code + issuer + network), so re-deriving them on a resume is free
-# and always yields the same address — but the asset *deploy* is a state-changing tx, so only run it
-# when we don't already have the SAC recorded. (Deploy is idempotent-tolerant via `|| true`, but
-# skipping avoids a needless tx + fee on resume.)
-if [ -z "$PT_SAC" ] || [ -z "$YT_SAC" ]; then
-  echo "==> [3/8] Creating PT and YT assets + SACs (issued by $ISSUER)..."
+# ─── [5/9] PT asset + SAC ────────────────────────────────────────────────────────────────────────
+# ONLY PT is a classic asset here. YT is the yield contract itself, because it needs a transfer
+# hook to settle interest and a SAC has none.
+if [ -z "$PT_SAC" ]; then
+  echo "==> [5/9] Creating the PT asset + SAC (issued by $ISSUER)..."
   stellar contract asset deploy --asset "$PT_ASSET" --source-account "$ISSUER" "${NET_ARGS[@]}" >/dev/null 2>&1 || true
-  stellar contract asset deploy --asset "$YT_ASSET" --source-account "$ISSUER" "${NET_ARGS[@]}" >/dev/null 2>&1 || true
   save_state PT_SAC "$(stellar contract id asset --asset "$PT_ASSET" "${NET_ARGS[@]}")"
-  save_state YT_SAC "$(stellar contract id asset --asset "$YT_ASSET" "${NET_ARGS[@]}")"
+  # Record the classic asset too — every consumer (tests, frontend, wallets) needs the exact
+  # code:issuer pair to open a trustline, and guessing it is how you end up trusting the wrong one.
+  save_state PT_ASSET_ID "$PT_ASSET"
   echo "    PT SAC = $PT_SAC"
-  echo "    YT SAC = $YT_SAC"
-else
-  echo "==> [3/8] PT/YT SACs already created (PT=$PT_SAC, YT=$YT_SAC) — skipping."
-fi
+else echo "==> [5/9] PT SAC already created ($PT_SAC) — skipping."; fi
 
-# Hand SAC admin to the wrapper so it (not the issuer) controls mint/burn. Guarded per-token: once
-# admin is the wrapper, the issuer can no longer call set_admin, so a blind re-run would fail.
 if [ -z "$PT_ADMIN_SET" ]; then
-  stellar contract invoke --id "$PT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" \
-    -- set_admin --new_admin "$WRAPPER" >/dev/null
-  save_state PT_ADMIN_SET 1
-  echo "    PT admin -> wrapper"
-else
-  echo "    PT admin already handed to wrapper — skipping."
-fi
-if [ -z "$YT_ADMIN_SET" ]; then
-  stellar contract invoke --id "$YT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" \
-    -- set_admin --new_admin "$WRAPPER" >/dev/null
-  save_state YT_ADMIN_SET 1
-  echo "    YT admin -> wrapper"
-else
-  echo "    YT admin already handed to wrapper — skipping."
-fi
+  echo "    handing PT SAC admin to the yield contract..."
+  stellar contract invoke --id "$PT_SAC" --source-account "$ISSUER" "${NET_ARGS[@]}" --send=yes -- set_admin --new_admin "$YIELD" >/dev/null
+  save_state PT_ADMIN_SET 1; echo "    ✓ PT admin -> yield contract"
+else echo "    PT admin already handed over — skipping."; fi
 
-# The deployer (who will receive PT/YT when it seeds the market) needs trustlines for these classic
-# assets before the wrapper can mint to them. (Any other user must do the same before their 1st mint.)
-if [ -z "$TRUSTLINES_SET" ]; then
-  echo "==> [3b] Adding PT/YT trustlines for $SOURCE..."
+if [ -z "$PT_TRUSTLINE" ]; then
+  echo "    adding the deployer's PT trustline (needed before PT can be minted to them)..."
   stellar tx new change-trust --source-account "$SOURCE" "${NET_ARGS[@]}" --line "$PT_ASSET" >/dev/null 2>&1 || true
-  stellar tx new change-trust --source-account "$SOURCE" "${NET_ARGS[@]}" --line "$YT_ASSET" >/dev/null 2>&1 || true
-  save_state TRUSTLINES_SET 1
-  echo "    trustlines set"
-else
-  echo "==> [3b] PT/YT trustlines already set — skipping."
-fi
+  save_state PT_TRUSTLINE 1; echo "    ✓ PT trustline set"
+else echo "    PT trustline already set — skipping."; fi
 
-# ─── [3c] LOCK THE PT/YT ISSUER (testcando §13) ─────────────────────────────────────────────────
+# ─── [6/9] Initialize the yield contract ─────────────────────────────────────────────────────────
+if [ -z "$YIELD_INIT" ]; then
+  echo "==> [6/9] Initializing the yield contract (sr, pt, expiry, yield_fee)..."
+  invoke_retry "$YIELD" initialize --sr "$SR" --pt "$PT_SAC" --expiry "$EXPIRY" --yield_fee_bps "$YIELD_FEE_BPS"
+  save_state YIELD_INIT 1; echo "    ✓ yield initialized"
+else echo "==> [6/9] Yield already initialized — skipping."; fi
+
+# ─── [6b] LOCK THE PT ISSUER ─────────────────────────────────────────────────────────────────────
 #
-# THE HOLE THIS CLOSES. Handing SAC admin to the wrapper (above) governs the *contract* path to
-# mint/burn. It does nothing to the *classic* path: the issuer account can still create PT with a
-# plain Stellar payment operation, bypassing the wrapper — and therefore bypassing the deposit that
-# is supposed to back it. That is counterfeit PT against real user backing.
+# Handing SAC admin to the yield contract governs the *contract* path to mint/burn PT. It does
+# NOTHING about the *classic* path: the issuer account can still create PT with a plain Stellar
+# payment, bypassing the engine and therefore bypassing the SR that is supposed to back it. Setting
+# the master key weight to 0 ends that permanently — per Stellar's docs a master key at weight 0
+# cannot sign at all, which holds only while no OTHER signer exists (pre-flight 2 enforces that).
 #
-# Today the wrapper survives it only because `redeem_pt` is position-gated, so PT held against no
-# position is unredeemable (`wrapper::test::extra_pt_outside_a_position_breaks_conservation_but_not_
-# the_wrapper` pins that). That is a coincidence, not a defence, and it is exactly the property a
-# balance-based redemption removes. Lock the issuer BEFORE any such redemption ships.
+# Only PT needs this. **YT is a contract, not a classic asset** — it has no issuer to lock, which
+# removes half of v1's lockdown surface outright.
 #
-# WHY MASTER-WEIGHT-0 IS SUFFICIENT. Per Stellar's signature docs: "If the master key's weight is
-# set at 0, it cannot be used to sign transactions, even for operations with a threshold value of
-# 0." So the default thresholds do not need touching — but this holds ONLY if no OTHER signer can
-# sign, which is why the pre-flight below refuses to proceed when one exists.
+# NO auth flags are set. `--set-required` would make the issuer authorize every new trustline, which
+# a locked issuer can never do — nobody could ever hold PT again. Clawback/revocable grant powers
+# over holder balances we deliberately do not want. The engine only calls `mint`/`burn` as SAC
+# admin, so none are needed.
 #
-# WHY NO AUTH FLAGS ARE SET. `--set-required` would make the issuer authorize every new trustline;
-# with a locked issuer that can never happen, so NOBODY could ever hold PT/YT again — it would brick
-# the protocol permanently. `--set-clawback-enabled` and `--set-revocable` grant powers over holder
-# balances that Spield deliberately does not want. The wrapper only ever calls `mint` and `burn` as
-# SAC admin, so none of these flags are needed. `--set-immutable` is redundant: a key that cannot
-# sign cannot change its own flags either.
-#
-# IRREVERSIBLE. After this the issuer identity is spent forever — a future FRESH=1 deployment needs
-# a BRAND-NEW issuer account (its old SACs are permanently admined by the old wrapper).
+# ⚠️  THIS BURNS THE ISSUER IDENTITY. A later FRESH=1 run needs a BRAND-NEW issuer (or asset code):
+# the old one can no longer sign `asset deploy` or `set_admin`. Set LOCK_ISSUER=0 while iterating.
 if [ -z "${ISSUER_LOCKED:-}" ] && [ "${LOCK_ISSUER:-1}" = "1" ]; then
-  echo "==> [3c] Locking the PT/YT issuer (irreversible) ..."
+  echo "==> [6b] Locking the PT issuer (irreversible — LOCK_ISSUER=0 to skip)..."
 
-  # Pre-flight 1: SAC admin MUST already be the wrapper for BOTH tokens. Locking the issuer while
-  # it is still the admin would leave the asset permanently unmintable — the protocol would be
-  # bricked with no way back. Fail closed if either read is unavailable.
+  # Pre-flight 1: SAC admin MUST already be the yield contract, or locking leaves PT permanently
+  # unmintable and bricks the deployment with no way back.
   PT_ADMIN_NOW=$(read_view "$PT_SAC" admin)
-  YT_ADMIN_NOW=$(read_view "$YT_SAC" admin)
-  if [ "$PT_ADMIN_NOW" != "$WRAPPER" ] || [ "$YT_ADMIN_NOW" != "$WRAPPER" ]; then
-    echo "ERROR: refusing to lock the issuer — SAC admin is not (yet) the wrapper."
-    echo "       PT admin = ${PT_ADMIN_NOW:-<unreadable>}"
-    echo "       YT admin = ${YT_ADMIN_NOW:-<unreadable>}"
-    echo "       expected = $WRAPPER"
-    echo "       Locking now would make PT/YT permanently unmintable. Fix the handover first."
+  if [ "$PT_ADMIN_NOW" != "$YIELD" ]; then
+    echo "ERROR: refusing to lock — PT SAC admin is not (yet) the yield contract."
+    echo "       admin = ${PT_ADMIN_NOW:-<unreadable>}   expected = $YIELD"
     exit 1
   fi
-  echo "    ✓ PT and YT SAC admin is the wrapper — the contract mint path survives the lock"
+  echo "    ✓ PT SAC admin is the yield contract — the contract mint path survives the lock"
 
-  # Pre-flight 2: no OTHER signer may exist, or master-weight-0 would not actually lock anything.
+  # Pre-flight 2: no OTHER signer, or master-weight-0 would not actually lock anything.
   SIGNERS_BEFORE=$(issuer_live_signers)
   if [ "$SIGNERS_BEFORE" = "UNKNOWN" ]; then
-    echo "ERROR: could not read the issuer's signers from $HORIZON_URL (needs curl + python3)."
-    echo "       Refusing to lock blind — a second signer would leave the issuer able to mint"
-    echo "       counterfeit PT even after master-weight-0. Verify by hand, then re-run, or set"
-    echo "       LOCK_ISSUER=0 to skip and lock it manually."
+    echo "ERROR: could not read the issuer's signers from $HORIZON_URL. Refusing to lock blind."
     exit 1
   fi
-  EXTRA_SIGNERS=$(printf '%s\n' "$SIGNERS_BEFORE" | grep -v "^$ISSUER_ADDR " || true)
-  if [ -n "$EXTRA_SIGNERS" ]; then
+  EXTRA=$(printf '%s\n' "$SIGNERS_BEFORE" | grep -v "^$ISSUER_ADDR " || true)
+  if [ -n "$EXTRA" ]; then
     echo "ERROR: the issuer has additional signers, so master-weight-0 would NOT lock it:"
-    printf '         %s\n' "$EXTRA_SIGNERS"
-    echo "       Remove them first (set their weight to 0), then re-run."
+    printf '         %s\n' "$EXTRA"
     exit 1
   fi
   echo "    ✓ no extra signers — master-weight-0 will fully disable this account"
@@ -423,126 +518,88 @@ if [ -z "${ISSUER_LOCKED:-}" ] && [ "${LOCK_ISSUER:-1}" = "1" ]; then
   save_state ISSUER_LOCKED 1
   echo "    issuer master weight -> 0"
 elif [ -n "${ISSUER_LOCKED:-}" ]; then
-  echo "==> [3c] issuer already locked — skipping."
+  echo "==> [6b] issuer already locked — skipping."
 else
-  echo "==> [3c] ⚠️  SKIPPING the issuer lockdown (LOCK_ISSUER=0)."
-  echo "         The PT/YT issuer remains a LIVE SIGNING KEY: a plain classic payment from it"
-  echo "         creates PT that bypasses the wrapper entirely. DO NOT SEED with the issuer"
-  echo "         unlocked, and do not ship any balance-based redemption until it is locked."
+  echo "==> [6b] ⚠️  SKIPPING the issuer lockdown (LOCK_ISSUER=0). The issuer remains a live signing"
+  echo "         key and can mint PT that bypasses the engine. Fine for iteration, NEVER for mainnet."
 fi
 
-# Verify the lock ON CHAIN on every run — the property that matters is "no key can sign for this
-# account", and only the ledger can answer that. §16 live-verification step.
+# Verify the lock ON CHAIN every run — only the ledger can answer "can any key still sign?".
 if [ -n "${ISSUER_LOCKED:-}" ]; then
   SIGNERS_AFTER=$(issuer_live_signers)
   if [ "$SIGNERS_AFTER" = "UNKNOWN" ]; then
-    echo "    ⚠ could not verify the lock from $HORIZON_URL — CHECK BY HAND before seeding:"
+    echo "    ⚠ could not verify the lock from $HORIZON_URL — check by hand:"
     echo "      curl -s $HORIZON_URL/accounts/$ISSUER_ADDR | grep -A3 signers"
   elif [ -z "$SIGNERS_AFTER" ]; then
-    echo "    ✓ VERIFIED on chain: the issuer has no signer with weight > 0 — it can never sign"
-    echo "      again, so PT/YT can only ever be minted by the wrapper."
+    echo "    ✓ VERIFIED on chain: no signer with weight > 0 — PT can only be minted by the engine"
   else
     echo "ERROR: the issuer is NOT locked — these signers can still sign:"
     printf '         %s\n' "$SIGNERS_AFTER"
-    echo "       Counterfeit PT is possible. Do not seed. Investigate before continuing."
     exit 1
   fi
 fi
 
-# Strategy: deploy and initialize are separate checkpoints (the run could die between them).
-if [ -z "$STRATEGY" ]; then
-  echo "==> [4/8] Deploying the Blend strategy adapter..."
-  S=$(stellar contract deploy --wasm "$STRAT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- --admin "$ADMIN_ADDR")
-  save_state STRATEGY "$S"
-  echo "    strategy = $STRATEGY"
-else
-  echo "==> [4/8] strategy already deployed ($STRATEGY) — skipping deploy."
-fi
-if [ -z "$STRATEGY_INIT" ]; then
-  echo "    initializing strategy..."
-  stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- initialize \
-       --wrapper "$WRAPPER" \
-       --pool "$BLEND_POOL" \
-       --underlying "$USDC_SAC" \
-       --max_apr_bps "$MAX_APR_BPS" >/dev/null
-  save_state STRATEGY_INIT 1
-  echo "    strategy initialized (Blend FixedV2 + Circle USDC)"
-else
-  echo "    strategy already initialized — skipping (re-init would panic AlreadyInitialized)."
-fi
+# ─── [7/9] Market ────────────────────────────────────────────────────────────────────────────────
+if [ -z "$SRMARKET" ]; then
+  echo "==> [7/9] Deploying the PT/SR market..."
+  save_state SRMARKET "$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR" --treasury "$TREASURY_ADDR")"
+  echo "    srmarket = $SRMARKET"
+else echo "==> [7/9] Market already deployed ($SRMARKET) — skipping."; fi
 
-if [ -z "$WRAPPER_INIT" ]; then
-  echo "==> [5/8] Initializing the wrapper..."
-  stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- initialize \
-       --strategy "$STRATEGY" \
-       --pt_token "$PT_SAC" \
-       --yt_token "$YT_SAC" \
-       --maturity "$MATURITY" >/dev/null
-  save_state WRAPPER_INIT 1
-  echo "    wrapper initialized"
-else
-  echo "==> [5/8] wrapper already initialized — skipping."
-fi
+if [ -z "$SRMARKET_INIT" ]; then
+  echo "    initializing market (it DISCOVERS pt/sr/expiry from the yield contract)..."
+  stellar contract invoke --id "$SRMARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- initialize \
+    --yield_contract "$YIELD" \
+    --scalar_root "$MARKET_SCALAR_ROOT" \
+    --ln_fee_root "$MARKET_LN_FEE_ROOT" \
+    --initial_apy "$MARKET_INITIAL_APY" \
+    --treasury_fee_share_bps "$MARKET_TREASURY_FEE_SHARE_BPS" >/dev/null
+  save_state SRMARKET_INIT 1; echo "    ✓ market initialized"
+else echo "    market already initialized — skipping."; fi
 
-if [ -z "$VAULT" ]; then
-  echo "==> [6/8] Deploying the Fixed-Rate Vault..."
-  V=$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- --admin "$ADMIN_ADDR")
-  save_state VAULT "$V"
-  echo "    vault = $VAULT"
-else
-  echo "==> [6/8] vault already deployed ($VAULT) — skipping deploy."
-fi
-if [ -z "$VAULT_INIT" ]; then
-  # ─── Rate calibration gate ─────────────────────────────────────────────────────────────────────
-  # Refuses to write a rate this venue cannot fund. The vault's promise stays SOLVENT whatever
-  # Blend does (a coupon must be backed by PT already in inventory or `deposit` reverts), but a
-  # rate above Blend's yield is not SELF-FUNDING: it consumes the seed silently until capacity hits
-  # zero and deposits start reverting. Nothing on chain checks this, so it is checked here.
-  echo "    calibrating the rate against the live Blend pool (samples b_rate; ~2 min)..."
-  if node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
+# ─── [7b] Fixed-Rate Vault ───────────────────────────────────────────────────────────────────────
+# Sits on top of the engine and, like the market, DISCOVERS its own wiring: it takes only the
+# engine's address and reads sr/pt/underlying/maturity back from it. `tofix.md` #24 is not
+# expressible here.
+if [ -z "$SRVAULT" ]; then
+  echo "==> [7b] Deploying the Fixed-Rate Vault..."
+  save_state SRVAULT "$(stellar contract deploy --wasm "$VAULT_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR")"
+  echo "    srvault = $SRVAULT"
+else echo "==> [7b] Vault already deployed ($SRVAULT) — skipping."; fi
+
+if [ -z "$SRVAULT_INIT" ]; then
+  # ─── Rate calibration — HARD GATE on mainnet ───────────────────────────────────────────────────
+  # Refuses to write a rate this venue cannot fund, and refuses a `max_apr_bps` below FixedV2's own
+  # rate ceiling. The vault's promise stays SOLVENT whatever Blend does (a coupon must be backed by
+  # PT already in inventory or `deposit` reverts), but a rate above Blend's yield is not
+  # SELF-FUNDING: it consumes the seed silently until capacity hits zero.
+  echo "    calibrating the rate against live Blend FixedV2 (samples b_rate; ~2 min)..."
+  if node "$SCRIPT_DIR/calibrate_vault_rate.mjs" --state "$STATE_FILE" \
        --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
        --rpc "$RPC_URL" --passphrase "$NETWORK_PASSPHRASE" \
-       --yield-fee 0 \
        --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --check; then
     echo "    ✓ rate calibration passed"
+  elif [ "$VAULT_RATE_OVERRIDE" = "1" ]; then
+    echo "    !! calibration did not pass — continuing because VAULT_RATE_OVERRIDE=1."
+    echo "       This rate is a SUBSIDY. Size the seed to the loss you intend to fund."
   else
-    CAL_EXIT=$?
-    if [ "$VAULT_RATE_OVERRIDE" = "1" ]; then
-      echo "    !! calibration did not pass (exit $CAL_EXIT) — continuing because VAULT_RATE_OVERRIDE=1."
-      echo "       This rate is a SUBSIDY. Size the seed to the loss you intend to fund."
-    else
-      echo "ERROR: ${VAULT_RATE_BPS}bps did not clear the rate calibration (exit $CAL_EXIT)."
-      echo "       Lower VAULT_RATE_BPS to the printed ceiling, or set VAULT_RATE_OVERRIDE=1 to"
-      echo "       deploy it deliberately as a funded subsidy."
-      exit 1
-    fi
+    echo "ERROR: ${VAULT_RATE_BPS}bps did not clear the rate calibration."
+    echo "       Lower VAULT_RATE_BPS to the printed ceiling, or set VAULT_RATE_OVERRIDE=1."
+    exit 1
   fi
-  echo "    initializing vault..."
-  stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- initialize \
-       --wrapper "$WRAPPER" \
-       --underlying "$USDC_SAC" \
-       --rate_bps "$VAULT_RATE_BPS" \
-       --max_rate_bps "$VAULT_MAX_RATE_BPS" >/dev/null
-  save_state VAULT_INIT 1
-  echo "    vault initialized (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)"
-else
-  echo "    vault already initialized — skipping."
-fi
+  echo "    initializing vault (rate=${VAULT_RATE_BPS}bps, ceiling=${VAULT_MAX_RATE_BPS}bps)..."
+  invoke_retry "$SRVAULT" initialize --yield_contract "$YIELD" --rate_bps "$VAULT_RATE_BPS" --max_rate_bps "$VAULT_MAX_RATE_BPS"
+  save_state SRVAULT_INIT 1; echo "    ✓ vault initialized"
+else echo "    vault already initialized — skipping."; fi
 
 # ─── Reconcile the live rate with VAULT_RATE_BPS ─────────────────────────────────────────────────
-# `initialize` runs ONCE, so on every later run the block above is skipped and a changed
-# VAULT_RATE_BPS would never reach an already-deployed vault: the script would report one rate while
-# the contract quoted another, and the dashboard reads the contract. Runs on BOTH paths — a no-op
-# assertion after a fresh init, and the thing that actually applies a change on a re-run.
-#
-# The calibration is a HARD gate here, exactly as it is for the initial write: an uncalibrated
-# `set_rate` would reintroduce the defect this whole mechanism exists to prevent.
-LIVE_RATE="$(stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
+# `initialize` runs ONCE. On every later run the block above is skipped, so a changed
+# VAULT_RATE_BPS would never reach an already-deployed vault — the script would report one rate
+# while the contract quoted another, and the dashboard reads the contract. This runs on BOTH paths:
+# after a fresh init it is a no-op assertion, and on a re-run it is what actually applies a change.
+# Forward-only by construction: `set_rate` moves the quote for NEW deposits and cannot touch an
+# open receipt, which stores its own payout and rate.
+LIVE_RATE="$(stellar contract invoke --id "$SRVAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
   --send=no -- rate_bps 2>/dev/null | tr -d '"[:space:]')"
 if [ -z "$LIVE_RATE" ]; then
   echo "    !! could not read the vault's live rate — skipping reconciliation."
@@ -550,219 +607,173 @@ elif [ "$LIVE_RATE" = "$VAULT_RATE_BPS" ]; then
   echo "    ✓ vault rate on chain is ${LIVE_RATE}bps (matches VAULT_RATE_BPS)"
 else
   echo "    vault rate on chain is ${LIVE_RATE}bps but VAULT_RATE_BPS=${VAULT_RATE_BPS} — reconciling..."
-  if node "$SCRIPT_DIR/calibrate_vault_rate.mjs" \
+  # Gated on mainnet: an uncalibrated `set_rate` would reintroduce the defect the gate exists for.
+  if node "$SCRIPT_DIR/calibrate_vault_rate.mjs" --state "$STATE_FILE" \
        --pool "$BLEND_POOL" --underlying "$USDC_SAC" \
        --rpc "$RPC_URL" --passphrase "$NETWORK_PASSPHRASE" \
-       --yield-fee 0 \
        --rate "$VAULT_RATE_BPS" --margin "$VAULT_RATE_MARGIN_BPS" --max-apr "$MAX_APR_BPS" --check; then
-    stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-      -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
+    invoke_retry "$SRVAULT" set_rate --rate_bps "$VAULT_RATE_BPS"
     echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps"
   elif [ "$VAULT_RATE_OVERRIDE" = "1" ]; then
-    echo "    !! calibration did not pass — setting anyway because VAULT_RATE_OVERRIDE=1."
-    stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-      -- set_rate --rate_bps "$VAULT_RATE_BPS" >/dev/null
+    invoke_retry "$SRVAULT" set_rate --rate_bps "$VAULT_RATE_BPS"
     echo "    ✓ vault rate set to ${VAULT_RATE_BPS}bps (SUBSIDY — size the seed to the loss)"
   else
-    echo "ERROR: ${VAULT_RATE_BPS}bps did not clear the rate calibration; the live rate is unchanged"
-    echo "       at ${LIVE_RATE}bps. Lower VAULT_RATE_BPS, or set VAULT_RATE_OVERRIDE=1."
+    echo "ERROR: ${VAULT_RATE_BPS}bps did not clear calibration; the live rate is unchanged."
     exit 1
   fi
 fi
 
-if [ "$VAULT_SEED_AMOUNT" -gt 0 ] && [ -z "$VAULT_SEEDED" ]; then
-  echo "==> [6b] Seeding the vault with $VAULT_SEED_AMOUNT USDC base units of PT capacity (REAL USDC)..."
-  stellar contract invoke --id "$VAULT" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- seed --from "$ADMIN_ADDR" --amount "$VAULT_SEED_AMOUNT" >/dev/null
-  save_state VAULT_SEEDED 1
-  echo "    vault seeded"
-elif [ -n "$VAULT_SEEDED" ]; then
-  echo "==> [6b] vault already seeded — skipping."
-else
-  echo "==> [6b] Skipping vault seed (VAULT_SEED_AMOUNT=0). Seed later via vault.seed once verified."
-fi
+# Seed PT coupon capacity. Without it the vault quotes a rate but every deposit is refused, because
+# a coupon can only be promised out of SPARE inventory.
+if [ "${VAULT_SEED_AMOUNT:-0}" -gt 0 ] && [ -z "$VAULT_SEEDED" ]; then
+  echo "    seeding $VAULT_SEED_AMOUNT USDC base units of coupon capacity..."
+  invoke_retry "$SRVAULT" seed --from "$ADMIN_ADDR" --amount "$VAULT_SEED_AMOUNT"
+  save_state VAULT_SEEDED 1; echo "    ✓ vault seeded"
+elif [ -n "$VAULT_SEEDED" ]; then echo "    vault already seeded — skipping."
+else echo "    (VAULT_SEED_AMOUNT=0 — vault deployed but has no coupon capacity yet)"; fi
 
-if [ -z "$MARKET" ]; then
-  echo "==> [7/8] Deploying the Market (PT/USDC time-decay AMM)..."
-  M=$(stellar contract deploy --wasm "$MARKET_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- --admin "$ADMIN_ADDR")
-  save_state MARKET "$M"
-  echo "    market = $MARKET"
-else
-  echo "==> [7/8] market already deployed ($MARKET) — skipping deploy."
-fi
-if [ -z "$MARKET_INIT" ]; then
-  echo "    initializing market..."
-  stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- initialize \
-       --wrapper "$WRAPPER" \
-       --pt "$PT_SAC" \
-       --usdc "$USDC_SAC" \
-       --maturity "$MATURITY" \
-       --fee_bps "$MARKET_FEE_BPS" \
-       --max_fee_bps "$MARKET_MAX_FEE_BPS" \
-       --scalar_root "$MARKET_SCALAR_ROOT" \
-       --rate_anchor "$MARKET_RATE_ANCHOR" >/dev/null
-  save_state MARKET_INIT 1
-  echo "    market initialized (fee=${MARKET_FEE_BPS}bps, anchor=par, root=${MARKET_SCALAR_ROOT})"
-else
-  echo "    market already initialized — skipping."
-fi
 
-# Verify the market ↔ wrapper binding by READING IT BACK from chain, on every run.
+# ─── [7c] SR Router — the one-transaction USDC front door ─────────────────────────────────────────
+# Deployed LAST on purpose: it is the only contract here that is pure convenience. Everything below
+# it works without it, so if this step fails the protocol is still fully usable — users just need
+# three signatures instead of one. It holds no funds, has no privileges over any other contract,
+# and like the market and vault it DISCOVERS its own wiring from a single address.
+if [ -z "$SRROUTER" ]; then
+  echo "==> [7c] Deploying the SR Router..."
+  save_state SRROUTER "$(stellar contract deploy --wasm "$ROUTER_WASM" --source-account "$SOURCE" "${NET_ARGS[@]}" -- --admin "$ADMIN_ADDR")"
+  echo "    srrouter = $SRROUTER"
+else echo "==> [7c] Router already deployed ($SRROUTER) — skipping."; fi
+
+if [ -z "$SRROUTER_INIT" ]; then
+  echo "    initializing router against the market..."
+  invoke_retry "$SRROUTER" initialize --market "$SRMARKET"
+  save_state SRROUTER_INIT 1; echo "    ✓ router initialized"
+else echo "    router already initialized — skipping."; fi
+
+# ─── [8/9] On-chain verification ─────────────────────────────────────────────────────────────────
+# Read every binding back FROM CHAIN. The contract makes a mismatch impossible to construct, but a
+# stale state file pointing at the wrong deployment is still possible — this is what catches it.
+echo "==> [8/9] Verifying the live wiring on chain..."
+expect "sr.underlying == USDC"          "$(read_view "$SR" underlying)"     "$USDC_SAC"
+expect "sr.strategy == strategy"        "$(read_view "$SR" strategy)"       "$STRATEGY"
+expect "yield.sr_token == sr"           "$(read_view "$YIELD" sr_token)"    "$SR"
+expect "yield.pt_token == PT SAC"       "$(read_view "$YIELD" pt_token)"    "$PT_SAC"
+expect "yield.expiry == expiry"         "$(read_view "$YIELD" expiry)"      "$EXPIRY"
+expect "yield.treasury == treasury"     "$(read_view "$YIELD" treasury)"    "$TREASURY_ADDR"
+expect "market.yield_contract == yield" "$(read_view "$SRMARKET" yield_contract)" "$YIELD"
+expect "market.pt_token == PT SAC"      "$(read_view "$SRMARKET" pt_token)" "$PT_SAC"
+expect "market.sr_token == sr"          "$(read_view "$SRMARKET" sr_token)" "$SR"
+expect "market.expiry == expiry"        "$(read_view "$SRMARKET" expiry)"   "$EXPIRY"
+PT_ADMIN_NOW=$(read_view "$PT_SAC" admin)
+expect "PT SAC admin == yield"          "$PT_ADMIN_NOW"                     "$YIELD"
+expect "vault.yield_contract == yield"  "$(read_view "$SRVAULT" yield_contract)" "$YIELD"
+expect "vault.pt_token == PT SAC"       "$(read_view "$SRVAULT" pt_token)"  "$PT_SAC"
+expect "vault.underlying == USDC"       "$(read_view "$SRVAULT" underlying)" "$USDC_SAC"
+expect "vault.maturity == expiry"       "$(read_view "$SRVAULT" maturity)"  "$EXPIRY"
+expect "router.market == market"        "$(read_view "$SRROUTER" market)"        "$SRMARKET"
+expect "router.yield_contract == yield" "$(read_view "$SRROUTER" yield_contract)" "$YIELD"
+expect "router.sr_token == sr"          "$(read_view "$SRROUTER" sr_token)"      "$SR"
+expect "router.pt_token == PT SAC"      "$(read_view "$SRROUTER" pt_token)"      "$PT_SAC"
+expect "router.underlying == USDC"      "$(read_view "$SRROUTER" underlying)"    "$USDC_SAC"
+expect "router.expiry == expiry"        "$(read_view "$SRROUTER" expiry)"        "$EXPIRY"
+
+# ── Cross-contract COMPATIBILITY, not just wiring ────────────────────────────────────────────────
 #
-# `market::initialize` already refuses a mismatched pairing (MaturityMismatch = 86,
-# PtTokenMismatch = 87), so a bad init could not have landed — but that only proves the arguments
-# THIS script passed were consistent. Reading the views back also proves the state file is not
-# stale: if MARKET points at an old contract deployed before the cross-check existed, or at a pool
-# built against a different wrapper, this is what catches it. Pure simulation, costs nothing.
-echo "    verifying the market <-> wrapper binding on chain..."
-MKT_WRAPPER=$(read_view "$MARKET" wrapper)
-MKT_MATURITY=$(read_view "$MARKET" maturity)
-MKT_PT=$(read_view "$MARKET" pt_token)
-if [ -z "$MKT_WRAPPER$MKT_MATURITY$MKT_PT" ]; then
-  echo "    ⚠ could not read the market's views (RPC issue, or a pre-cross-check build with no"
-  echo "      wrapper() view). VERIFY MANUALLY before seeding — see MAINNET.md."
-else
-  BINDING_OK=1
-  if [ "$MKT_WRAPPER" != "$WRAPPER" ]; then
-    echo "    ✗ market.wrapper()  = ${MKT_WRAPPER:-<unreadable>}  expected $WRAPPER"; BINDING_OK=0
-  fi
-  if [ "$MKT_MATURITY" != "$MATURITY" ]; then
-    echo "    ✗ market.maturity() = ${MKT_MATURITY:-<unreadable>}  expected $MATURITY"; BINDING_OK=0
-  fi
-  if [ "$MKT_PT" != "$PT_SAC" ]; then
-    echo "    ✗ market.pt_token() = ${MKT_PT:-<unreadable>}  expected $PT_SAC"; BINDING_OK=0
-  fi
-  if [ "$BINDING_OK" = "1" ]; then
-    echo "    ✓ market is bound to wrapper $WRAPPER — maturity and PT match on chain"
+# The checks above prove the contracts point at each other. They do not prove they can still TALK to
+# each other, and those are different failures. Caught on 2026-08-25: `Sr::max_redeemable` was
+# upgraded to call `strategy::available_liquidity`, the strategy was never redeployed, and every
+# wiring check above still passed while the feature was dead on chain.
+#
+# So: actually invoke the calls that cross a contract boundary. A view that cannot complete is a
+# version skew between two deployments, and it is invisible to an address comparison.
+echo "    checking cross-contract compatibility..."
+COMPAT_FAIL=0
+compat() {  # compat <label> <contract> <fn> [args...]
+  if read_view "$2" "${@:3}" >/dev/null 2>&1 && [ -n "$(read_view "$2" "${@:3}")" ]; then
+    echo "    ✓ $1"
   else
-    echo
-    echo "ERROR: the live market is NOT the one this state file describes. Do NOT seed it."
-    echo "       A market whose maturity differs from the wrapper's is a standing arbitrage against"
-    echo "       the LPs (past the wrapper's maturity the curve keeps quoting PT at a discount while"
-    echo "       every PT already redeems at par). Redeploy the market with:"
-    echo "           REDEPLOY=market bash scripts/deploy_mainnet.sh"
-    exit 1
+    echo "    ✗ $1 — FAILED. The callee is likely an older deployment missing this entry point."
+    COMPAT_FAIL=1
   fi
+}
+compat "sr.max_redeemable -> strategy.available_liquidity" "$SR" max_redeemable
+compat "sr.total_assets"                                   "$SR" total_assets
+compat "sr.deposit_cap"                                    "$SR" deposit_cap
+compat "strategy.available_liquidity"                      "$STRATEGY" available_liquidity
+compat "market.asset_reserve -> sr.exchange_rate"          "$SRMARKET" asset_reserve
+compat "router.quote_buy_pt_with_usdc -> sr + market"      "$SRROUTER" quote_buy_pt_with_usdc --usdc_in 1000000
+if [ "$COMPAT_FAIL" = "1" ]; then
+  echo
+  echo "ERROR: a cross-contract call failed. One of these deployments is out of date relative to the"
+  echo "       others. Upgrade the callee before relying on the feature that needs it."
+  exit 1
 fi
 
-if [ "$MARKET_SEED_AMOUNT" -gt 0 ] && [ -z "$MARKET_SEEDED" ]; then
-  echo "==> [7b] Seeding the market — USDC side $MARKET_SEED_AMOUNT, PT side CALIBRATED (REAL USDC)..."
+SR_RATE=$(read_view "$SR" exchange_rate)
+echo "    ✓ sr.exchange_rate = $SR_RATE (live Blend b_rate)"
+echo "    ✓ yield.py_index   = $(read_view "$YIELD" py_index)"
+echo "    ✓ market.reserves  = $(read_view "$SRMARKET" reserves)"
 
-  # Ask the contract how much PT opens the pool at the target APY. Derived on chain by the same
-  # curve math the pricing uses, so the opening quote cannot drift from the target.
-  #
-  # CHECKPOINTED, and that matters: the calibration depends on the time left to maturity, so
-  # recomputing it on a later resume would give a DIFFERENT number and seed a pool at the wrong
-  # rate. Pin the first answer and reuse it.
-  if [ -z "${MARKET_SEED_PT:-}" ]; then
-    CALIBRATED_PT=$(stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-      -- seed_pt_for_apy --usdc_in "$MARKET_SEED_AMOUNT" --target_apy_bps "$MARKET_TARGET_APY_BPS" \
-      2>/dev/null | tr -d '"' | tr -d '[:space:]')
-    if [ -z "$CALIBRATED_PT" ] || [ "$CALIBRATED_PT" = "0" ]; then
-      echo "ERROR: the market could not calibrate a seed for ${MARKET_TARGET_APY_BPS}bps."
-      echo "       It returns 0 when the target is unreachable — at/after maturity, or so extreme"
-      echo "       the pool would open outside the tradeable proportion band. Do NOT seed 1:1 as a"
-      echo "       fallback: that opens at par and implies 0% APY, making Earn Fixed a losing trade."
-      echo "       Lower MARKET_TARGET_APY_BPS or lengthen the term, then re-run."
-      exit 1
-    fi
-    save_state MARKET_SEED_PT "$CALIBRATED_PT"
-    echo "    calibrated PT side = $MARKET_SEED_PT  (target ${MARKET_TARGET_APY_BPS}bps)"
-  else
-    echo "    reusing the pinned calibration: PT side = $MARKET_SEED_PT"
-  fi
+# ─── [9/9] Optional seed ─────────────────────────────────────────────────────────────────────────
+if [ "${SEED:-0}" = "1" ] && [ -z "$POOL_SEEDED" ]; then
+  echo "==> [9/9] Seeding the pool ($SEED_PER_SIDE per side, in USDC base units)..."
+  TOTAL=$(( SEED_PER_SIDE * 2 ))
+  echo "    wrapping $TOTAL USDC into SR..."
+  stellar contract invoke --id "$SR" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- deposit \
+    --from "$ADMIN_ADDR" --receiver "$ADMIN_ADDR" --amount "$TOTAL" --min_shares_out 0 >/dev/null
+  SR_BAL=$(read_view "$SR" total_supply)
+  echo "    SR minted (total supply now $SR_BAL)"
 
-  # Two separate txs (mint PT, then add_liquidity) get two checkpoints so a stop between them doesn't
-  # double-mint on resume. MARKET_MINTED guards the PT mint; MARKET_SEEDED guards the add_liquidity.
-  if [ -z "${MARKET_MINTED:-}" ]; then
-    stellar contract invoke --id "$WRAPPER" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-      -- mint --user "$ADMIN_ADDR" --amount "$MARKET_SEED_PT" >/dev/null
-    save_state MARKET_MINTED 1
-    echo "    minted $MARKET_SEED_PT PT for the seed"
-  else
-    echo "    PT for the seed already minted — skipping mint."
-  fi
-  stellar contract invoke --id "$MARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" \
-    -- add_liquidity --lp "$ADMIN_ADDR" --pt_in "$MARKET_SEED_PT" --usdc_in "$MARKET_SEED_AMOUNT" >/dev/null
-  save_state MARKET_SEEDED 1
-  echo "    market seeded (PT-heavy, opened at the target rate)"
+  echo "    stripping half into PT+YT..."
+  HALF_SR=$(stellar contract invoke --id "$SR" --source-account "$SOURCE" "${NET_ARGS[@]}" -- preview_deposit --amount "$SEED_PER_SIDE" 2>/dev/null | tr -d '"')
+  stellar contract invoke --id "$YIELD" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- mint_py \
+    --from "$ADMIN_ADDR" --receiver "$ADMIN_ADDR" --sr_in "$HALF_SR" >/dev/null
+  PT_BAL=$(stellar contract invoke --id "$PT_SAC" --source-account "$SOURCE" "${NET_ARGS[@]}" -- balance --id "$ADMIN_ADDR" 2>/dev/null | tr -d '"')
+  SR_LEFT=$(stellar contract invoke --id "$SR" --source-account "$SOURCE" "${NET_ARGS[@]}" -- balance --id "$ADMIN_ADDR" 2>/dev/null | tr -d '"')
+  echo "    PT = $PT_BAL   SR left = $SR_LEFT"
 
-  # Verify the pool really opened where intended — read the live quote back, don't assume.
-  OPENED_APY=$(read_view "$MARKET" implied_apy)
-  if [ -z "$OPENED_APY" ]; then
-    echo "    ⚠ could not read implied_apy back — CHECK BY HAND before announcing the rate."
-  else
-    # implied_apy is a SCALAR_12 fraction; bps = value * 10000 / 1e12.
-    OPENED_BPS=$(( OPENED_APY / 100000000 ))
-    echo "    opening implied APY ≈ ${OPENED_BPS}bps (target ${MARKET_TARGET_APY_BPS}bps)"
-    DRIFT=$(( OPENED_BPS - MARKET_TARGET_APY_BPS )); [ "$DRIFT" -lt 0 ] && DRIFT=$(( -DRIFT ))
-    if [ "$DRIFT" -gt 25 ]; then
-      echo "ERROR: the pool opened ${DRIFT}bps away from the target. Do not announce this rate."
-      echo "       Investigate before seeding further or publishing the APY."
-      exit 1
-    fi
-    echo "    ✓ the venue opens at the advertised rate"
-  fi
-elif [ -n "$MARKET_SEEDED" ]; then
-  echo "==> [7b] market already seeded — skipping."
+  echo "    adding liquidity (any ratio opens at ${MARKET_APY_BPS}bps — the anchor is dynamic)..."
+  stellar contract invoke --id "$SRMARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- add_liquidity \
+    --lp "$ADMIN_ADDR" --pt_in "$PT_BAL" --sr_in "$SR_LEFT" --min_shares 0 >/dev/null
+  save_state POOL_SEEDED 1
+  echo "    ✓ seeded. reserves = $(read_view "$SRMARKET" reserves)"
+  echo "    ✓ implied APY = $(read_view "$SRMARKET" implied_apy)  PT price = $(read_view "$SRMARKET" pt_price)"
+elif [ -n "$POOL_SEEDED" ]; then
+  echo "==> [9/9] Pool already seeded — skipping."
 else
-  echo "==> [7b] Skipping market seed (MARKET_SEED_AMOUNT=0). Add liquidity later via market.add_liquidity."
+  echo "==> [9/9] Skipping seed (SEED=1 to seed; needs ~$(( SEED_PER_SIDE * 2 )) USDC on $SOURCE)."
 fi
 
 save_state DEPLOY_COMPLETE 1
-echo "==> [8/8] Done. Summary:"
+
 cat <<EOF
 
-  ┌─ Spield v2 deployed on MAINNET ─────────────────────────────────
-  │ wrapper   = $WRAPPER
-  │ strategy  = $STRATEGY
-  │ vault     = $VAULT
-  │ market    = $MARKET
-  │ PT (SAC)  = $PT_SAC
-  │ YT (SAC)  = $YT_SAC
-  │ PT/YT iss = $ISSUER_ADDR
-  │ Blend pool= $BLEND_POOL  (FixedV2)
-  │ USDC      = $USDC_SAC
-  └──────────────────────────────────────────────────────────────────
+═══════════════════════════════════════════════════════════════════════════════
+ SPIELD v2 (SR STACK) DEPLOYED — MAINNET
+═══════════════════════════════════════════════════════════════════════════════
+  SR (Standardized Return)   $SR
+  Strategy (Blend adapter)   $STRATEGY
+  Yield engine  ( = YT )     $YIELD
+  PT/SR Market               $SRMARKET
+  Fixed-Rate Vault           $SRVAULT
+  SR Router (USDC frontdoor) $SRROUTER
+  PT SAC                     $PT_SAC
+  PT classic asset           $PT_ASSET
+  USDC SAC                   $USDC_SAC
+  Blend pool                 $BLEND_POOL
+  Treasury                   $TREASURY_ADDR
+  Expiry                     $EXPIRY
 
-NEXT STEPS (see MAINNET.md §6 — none are required to operate; do them as TVL grows):
-  1) Verify the live code hashes match what you built (always worth doing):
-       stellar contract invoke --id <each> ... -- code_hash
-  2) Start the off-chain solvency monitor against the wrapper (free, pure reads):
-       node scripts/solvency_monitor.mjs --wrapper $WRAPPER --rpc $RPC_URL --interval 60
-  2b) SCHEDULE FOR MATURITY ($MATURITY): pin the YT yield ceiling, permissionless + idempotent.
-      YT earns for the term and no longer; this records the b_rate at maturity, after which a
-      matured YT generates nothing. Any post-maturity interaction pins it automatically, but a late
-      pin over-pays a little post-maturity growth — so run this as close to maturity as possible:
-       stellar contract invoke --id $WRAPPER --source-account $SOURCE ... -- stamp_maturity_rate
-  3) RECOMMENDED for real TVL: rotate ALL FOUR admins to a MULTISIG (the deployer is a hot key):
-       propose_admin --new_admin <MULTISIG>   then the multisig signs   accept_admin
-     Until then, keep the deployer secret offline / hardware-backed.
+  NOTE: YT has no SAC and no classic asset — the yield contract IS the YT token.
+        Users need a PT trustline before receiving PT; none is needed for YT.
 
-Frontend: record these in your mainnet env (we'll wire env-driven config later):
-  VITE_NETWORK=mainnet
-  VITE_WRAPPER=$WRAPPER
-  VITE_STRATEGY=$STRATEGY
-  VITE_VAULT=$VAULT
-  VITE_MARKET=$MARKET
-  VITE_PT=$PT_SAC
-  VITE_YT=$YT_SAC
-  VITE_USDC=$USDC_SAC
-
-──────────────────────────────────────────────────────────────────────
-OFF-CHAIN FILES THAT PIN THESE ADDRESSES — update them now, or the app keeps talking to whatever
-was deployed before. The env var alone is NOT enough: it falls back to a hardcoded profile value,
-so changing only VITE_* leaves a stale default that ships whenever the env var is unset.
-
-  1) MAINNETCONTRACTADDRESSES.md
-       - the address table
-       - the VITE_MARKET line at the bottom
-  2) website/frontend/src/lib/config.ts
-       - the mainnet profile's hardcoded ids (\`wrapper:\`/\`vault:\`/\`market:\` ~line 109)
-       - the env overrides (~line 141) read VITE_* and DEFAULT to the profile above
-
-Quick check that nothing stale is left (should print only the new ids):
-  grep -rn "$MARKET" MAINNETCONTRACTADDRESSES.md ../../frontend/src/lib/config.ts
+  Frontend config (website/frontend/src/lib/config.ts):
+    SR_ID       = "$SR"
+    YIELD_ID    = "$YIELD"
+    SRMARKET_ID = "$SRMARKET"
+    SRVAULT_ID  = "$SRVAULT"
+    SRROUTER_ID = "$SRROUTER"
+    PT_SAC      = "$PT_SAC"
+    USDC_SAC    = "$USDC_SAC"
+═══════════════════════════════════════════════════════════════════════════════
 EOF

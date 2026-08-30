@@ -131,6 +131,12 @@ fn setup(borrow_pct: i128) -> Venue {
 /// directly. Everything else stays at FixedV2's real values — only the ceiling on how far a
 /// borrower may push utilization changes, which is what gates access to that branch.
 fn setup_with_max_util(borrow_pct: i128, max_util: u32) -> Venue {
+    setup_full(borrow_pct, max_util, 6, 1_0000000)
+}
+
+/// Full control over the pool-level knobs, so a venue can mirror a specific live pool exactly.
+/// `max_positions` and `min_collateral` differ between FixedV2 (6 / 5 USDC) and TestnetV2 (8 / 0).
+fn setup_full(borrow_pct: i128, max_util: u32, max_positions: u32, min_collateral: i128) -> Venue {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().set_timestamp(1_700_000_000);
@@ -161,8 +167,8 @@ fn setup_with_max_util(borrow_pct: i128, max_util: u32) -> Venue {
         &BytesN::<32>::random(&env),
         &oracle_id,
         &FIXEDV2_BSTOP_RATE,
-        &6,
-        &1_0000000,
+        &max_positions,
+        &min_collateral,
     );
     let pool_client = pool::Client::new(&env, &pool);
 
@@ -967,4 +973,99 @@ fn calibration_g_where_does_blend_actually_refuse_a_withdrawal() {
     std::println!("\n  If refusals appear only in the AT/ABOVE rows, tofix #20 and finding F are");
     std::println!("  consistent: the formula is a valid ceiling only once the pool is at max_util,");
     std::println!("  and is far too conservative below it.");
+}
+
+
+/// **Mainnet readiness: the exact FixedV2 pool parameters, end to end through the real adapter.**
+///
+/// Everything else in this file varies one knob at a time. This pins all of them to what
+/// `CAJJZSGMMM...` reports on chain — `max_positions = 6`, `min_collateral = 5 USDC`,
+/// `bstop_rate = 20%`, FixedV2's full rate curve — and runs a complete deposit -> accrue -> redeem
+/// cycle over a 90-day series (the mainnet `MATURITY_DAYS` default).
+///
+/// `min_collateral` is the interesting one: 0 on testnet, 5 USDC on mainnet, so it is a difference
+/// no testnet run can exercise. It gates BORROWING and the adapter only issues `Supply`/`Withdraw`
+/// — but that deserves a test rather than a comment.
+#[test]
+fn calibration_h_mainnet_exact_pool_parameters_work_end_to_end() {
+    use crate::{BlendStrategy, BlendStrategyClient};
+    use soroban_sdk::token::StellarAssetClient;
+
+    let v = setup_full(80, 0_9000000, 6, 5_0000000);
+
+    let wrapper = Address::generate(&v.env);
+    let admin = Address::generate(&v.env);
+    let sid = v.env.register(BlendStrategy, (admin.clone(),));
+    let strategy = BlendStrategyClient::new(&v.env, &sid);
+    strategy.initialize(&wrapper, &v.pool, &v.usdc, &30_000u32);
+
+    let deposit = 25_000 * USDC;
+    StellarAssetClient::new(&v.env, &v.usdc).mint(&wrapper, &deposit);
+    let shares = strategy.deposit(&wrapper, &deposit);
+
+    let rate0 = strategy.current_rate();
+    v.advance(90 * 24 * 3600);
+    let rate1 = strategy.current_rate();
+
+    let value = strategy.position_value(&strategy.total_shares());
+    let token = soroban_sdk::token::TokenClient::new(&v.env, &v.usdc);
+    let before = token.balance(&wrapper);
+    let redeemed = strategy.redeem(&wrapper, &shares);
+    let got = token.balance(&wrapper) - before;
+
+    let (_, _, ir, util) = v.reserve();
+    std::println!("\n=== H. Mainnet-exact FixedV2 parameters, full 90-day cycle ===");
+    std::println!("  pool: max_util 90%  max_positions 6  min_collateral 5 USDC  bstop 20%");
+    std::println!("        utilization {:.2}%   ir_mod {:.4}", util * 100.0, ir as f64 / SCALAR_7 as f64);
+    std::println!("  deposited      {:.2} USDC", deposit as f64 / USDC as f64);
+    std::println!("  b_rate         {} -> {}", rate0, rate1);
+    std::println!("  position after {:.2} USDC", value as f64 / USDC as f64);
+    std::println!("  redeemed       {:.2} USDC", got as f64 / USDC as f64);
+    std::println!(
+        "  realized over 90d: {:.4}%  (annualized {:.3}%)",
+        (got - deposit) as f64 / deposit as f64 * 100.0,
+        (got - deposit) as f64 / deposit as f64 * (365.0 / 90.0) * 100.0
+    );
+
+    assert!(rate1 > rate0, "b_rate must grow — the whole premise of the strategy");
+    assert!(got > deposit, "a full-term redemption must return more than was deposited");
+    assert_eq!(redeemed, got, "redeem() must report exactly what it paid");
+    strategy.current_rate(); // the rate bound must not trip in an ordinary 90-day series
+}
+
+
+/// **The mainnet tail risk the vault-rate stress does NOT cover.**
+///
+/// `blend_rate.mjs` stresses `ir_mod` down to 1.0 and calls that a moderate stress, on the measured
+/// grounds that the real floor is 0.1 (test B). This measures what FixedV2 actually pays once the
+/// modifier is sitting on that floor — the state TestnetV2 is in RIGHT NOW (live `ir_mod` 0.1067).
+///
+/// A pool reaches it by having borrow demand sit below the utilization target for a sustained
+/// period. Nothing exotic; just a quiet lending market.
+#[test]
+fn calibration_i_what_fixedv2_pays_with_ir_mod_on_the_floor() {
+    // Below target, so ir_mod decays to its floor and stays there.
+    let v = setup_full(60, 0_9000000, 6, 5_0000000);
+    for _ in 0..40 {
+        v.advance(SECONDS_PER_YEAR / 4);
+    }
+
+    let window = 3600u64;
+    let (b0, _, _, _) = v.reserve();
+    v.advance(window);
+    let (b1, _, ir, util) = v.reserve();
+    let supply_bps = annualized_bps(b0, b1, window);
+
+    std::println!("\n=== I. FixedV2 with ir_mod on its floor ===");
+    std::println!("  utilization {:.2}%   ir_mod {:.4} (floor 0.1)", util * 100.0, ir as f64 / SCALAR_7 as f64);
+    std::println!("  steady-state supply APR: {:.0} bps ({:.3}%)", supply_bps, supply_bps / 100.0);
+    std::println!("  vault promises 300 bps (3.00%)");
+    std::println!(
+        "  => the vault would be UNDER WATER by {:.0} bps; it earns {:.2}x what it owes",
+        300.0 - supply_bps,
+        supply_bps / 300.0
+    );
+    std::println!("  TestnetV2's live ir_mod is 0.1067 — a pool really does sit here.");
+
+    assert!(supply_bps >= 0.0);
 }

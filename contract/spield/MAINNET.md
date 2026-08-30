@@ -1,4 +1,22 @@
-# Spield v2 — Mainnet Deployment Guide
+# Spield — mainnet deploy
+
+> ## ⚠️ This document describes the RETIRED v1 mainnet path
+>
+> As of **2026-08-29** `deploy_mainnet.sh` deploys the **v2 SR stack** (`sr` + `yield` + `srmarket`
+> + `srvault` + `srrouter`), not the v1 wrapper/vault/market described below. v2 is the only stack
+> going forward. The old script is preserved as `deploy_mainnet_v1.sh.retired`, because an inert,
+> unseeded v1 deployment does exist on chain (`deploy_mainnet.state`).
+>
+> **Still accurate below:** the Blend FixedV2 / YieldBloxV2 analysis (§1), the funding budget (§4),
+> the hardening checklist (§6-7), and the rate calibration (§8) — all of which are stack-agnostic.
+>
+> **No longer accurate:** the step-by-step deploy walkthrough (§5), which lists v1 contracts. The v2
+> steps are in `deploy_mainnet.sh` itself, and the v2-specific pre-launch items are in
+> `blendcalibration.md` §11-12.
+>
+> The v2 script uses a **separate** state file (`deploy_mainnet_v2.state`) so the two generations
+> cannot be mixed.
+
 
 Everything needed to deploy the Spield contracts to **Stellar mainnet (Public network)** against the
 **real Blend FixedV2 pool** and **real Circle USDC**. The contracts are network-agnostic — the same

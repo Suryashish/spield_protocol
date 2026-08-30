@@ -5,7 +5,7 @@ behaves · **Status:** report only — **no production value was changed by this
 
 The one thing added to the tree is a test harness,
 [`contracts/strategy/src/calibration_test.rs`](./contracts/strategy/src/calibration_test.rs)
-(11 tests, all passing), which runs against the **real Blend v2 WASM** driven to the states that
+(13 tests, all passing), which runs against the **real Blend v2 WASM** driven to the states that
 matter. Every number below is measured by it or read from a live pool. Nothing here is recalled.
 
 ---
@@ -21,7 +21,7 @@ matter. Every number below is measured by it or read from a live pool. Nothing h
 | 5 | `ir_mod` assumptions | `blend_rate.mjs` stress | floor 1.0 | ✅ **Yes — now measured** | Real bounds are **[0.1, 10.0]**. Stressing to 1.0 is confirmed a *moderate* stress. See §6. |
 | 6 | `available_liquidity()` | `strategy` contract | `min(utilCap, cash)` | ⚠️ **Disputed — 18.4x too conservative in the harness** | Blend never refused on `max_util` grounds here, even above it. **But this conflicts with a live `#1207` in `tofix.md` #20 that I could not reproduce.** Do not act yet. See §7. |
 | 7 | Exit-coverage alert | `sr_solvency_monitor.mjs` | 5x warn / 3x crit | ⚠️ **Measured — but built on #6** | A full exit succeeded at **0.05x coverage**. The thresholds are safe (they page early) but measure a quantity that is not exit capacity. See §7. |
-| 8 | SR deposit cap | `sr.deposit_cap` | **5 USDC** (was 100) | ✅ **Set 2026-08-29** | Deposits now closed; exits unaffected. See §8. |
+| 8 | SR deposit cap | `sr.deposit_cap` | **50 USDC** in the scripts; **5 USDC** live on testnet | ✅ **Set** | A GLOBAL cap — it bounds LPs too, and counts operator seeding. See §8. |
 | 9 | `scalar_root` | `srmarket` | 40e12 | ⛔ **Open** | V2_WORK §14. Not Blend-derived; listed for completeness. |
 | 10 | `RATE_BOUND_DUST` | `shared::math` | 16 | ✅ Fine | Microscopic next to any real rate; no evidence of false trips. |
 
@@ -368,6 +368,8 @@ node scripts/sr_solvency_monitor.mjs --state scripts/deploy_sr_testnet.state --o
 | `calibration_e_exit_coverage_under_a_real_crunch` | coverage vs what a full exit actually returns |
 | `calibration_f_does_available_liquidity_predict...` | whether `available_liquidity()` is real |
 | `calibration_g_where_does_blend_actually_refuse...` | the `max_util` boundary, vs `tofix.md` #20 |
+| `calibration_h_mainnet_exact_pool_parameters...` | FixedV2's exact knobs, full 90-day cycle |
+| `calibration_i_what_fixedv2_pays_with_ir_mod...` | what mainnet pays at the `ir_mod` floor |
 
 ---
 
@@ -378,8 +380,8 @@ node scripts/sr_solvency_monitor.mjs --state scripts/deploy_sr_testnet.state --o
 | Change | Where | Status |
 |---|---|---|
 | `MAX_APR_BPS` validated against the pool's own rate ceiling; `max_util > 95%` flagged | `blend_rate.mjs`, `calibrate_vault_rate.mjs`, all 3 deploy scripts | ✅ Gate live. Value 30000 unchanged — it was already correct. |
-| SR deposit cap 100 → **5 USDC** | on chain, testnet SR | ✅ Deposits closed (TVL 93.98 > cap). Exits unaffected. |
-| Calibration harness | `contracts/strategy/src/calibration_test.rs` | ✅ 11 tests |
+| SR deposit cap → **50 USDC** in both v2 scripts; **5 USDC** live on testnet | scripts + on-chain testnet SR | ✅ Live testnet cap sits below its 93.98 TVL, so testnet deposits are closed. Exits unaffected. |
+| Calibration harness | `contracts/strategy/src/calibration_test.rs` | ✅ 13 tests |
 
 ### Retracted
 
@@ -399,3 +401,184 @@ node scripts/sr_solvency_monitor.mjs --state scripts/deploy_sr_testnet.state --o
 
 `VAULT_RATE_BPS` (300), the rate model, the share-based utilization metric, the `ir_mod` stress
 floor, `RATE_BOUND_DUST`, and `MAX_APR_BPS`'s value.
+
+
+---
+
+## 11. Mainnet readiness
+
+Everything above was calibrated **against mainnet FixedV2's live config** from the start — the
+harness uses its reserve parameters, not the SDK defaults, and the live checks run against
+`CAJJZSGMMM...`. So the numbers are mainnet numbers. What this section adds is the pool-level and
+deployment differences that no testnet run can exercise.
+
+### Verified: the mainnet-exact pool works end to end
+
+Test H pins every knob to what FixedV2 reports on chain — `max_util 90%`, `max_positions 6`,
+`min_collateral 5 USDC`, `bstop_rate 20%` — and runs a full 90-day series (the mainnet
+`MATURITY_DAYS` default) through the real adapter:
+
+```
+deposited      25000.00 USDC
+b_rate         1000000000000 -> 1009195744439
+redeemed       25229.89 USDC
+realized over 90d: 0.9196%  (annualized 3.729%)
+```
+
+`min_collateral` is the difference worth naming: **0 on testnet, 5 USDC on mainnet**, so no testnet
+run touches it. It gates *borrowing*, and the adapter only ever issues `Supply` (0) and `Withdraw`
+(1) — there is no `REQ_BORROW` in `strategy/src/lib.rs` — but that is now a test rather than a
+comment. `max_positions 6` is likewise fine: the strategy holds exactly one position.
+
+Pool `status` differs too (**1** on mainnet, **0** on testnet). Both are operational — the harness
+pool reports status 1 throughout, with deposits and withdrawals working at every step.
+
+### ⚠️ The `ir_mod` floor — see §12. It is the main pre-launch risk.
+
+Short version: at Blend's `ir_mod` floor a 3% promise is **not funded**, the floor is a state a real
+pool sits in today, and the calibration's stress does not reach it. Full treatment in §12.
+
+### ⛔ Deployment gaps — these block a v2 mainnet launch
+
+| # | Gap | Detail |
+|---|---|---|
+| 1 | ~~`deploy_mainnet.sh` deploys v1 only~~ | ✅ **FIXED.** `deploy_mainnet.sh` is now the **v2 SR stack**, derived from the working `deploy_sr_testnet.sh` with mainnet config and hardening. The v1 script is kept as `deploy_mainnet_v1.sh.retired` because an inert v1 deployment still exists on chain. |
+| 2 | ~~v1 has no deposit cap at all~~ | ✅ **FIXED by #1.** v2 carries `SR_DEPOSIT_CAP`, defaulted to **5 USDC (50000000)** in the new mainnet script — matching the testnet posture. |
+| 3 | **The live mainnet vault is stale** | `rate_bps = 500` (the uncalibrated value), maturity `1788722911` = **2026-09-06**, `coupon_capacity = 0`. It is inert — zero capacity means every deposit reverts — but the rate is wrong and the series expires in days. The reconciliation added to `deploy_mainnet.sh` fixes the rate on the next run. |
+
+### What to change before a mainnet launch
+
+1. **Create and fund the issuer account.** There is no friendbot; the script now refuses rather
+   than generating an unfunded key. It is locked irreversibly during the run (`LOCK_ISSUER=0` to
+   skip).
+2. **Seed the vault before the UI offers it** (`VAULT_SEED_AMOUNT` defaults to 0 — a vault with zero
+   `coupon_capacity` reverts every deposit), and **size that seed against §12**, not as launch
+   liquidity.
+3. Re-run `calibrate_vault_rate.mjs --check` on the day — the gate does it automatically, but the
+   rate should not be a surprise. Under v2's 5% yield fee the mainnet ceiling is **312 bps**, not
+   the 336 bps the fee-free v1 path showed.
+4. The maturity is set per run from `MATURITY_DAYS` (90), so nothing is inherited from the expiring
+   v1 series.
+
+**No parameter needs a different value for mainnet.** `VAULT_RATE_BPS = 300` and
+`MAX_APR_BPS = 30000` are both correct for FixedV2 and both now gated. The mainnet work is
+deployment coverage and seed sizing, not recalibration.
+
+
+---
+
+## 12. The `ir_mod` floor — the risk to understand before launching
+
+This is the one finding that is not a parameter to fix. It is a property of the venue that the
+product has to be sized around, and the calibration rule deliberately does **not** cover it.
+
+### How it surfaced
+
+By accident. Test H ran a 90-day mainnet-exact series purely to check the pool's knobs work, and
+`ir_mod` decayed to **0.1000** during the run. Test I then measured what FixedV2 pays sitting there:
+
+```
+utilization 74.53%   ir_mod 0.1000 (floor 0.1)
+steady-state supply APR: 224 bps (2.236%)
+vault promises 300 bps (3.00%)
+=> UNDER WATER by 76 bps; the vault earns 0.75x what it owes
+```
+
+The model, at the floor and at target utilization, gives a much harsher figure:
+
+```
+supply = base(0.80) x ir_mod x util x (1 - bstop) = 0.07 x 0.1 x 0.80 x 0.80 = 0.448%
+net of the 5% engine fee                                                    = 0.426%
+```
+
+**The two disagree on magnitude — 224 bps vs 43 bps — and agree on sign.** At the `ir_mod` floor a
+3% promise is not funded, somewhere between 0.75x and 0.14x coverage. I have not reconciled the gap;
+the 224 bps comes out of a long-run simulation carrying accrual distortion, and the 43 bps is a
+clean steady-state calculation. Both are below 300 bps, which is the decision-relevant fact.
+
+### What `ir_mod` is, and how a pool reaches the floor
+
+`ir_mod` is Blend's rate modifier: a multiplier the pool moves up when utilization runs above the
+reserve's target and down when it runs below, nudging borrow demand back toward target. Measured
+bounds (test B): **[0.1, 10.0]**.
+
+A pool reaches the floor by having borrow demand sit below the utilization target for a sustained
+stretch. Nothing exotic — a quiet lending market does it. There is no attack, no exploit, no bad
+debt involved.
+
+### It is not hypothetical
+
+**TestnetV2's live `ir_mod` is 0.1067 — a real Blend pool is on the floor right now**, and has been
+throughout this work. That is why testnet's USDC reserve pays ~0.2%: not a low reading, the
+*minimum the curve can produce*. Mainnet FixedV2 is at 1.4899 today, but the same mechanism governs
+both.
+
+### Where the line actually is
+
+For a 3% promise under v2's economics (5% yield fee, FixedV2's curve, utilization at target):
+
+| | `ir_mod` | net supply APR | vs a 3.00% promise |
+|---|---|---|---|
+| live mainnet today | **1.4899** | 6.34% | funded, 2.1x |
+| calibration stress | 1.0000 | 4.26% | funded, 1.4x |
+| **break-even** | **0.705** | **3.00%** | **the line** |
+| measured floor | 0.1000 | 0.43% | **not funded, 0.14x** |
+
+**`ir_mod` must fall 53% from today's value to reach break-even, and it can fall 7x below it.**
+
+### Why the calibration does not cover this, on purpose
+
+`blend_rate.mjs` stresses `ir_mod` down to `min(now, 1.0)`. That is documented as a *moderate*
+stress and §6 confirms it is: the floor is 10x lower. Extending the stress to 0.1 would be
+mathematically honest and practically useless — the maximum fundable rate would collapse to ~43 bps,
+and no fixed-rate product exists at that number. The rule stops at 1.0 because that is the boundary
+between "price this conservatively" and "do not offer this product".
+
+So the tail is handled somewhere else, and it is handled well.
+
+### What bounds the damage — this is the part that works
+
+The on-chain capacity check, exactly as designed. `srvault::deposit` refuses any coupon that is not
+already backed by PT the vault holds:
+
+```rust
+if Self::pt_inventory(&env) < liability + receipts_after * REDEEM_DUST {
+    panic_with_error!(&env, Error::InsufficientCapacity);
+}
+```
+
+So even at the floor:
+
+* **Every promise already made stays payable.** PT redeems 1:1; a receipt cannot be repriced.
+* **The vault cannot promise more than it can back.** As the seed drains, capacity shrinks, and
+  deposits start reverting with `InsufficientCapacity`. The product closes itself.
+* **Total loss is capped at the seed.** There is no path to a shortfall beyond it.
+
+The failure mode is a bounded, self-limiting subsidy — not insolvency.
+
+### The practical implication
+
+**Size the mainnet seed as the subsidy you are willing to fund if Blend's modifier decays, not as
+launch liquidity.** They are different numbers and the seed is doing the second job by default.
+
+A worked bound, at the floor, over a 90-day series:
+
+* coupon owed per USDC deposited = `3.00% x 90/365` = **0.740%**
+* yield earned per USDC at the floor = `0.426% x 90/365` = **0.105%**
+* net drain ≈ **0.635% of deposits per series**
+
+So a seed of `S` funds roughly `S / 0.00635` USDC of deposits before capacity is exhausted — a
+100 USDC seed covers ~15,700 USDC of deposits for one series in the worst modifier state. Note the
+`SR_DEPOSIT_CAP` of 5 USDC binds long before that, which is the point of setting it low.
+
+### Recommended before launch
+
+1. **Watch `ir_mod`, not just the rate.** `sr_solvency_monitor.mjs` already reads the reserve on
+   every poll; `ir_mod` is in the same payload. Alarm approaching **0.705** — that is the break-even
+   for a 3% rate, and it is a number, not a feeling.
+2. **Re-run the calibration every series.** The rate is fixed *within* a series, and `set_rate`
+   moves it forward-only. A decayed `ir_mod` is exactly the case the per-series gate catches.
+3. **Decide the subsidy in advance.** If `ir_mod` halves, is the answer to lower the rate for the
+   next series, or to keep 3% and fund the gap? Both are defensible; deciding during the event is
+   not.
+4. Do not raise `SR_DEPOSIT_CAP` above the seed you have actually funded.
