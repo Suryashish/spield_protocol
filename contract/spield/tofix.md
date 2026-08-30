@@ -334,6 +334,16 @@ for it.
 min(balance, supplied - borrowed / max_util)
 ```
 
+> **Superseded 2026-08-30 — the observation was right, the formula was not.**
+> `max_util` does **not** bind withdrawals: a pool sitting at its 90% ceiling paid out four probes
+> that took utilization to 96.4% (`calibration_j`). The real bound is **`balance - backstop_credit`**
+> — interest already owed to the backstop that sits in the pool's balance. That is what made the raw
+> balance overstate headroom, and why "the gap is not a constant": `backstop_credit` grows with time
+> and utilization. On mainnet parameters aged six months it reaches **13.32%**, reproducing the
+> 12.8% measured here. The utilization cap was conservative enough to avoid `#1207` — which is why
+> it worked — but it over-corrected, reporting **0 available against ~26,005 USDC withdrawable**.
+> See `blendcalibration.md` §7.
+
 And the residual was then **measured** rather than guessed
 (`measure_the_haircut_available_liquidity_actually_needs`):
 

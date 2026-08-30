@@ -1,0 +1,23 @@
+[package]
+name = "spield-e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+spield-shared = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+blend-contract-sdk = { workspace = true, features = ["testutils"] }
+sep-40-oracle = { version = "=1.4.0", features = ["testutils"] }
+spield-strategy = { path = "../strategy" }
+spield-sr = { path = "../sr" }
+spield-yield = { path = "../yield" }
+spield-srmarket = { path = "../srmarket" }
+spield-srvault = { path = "../srvault" }
+spield-srrouter = { path = "../srrouter" }

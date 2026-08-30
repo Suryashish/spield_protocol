@@ -12,6 +12,7 @@ members = [
   "contracts/srvault",
   "contracts/srrouter",
   "contracts/upgrade-fixture",
+  "contracts/e2e",
 ]
 
 [workspace.dependencies]

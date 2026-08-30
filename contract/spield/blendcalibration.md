@@ -19,8 +19,8 @@ matter. Every number below is measured by it or read from a live pool. Nothing h
 | 3 | `MAX_APR_BPS` | deploy scripts | 30000 | ✅ **Now measured AND checked** | Safe for both live pools (2.78x / 2.69x). Was safe *by accident of their config*; a derived gate now enforces it. See §4. |
 | 4 | Utilization metric | `sr_solvency_monitor.mjs`, `blend_rate.mjs` | share-based | ✅ **Correct — earlier finding RETRACTED** | I claimed Blend used cash-based utilization. **That was wrong.** A controlled experiment settles it: share-based. See §5. |
 | 5 | `ir_mod` assumptions | `blend_rate.mjs` stress | floor 1.0 | ✅ **Yes — now measured** | Real bounds are **[0.1, 10.0]**. Stressing to 1.0 is confirmed a *moderate* stress. See §6. |
-| 6 | `available_liquidity()` | `strategy` contract | `min(utilCap, cash)` | ❌ **Wrong constraint — RESOLVED 2026-08-30** | `max_util` does not bind withdrawals; the real bound is **`cash − backstop_credit`**. Reconciles with `tofix.md` #20. Fix in the next deploy. See §7. |
-| 7 | Exit-coverage alert | `sr_solvency_monitor.mjs` | 5x warn / 3x crit | ⚠️ **Recalibrate after #6 lands** | Coverage divides by `available_liquidity()`, so it inherits #6's error — a full exit succeeded at **0.05x**. Once #6 is fixed the metric becomes meaningful and 5x/3x can be set against it. See §7. |
+| 6 | `available_liquidity()` | `strategy` contract | **`balance − backstop_credit`** | ✅ **FIXED 2026-08-30** | `max_util` does not bind withdrawals. Verified on mainnet-exact params: 13.32% backstop share reproduces #20's live 12.8%. See §7. |
+| 7 | Exit-coverage alert | `sr_solvency_monitor.mjs` | 5x warn / 3x crit | ✅ **Recalibrated — KEEP AS IS** | With #6 fixed the metric now predicts exit success at the 1.0x line (1.12x full, 0.45x refused). 5x/3x sit safely above the cliff with real lead time. See §7b. |
 | 8 | SR deposit cap | `sr.deposit_cap` | **50 USDC** in the scripts; **5 USDC** live on testnet | ✅ **Set** | A GLOBAL cap — it bounds LPs too, and counts operator seeding. See §8. |
 | 9 | `scalar_root` | `srmarket` | 40e12 | ⛔ **Open** | V2_WORK §14. Not Blend-derived; listed for completeness. |
 | 10 | `RATE_BOUND_DUST` | `shared::math` | 16 | ✅ Fine | Microscopic next to any real rate; no evidence of false trips. |
@@ -313,17 +313,35 @@ token balance and is not available to suppliers. Probed to the stroop:
 * **The correct formula is `min(position, cash − backstop_credit)`.** The strategy already reads
   `get_reserve`, and `backstop_credit` is in that same payload — no extra call.
 
-### Recommended — now safe to act on
+### ✅ FIXED 2026-08-30
 
-**Change `available_liquidity()` to `min(balance − backstop_credit, …)`.** It is a contract change,
-so it belongs in the next deploy rather than a hot patch. The direction of the current error is safe
-(under-sizing a withdrawal never fails; over-sizing is what produced `#1207`), but the magnitude is
-not: reporting 0 tells users they cannot exit during a crunch, which is the moment a false alarm does
-the most damage.
+`available_liquidity()` is now `balance − backstop_credit`. Verified on **mainnet-exact FixedV2
+parameters** (`max_util 90%`, `max_positions 6`, `min_collateral 5 USDC`, `bstop_rate 20%`) aged six
+months — test L:
 
-**One caveat.** These are measurements against the Blend v2 WASM shipped in `blend-contract-sdk
-2.25.0`. A live pool may run a different build. That said, this model *explains* the live `#1207`
-rather than contradicting it, which is corroboration rather than conflict.
+```
+pool cash                  30000.0000 USDC
+backstop_credit             3994.5232 USDC  (13.32% of cash)
+available_liquidity()      26005.4768 USDC  <- the fixed value
+(the OLD formula reported 0.00 in this same state)
+```
+
+**13.32% is the corroboration.** `tofix.md` #20 measured the raw balance overstating headroom by
+**12.8%** on the live pool. This model reproduces that magnitude from first principles, on mainnet's
+own backstop rate. It explains the live `#1207` rather than contradicting it.
+
+It remains an **upper** bound, but a tight one: touching the pool accrues a little more
+`backstop_credit`, so the true limit sits a hair below what was read. Bracketed at **0.001%** —
+which `Sr::max_redeemable`'s existing 1% haircut covers a thousand times over.
+
+| withdraw vs reported | Blend says |
+|---|---|
+| −1.000% | PAID |
+| −0.010% | PAID |
+| −0.001% | PAID |
+| exactly | REFUSED |
+
+`UTIL_SCALAR` is gone from the strategy — nothing else used it.
 
 ---
 
@@ -599,3 +617,48 @@ So a seed of `S` funds roughly `S / 0.00635` USDC of deposits before capacity is
    next series, or to keep 3% and fund the gap? Both are defensible; deciding during the event is
    not.
 4. Do not raise `SR_DEPOSIT_CAP` above the seed you have actually funded.
+
+
+---
+
+## 7b. Exit-coverage thresholds, recalibrated — keep 5x / 3x
+
+With `available_liquidity()` corrected (§7), coverage means what it always claimed to. Test M, on
+mainnet-exact parameters:
+
+| our position | available | coverage | full exit |
+|---|---|---|---|
+| 20k | 22,526 | **1.12x** | **full** |
+| 60k | 27,451 | **0.45x** | **REFUSED** |
+| 100k | 29,334 | 0.29x | REFUSED |
+| 150k | 34,223 | 0.23x | REFUSED |
+
+**The metric now predicts exit success exactly at the 1.0x line.** Before the fix a full exit
+succeeded at 0.05x coverage — the number carried no information. It does now.
+
+And it degrades smoothly as a crunch develops (test M, first sweep): drawing 19,500 USDC out from
+under a 20,000 position moved coverage 2.48x -> 1.50x, with full exits throughout.
+
+### The recommendation: change nothing
+
+`5x warn / 3x critical` were chosen by reasoning in `tofix.md` #23 and were never measurable. They
+are measurable now, and they hold up:
+
+* **The cliff is at 1.0x.** Below it a full exit is impossible — so any threshold must sit above it
+  with room to act.
+* **3x critical leaves 3x of headroom** before the cliff. Coverage can move on a single large
+  borrow, so that lead time is doing real work: it is what lets an operator pause deposits and tell
+  holders *before* exits degrade, which is exactly what the critical page is for.
+* **Lowering them toward 1.5x would be worse**, not tighter. It would page only once the cliff is
+  nearly reached, removing the lead time the alarm exists to buy.
+* **No false-alarm cost in practice.** Spield's live position is tiny relative to the pool, so
+  coverage sits in the hundreds; these thresholds will be quiet until the position is material.
+
+So the outcome of the recalibration is that the numbers were already right — what was wrong was the
+quantity they divided by, and that is now fixed.
+
+### One deployment note
+
+The corrected `available_liquidity()` is a **contract change**. Until the strategy is redeployed the
+live monitor still divides by the old, broken value, so live coverage readings remain
+under-reported until then.

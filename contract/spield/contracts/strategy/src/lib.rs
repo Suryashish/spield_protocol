@@ -34,9 +34,6 @@ use spield_shared::{governance, math, types::RateBound, Error};
 
 /// Blend `RequestType` discriminants (verified from `blend-contracts-v2/pool/src/pool/actions.rs`).
 /// Encoded as the plain `u32` `request_type` on the wire.
-/// Blend expresses `max_util` in 7-decimal fixed point (`9500000` = 95%).
-const UTIL_SCALAR: i128 = 10_000_000;
-
 const REQ_SUPPLY: u32 = 0;
 const REQ_WITHDRAW: u32 = 1;
 
@@ -290,43 +287,48 @@ impl BlendStrategy {
     /// advance, so an exit either worked or reverted with no way to find out first, and no way to
     /// take a smaller amount that would have succeeded.
     ///
-    /// Measured as the pool's own token balance, which is the honest upper bound on what it can pay:
-    /// a lending pool cannot hand out what it does not hold. It is an **upper** bound — Blend also
-    /// refuses withdrawals that would push utilization past its ceiling — so callers sizing a
-    /// withdrawal against this should take a haircut. `Sr::max_redeemable` does.
+    /// The bound is the pool's own token balance **minus `backstop_credit`**: a lending pool cannot
+    /// hand out what it does not hold, and part of what it holds is already owed to the backstop.
+    ///
+    /// Still an **upper** bound, but a tight one. Touching the pool accrues a little more
+    /// `backstop_credit`, so by the time a withdrawal is evaluated the true limit has moved a hair
+    /// below what was read. Measured at **0.001%** on a mainnet-parameter pool aged six months
+    /// (`calibration_l`), which `Sr::max_redeemable`'s 1% haircut covers a thousand times over.
     pub fn available_liquidity(env: Env) -> i128 {
         let pool = Self::pool_addr(&env);
         let underlying = Self::underlying(env.clone());
         let balance = soroban_sdk::token::Client::new(&env, &underlying).balance(&pool);
 
-        // The pool's balance alone is NOT the answer, and taking a flat percentage off it is not
-        // either. Blend refuses any withdrawal that would push utilization past `max_util`, so the
-        // real ceiling is whichever of the two binds:
+        // The pool's balance alone is NOT the answer: some of it is `backstop_credit` — interest
+        // already accrued to the backstop that sits in the pool's token balance and is not
+        // available to suppliers. Blend refuses a withdrawal that would dip into it.
         //
-        //     util_cap = supplied - borrowed / max_util
+        //     withdrawable = balance - backstop_credit
         //
-        // Measured on the live testnet pool at 70% utilization, the balance overstated the true
-        // headroom by 12.8% — far more than the 1% safety haircut `Sr::max_redeemable` takes off,
-        // so `max_redeemable` was wrong in the dangerous direction. And the gap is not a constant:
-        // it is ~0 at low utilization and unbounded as utilization approaches the cap, so no fixed
-        // percentage can stand in for it. Computing it is the only correct option.
+        // MEASURED against the real Blend WASM, probed to the stroop
+        // (`calibration_test.rs::calibration_k_what_actually_bounds_a_withdrawal`): a withdrawal of
+        // `balance - backstop_credit - 1` is PAID and `balance - backstop_credit` is REFUSED.
         //
-        // Found by `srvault`'s resumable-redeem tests: sizing a withdrawal against the balance
-        // still reverted with Blend's `#1207`, because the pool was already at its ceiling.
+        // ── Why this replaced a utilization cap ──────────────────────────────────────────────────
+        // The previous version used `supplied - borrowed/max_util`, on the premise that Blend
+        // refuses withdrawals which push utilization past `max_util`. **It does not** — measured in
+        // `calibration_j_does_blend_refuse_a_withdrawal_that_crosses_max_util`: a pool sitting AT
+        // its 90% ceiling paid out four probes that took utilization to 96.4%.
+        //
+        // That premise came from `tofix.md` #20, which observed the raw balance overstating true
+        // headroom by 12.8% on the live testnet pool and reverting with Blend's `#1207`. The
+        // observation was right — the raw balance DOES overstate, and #20's note that "the gap is
+        // not a constant" was right too. The cause is `backstop_credit`, which grows with time and
+        // utilization. The utilization cap happened to be conservative enough to avoid `#1207`,
+        // which is why it worked, but it over-corrected badly: it reported **0 available against
+        // ~29,978 USDC actually withdrawable**, which tells holders they cannot exit during exactly
+        // the crunch when they most need to.
         let reserve = PoolClient::new(&env, &pool).get_reserve(&underlying);
-        let supplied = math::shares_to_underlying(&env, reserve.data.b_supply, reserve.data.b_rate)
-            .unwrap_or(0);
-        let borrowed = math::shares_to_underlying(&env, reserve.data.d_supply, reserve.data.d_rate)
-            .unwrap_or(0);
-        let max_util = reserve.config.max_util as i128;
-        if max_util <= 0 {
+        let credit = reserve.data.backstop_credit;
+        if credit >= balance {
             return 0;
         }
-        // borrowed / max_util, in UTIL_SCALAR (1e7) fixed point.
-        let needed = math::mul_div_floor(&env, borrowed, UTIL_SCALAR, max_util).unwrap_or(i128::MAX);
-        let util_cap = if supplied > needed { supplied - needed } else { 0 };
-
-        if util_cap < balance { util_cap } else { balance }
+        balance - credit
     }
 
     pub fn rate_bound(env: Env) -> (i128, u64, u32) {

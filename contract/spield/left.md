@@ -160,10 +160,20 @@ From `blendcalibration.md` §12, in Blend's worst modifier state, per series:
 | 90 days | 0.740% of deposits | 0.105% | **0.635%** |
 | **30 days** | **0.247%** | **0.035%** | **0.212%** |
 
-So at 30 days a seed of `S` covers roughly `S / 0.00212` USDC of deposits in the worst case — about
-**3x further than a 90-day series**, which is a real argument for the shorter term.
+**For sizing, use the coupon owed, not the net drain.** The capacity check bites at the moment of
+deposit, before any yield has been harvested — `pt_inventory >= total_liability` has to hold right
+then. So the binding number is the gross coupon:
 
-In practice the deposit cap binds long before the seed does, which is exactly what it is for.
+| Series length | Seed multiple, binding at deposit | Seed multiple by end of series |
+|---|---|---|
+| 90 days | **135x** | 158x |
+| **30 days** | **406x** | 473x |
+
+So a **20 USDC seed supports ~8,100 USDC of deposits** on a 30-day series (`20 x 406`), and the
+30-day term stretches a seed **3x further** than 90 days — a real argument for the shorter term.
+
+In practice the deposit cap binds long before the seed does, which is exactly what it is for: a
+50 USDC cap needs about **0.12 USDC** of seed to cover its own coupons.
 
 ---
 
@@ -295,31 +305,28 @@ built; see `MAINNET.md` §6.1. A single offline key is defensible for a small la
 
 ## E. Engineering still open — can follow the launch
 
-### E1. Fix `available_liquidity()` — resolved, needs a deploy
+### E1. Redeploy to pick up the `available_liquidity()` fix
 
-**The dispute is settled** (`blendcalibration.md` §7). `max_util` does **not** bind withdrawals —
-a pool sitting at its ceiling paid out four probes that pushed utilization to 96%. The real bound is
-**`pool_cash − backstop_credit`**, probed to the stroop.
+**The code is fixed** (`blendcalibration.md` §7). `available_liquidity()` now returns
+`balance − backstop_credit` instead of a utilization cap that Blend never actually enforces.
 
-`tofix.md` #20 was right that the raw balance overstates headroom — by exactly `backstop_credit`,
-which is why the overstatement "is not a constant". It just fixed it with the wrong formula.
+Verified on mainnet-exact FixedV2 parameters: it reported **0.00** before the fix where **26,005
+USDC** was genuinely withdrawable. The `backstop_credit` share came out at **13.32%**, reproducing
+the **12.8%** `tofix.md` #20 measured live — so the model explains that old `#1207` rather than
+contradicting it.
 
-**What to do:** change `available_liquidity()` from `min(balance, supplied − borrowed/max_util)` to
-`min(balance − backstop_credit, …)`. `backstop_credit` is already in the `get_reserve` payload the
-strategy reads, so there is no extra call. Contract change — ship it with the next deploy.
+**What is left:** nothing to write. It is a contract change, so it takes effect when the strategy is
+next deployed — which for mainnet is A2. Until then the live testnet monitor keeps reporting the old
+under-stated coverage.
 
-**Why it matters:** the current formula reported **0.00 available against ~29,978 USDC actually
-withdrawable**. The error direction is safe (under-sizing never fails a transaction), but the
-magnitude is not — it tells users they cannot exit during a crunch, which is exactly when a false
-alarm hurts most.
+### E2. Exit-coverage thresholds — ✅ recalibrated, no change needed
 
-### E2. Retune the exit-coverage thresholds — after E1
+5x warn / 3x critical. With E1 fixed the metric predicts exit success at the 1.0x line (1.12x = full
+exit, 0.45x = refused), where before it was meaningless (a full exit succeeded at 0.05x).
 
-Currently 5x warn / 3x critical. Coverage divides by `available_liquidity()`, so today it inherits
-E1's error: a full exit succeeded at **0.05x** coverage.
-
-Once E1 lands the metric means what it says. A full exit needs coverage ≥ 1.0x, so something like
-**1.5x critical / 3x warn** is the shape — but measure it rather than adopting those numbers.
+The thresholds hold up: the cliff is 1.0x, and 3x leaves genuine lead time to pause deposits and
+tell holders before exits degrade. Lowering them toward 1.5x would page too late to act on.
+`blendcalibration.md` §7b has the data.
 
 ### E3. `scalar_root`
 
