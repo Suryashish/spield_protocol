@@ -6,7 +6,7 @@ import {
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
 
-import { ASSETS, NETWORK, SR_CONTRACTS } from './config';
+import { NETWORK, SR_CONTRACTS } from './config';
 import { signWithWallet } from './stellar';
 
 /**
@@ -20,79 +20,21 @@ import { signWithWallet } from './stellar';
 // Horizon endpoint for the active network (testnet vs mainnet), from config.
 export const horizon = new Horizon.Server(NETWORK.horizonUrl);
 
+/**
+ * Trustline readiness for receiving protocol tokens.
+ *
+ * Produced by `v2adapters.getTrustlines`, which is the only implementation left: v2's YT is a
+ * *contract* token with no classic asset, so it reports `yt: true` unconditionally and `ready`
+ * simply means "this wallet can receive what it is about to be sent".
+ */
 export type TrustlineStatus = {
-  /** True if the account trusts SPLDPT. */
+  /** True if the account trusts the PT classic asset. */
   pt: boolean;
-  /** True if the account trusts SPLDYT. */
+  /** Always true on v2 — YT is a contract token, so there is nothing to trust. */
   yt: boolean;
-  /** True only when both trustlines exist (ready to receive a mint). */
+  /** True when the wallet can receive what it is about to be sent. */
   ready: boolean;
 };
-
-/** Read whether `address` already trusts the PT and YT assets. */
-export const getTrustlines = async (address: string): Promise<TrustlineStatus> => {
-  try {
-    const account = await horizon.loadAccount(address);
-    const has = (code: string, issuer: string) =>
-      account.balances.some(
-        (b) =>
-          'asset_code' in b &&
-          b.asset_code === code &&
-          'asset_issuer' in b &&
-          b.asset_issuer === issuer,
-      );
-    const pt = has(ASSETS.pt.code, ASSETS.pt.issuer);
-    const yt = has(ASSETS.yt.code, ASSETS.yt.issuer);
-    return { pt, yt, ready: pt && yt };
-  } catch {
-    // Unfunded / unreadable account: treat as no trustlines.
-    return { pt: false, yt: false, ready: false };
-  }
-};
-
-/**
- * Establish the PT and YT trustlines for `address` in a single transaction.
- * Only adds the trustlines that are missing. Signs with the connected wallet and
- * submits via Horizon. Returns the tx hash. No-op (returns null) if both already exist.
- */
-export const setupTrustlines = async (address: string): Promise<{ hash: string } | null> => {
-  const status = await getTrustlines(address);
-  if (status.ready) return null;
-
-  const account = await horizon.loadAccount(address);
-  const builder = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK.passphrase,
-  });
-
-  if (!status.pt) {
-    builder.addOperation(
-      Operation.changeTrust({ asset: new Asset(ASSETS.pt.code, ASSETS.pt.issuer) }),
-    );
-  }
-  if (!status.yt) {
-    builder.addOperation(
-      Operation.changeTrust({ asset: new Asset(ASSETS.yt.code, ASSETS.yt.issuer) }),
-    );
-  }
-
-  const tx = builder.setTimeout(120).build();
-
-  const { signedTxXdr, error } = await signWithWallet(tx.toXDR(), {
-    networkPassphrase: NETWORK.passphrase,
-    address,
-  });
-  if (error) {
-    throw new Error(error.message || 'Trustline setup was rejected in the wallet.');
-  }
-
-  const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK.passphrase);
-  const result = await horizon.submitTransaction(
-    signed as Parameters<typeof horizon.submitTransaction>[0],
-  );
-  return { hash: result.hash };
-};
-
 
 /**
  * Establish the **v2 (SR stack) PT** trustline for `address`.

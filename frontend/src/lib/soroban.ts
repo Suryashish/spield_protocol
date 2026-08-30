@@ -119,6 +119,50 @@ export type WriteResult = {
  * Soroban auth entries required by `user.require_auth()` are produced during
  * simulation and signed as part of the envelope by the wallet.
  */
+/**
+ * **Simulate a value-moving entry point and return what it would actually pay.**
+ *
+ * The `quote_*` views cannot synchronize SR — they are views, and a view cannot write. So they
+ * price on SR's stored high-water rate, which lags whenever nothing has synced since the last
+ * mutation. The real entry points *do* synchronize (`FINAL_CHECK.md` V2-01), which means a quote
+ * can OVERSTATE a sale: size `min_out` from it and the trade reverts on its own slippage bound.
+ *
+ * Simulating the real function instead runs the same synchronized code path the submission will,
+ * so the number it returns is the number that executes. Nothing is signed and nothing is sent —
+ * `simulateTransaction` only evaluates.
+ *
+ * Returns `null` when the simulation cannot run (insufficient balance, a route the pool cannot
+ * fill, an older deployment); callers fall back to the view rather than blocking the trade.
+ */
+export const simulateCall = async (
+  contractId: string,
+  method: string,
+  args: xdr.ScVal[],
+  /** The real user — the amounts and balances the trade depends on are theirs. */
+  invoker: string,
+): Promise<bigint | null> => {
+  try {
+    const contract = new Contract(contractId);
+    // The sequence number is irrelevant to simulation; the RPC never checks it.
+    const tx = new TransactionBuilder(new Account(invoker, '0'), {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK.passphrase,
+    })
+      .addOperation(contract.call(method, ...args))
+      .setTimeout(30)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) return null;
+    const retval = sim.result?.retval;
+    if (!retval) return null;
+    const native = scValToNative(retval);
+    return typeof native === 'bigint' ? native : BigInt(String(native));
+  } catch {
+    return null;
+  }
+};
+
 export const writeContract = async (
   walletAddress: string,
   contractId: string,

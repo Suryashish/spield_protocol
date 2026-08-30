@@ -221,7 +221,7 @@ const ReceiptsPanel = () => {
         <div>
           <CardTitle>Your fixed-rate receipts</CardTitle>
           <CardDescription>
-            Each receipt redeems for a guaranteed payout once the vault matures.
+            Each receipt redeems for its fixed payout once the vault matures, subject to the risks below.
           </CardDescription>
           {isConnected && receipts.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">

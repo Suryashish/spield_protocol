@@ -1,3 +1,4 @@
+import type { xdr } from '@stellar/stellar-sdk';
 import { SR_CONTRACTS, SR_DEPLOYED, DECIMALS } from './config';
 import {
   addr,
@@ -9,6 +10,7 @@ import {
   toBaseUnits,
   writeContract,
   type WriteResult,
+  simulateCall,
 } from './soroban';
 
 /**
@@ -741,8 +743,113 @@ export const ROUTER_AVAILABLE = Boolean(
   SR_DEPLOYED && SR_CONTRACTS?.router && !SR_CONTRACTS.router.startsWith('__'),
 );
 
-/** Floor applied to `min_*_out` on router exits, in bps below the quote. */
-const EXIT_SLIPPAGE_BPS = 100n;
+/** Default floor applied to `min_*_out` on router exits, in bps below the executable amount. */
+export const DEFAULT_SLIPPAGE_BPS = 100n;
+
+/** The slippage settings the UI offers. 0.1% is tight, 5% is the "just fill it" end. */
+export const SLIPPAGE_CHOICES_BPS = [10n, 50n, 100n, 300n, 500n] as const;
+
+/**
+ * **ECO-01 — when is a trade big enough that splitting it is worth the trouble?**
+ *
+ * The curve prices a trade at its *post-trade* proportion, so one large trade is charged
+ * conservatively and a sliced one converges on the true integral. Slicing therefore gets a better
+ * price. That is inherited from Pendle's convention, not a fault — but it is real money, so the UI
+ * should say so instead of letting the user find out afterwards.
+ *
+ * **Measured**, not guessed — `srmarket::economics_test::eco01_how_the_slicing_gain_scales_with_trade_size`
+ * on a balanced 500k/500k pool, one trade vs five slices:
+ *
+ * ```text
+ *    1% of pool -> +0.0214%      10% of pool -> +0.2148%
+ *    2% of pool -> +0.0429%      20% of pool -> +0.4347%
+ *    5% of pool -> +0.1072%
+ * ```
+ *
+ * The gain is linear in the fraction of the pool consumed: **≈ 2.15 bps per 1% of pool**. Five
+ * slices capture ~81% of everything available (100 slices reach +0.2659% where 5 reach +0.2148%),
+ * so there is no reason to suggest more.
+ *
+ * Returns `null` below the threshold — most trades should say nothing at all.
+ */
+export const SPLIT_ADVICE_MIN_GAIN_BPS = 10n; // ~0.1%; below this the extra signatures aren't worth it
+const GAIN_BPS_PER_PCT_OF_POOL = 215n; // 2.15 bps, held as hundredths to stay in integers
+
+export type SplitAdvice = {
+  /** The trade as a percentage of the reserve it draws down. */
+  pctOfPool: number;
+  /** Estimated gain from splitting into `slices`, in bps. */
+  estimatedGainBps: number;
+  /** How many pieces to suggest. Five captures ~81% of the available gain. */
+  slices: number;
+};
+
+/**
+ * Advice for a trade of `notionalAsset` (asset units — USDC-equivalent), or `null` when the trade is
+ * small enough that splitting it would not pay for the extra signatures.
+ *
+ * The denominator is the **smaller** reserve. On the balanced pool the calibration ran against the
+ * two are equal; on a lopsided one this warns earlier, which is the safe direction.
+ */
+export const splitAdvice = async (notionalAsset: bigint): Promise<SplitAdvice | null> => {
+  if (notionalAsset <= 0n) return null;
+  const stats = await getMarketStats();
+  if (!stats) return null;
+
+  const reference =
+    stats.ptReserve < stats.assetReserve ? stats.ptReserve : stats.assetReserve;
+  if (reference <= 0n) return null;
+
+  // pct in hundredths of a percent, to stay in integer maths.
+  const pctHundredths = (notionalAsset * 10_000n) / reference;
+  const gainBps = (pctHundredths * GAIN_BPS_PER_PCT_OF_POOL) / 10_000n;
+  if (gainBps < SPLIT_ADVICE_MIN_GAIN_BPS) return null;
+
+  return {
+    pctOfPool: Number(pctHundredths) / 100,
+    estimatedGainBps: Number(gainBps),
+    slices: 5,
+  };
+};
+
+
+/**
+ * **Size `min_out` from a simulation of the real entry point, not from `quote_*`.**
+ *
+ * `FINAL_CHECK.md` V2-01: the market synchronizes SR on every value-moving call, but the `quote_*`
+ * views cannot — a view may not write. So a quote prices on SR's stored rate, which lags whenever
+ * nothing has synced since the last mutation, and for a SALE it therefore reports MORE than the
+ * trade will pay. Deriving `min_out` from it means the trade can trip its own slippage bound and
+ * revert, for no reason the user can see.
+ *
+ * Simulating the entry point runs the same synchronized code the submission runs, so its result is
+ * what actually executes. `simulateCall` signs and sends nothing.
+ *
+ * `quoted` is the fallback: simulation legitimately returns `null` when the user cannot yet afford
+ * the trade, when the pool cannot fill it, or on a deployment predating the route. Falling back to
+ * the view reproduces exactly today's behaviour rather than blocking the trade.
+ */
+const executableOut = async (
+  method: string,
+  args: xdr.ScVal[],
+  wallet: string,
+  quoted: bigint,
+): Promise<bigint> => {
+  if (!SR_CONTRACTS) return quoted;
+  const simulated = await simulateCall(SR_CONTRACTS.router, method, args, wallet);
+  return simulated !== null && simulated > 0n ? simulated : quoted;
+};
+
+/**
+ * Apply the slippage floor to whichever basis we ended up trusting.
+ *
+ * `min_out` is the user's only protection against the price moving between simulation and
+ * execution: the contract reverts rather than filling worse than this. It is deliberately the
+ * caller's choice — a tight floor protects the price and risks a revert, a loose one fills but
+ * accepts a worse rate — so the UI exposes it rather than deciding for everybody.
+ */
+const floorOut = (basis: bigint, slippageBps: bigint = DEFAULT_SLIPPAGE_BPS): bigint =>
+  basis > 0n ? basis - (basis * slippageBps) / 10_000n : 0n;
 
 const routerNotDeployed = (): never => {
   throw new Error('The Spield v2 router is not deployed on this network.');
@@ -796,6 +903,8 @@ export const quoteClaimYieldUsdc = async (owner: string): Promise<bigint> => {
 export const buyPtWithUsdc = async (
   wallet: string,
   amount: string,
+  /** Caller's slippage tolerance in bps below the executable amount. */
+  slippageBps: bigint = DEFAULT_SLIPPAGE_BPS,
 ): Promise<WriteResult> => {
   if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
   const units = toBaseUnits(amount);
@@ -803,7 +912,13 @@ export const buyPtWithUsdc = async (
   if (quoted <= 0n) {
     throw new Error('No quote available — the pool cannot fill that size right now.');
   }
-  const minOut = quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n;
+  const basis = await executableOut(
+    'buy_pt_with_usdc',
+    [addr(wallet), i128(units), i128(0n), u32(0)],
+    wallet,
+    quoted,
+  );
+  const minOut = floorOut(basis, slippageBps);
   return writeContract(wallet, SR_CONTRACTS.router, 'buy_pt_with_usdc', [
     addr(wallet),
     i128(units),
@@ -887,10 +1002,18 @@ export const quoteBuyYtFromUsdc = async (ytOut: bigint): Promise<bigint> => {
 export const sellPtForUsdc = async (
   wallet: string,
   ptIn: bigint,
+  /** Caller's slippage tolerance in bps below the executable amount. */
+  slippageBps: bigint = DEFAULT_SLIPPAGE_BPS,
 ): Promise<WriteResult> => {
   if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
   const quoted = await quoteSellPtForUsdc(ptIn);
-  const minOut = quoted > 0n ? quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n : 0n;
+  const basis = await executableOut(
+    'sell_pt_for_usdc',
+    [addr(wallet), i128(ptIn), i128(0n), u32(0)],
+    wallet,
+    quoted,
+  );
+  const minOut = floorOut(basis, slippageBps);
   return writeContract(wallet, SR_CONTRACTS.router, 'sell_pt_for_usdc', [
     addr(wallet),
     i128(ptIn),
@@ -953,10 +1076,18 @@ export const sellYtToUsdc = async (
 export const sellYtForUsdc = async (
   wallet: string,
   ytIn: bigint,
+  /** Caller's slippage tolerance in bps below the executable amount. */
+  slippageBps: bigint = DEFAULT_SLIPPAGE_BPS,
 ): Promise<WriteResult> => {
   if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
   const quoted = await quoteSellYtForUsdc(ytIn);
-  const minOut = quoted > 0n ? quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n : 0n;
+  const basis = await executableOut(
+    'sell_yt_for_usdc',
+    [addr(wallet), i128(ytIn), i128(0n), u32(0)],
+    wallet,
+    quoted,
+  );
+  const minOut = floorOut(basis, slippageBps);
   return writeContract(wallet, SR_CONTRACTS.router, 'sell_yt_for_usdc', [
     addr(wallet),
     i128(ytIn),
@@ -977,10 +1108,18 @@ export const sellYtForUsdc = async (
 export const redeemPyForUsdc = async (
   wallet: string,
   pyAmount: bigint,
+  /** Caller's slippage tolerance in bps below the executable amount. */
+  slippageBps: bigint = DEFAULT_SLIPPAGE_BPS,
 ): Promise<WriteResult> => {
   if (!ROUTER_AVAILABLE || !SR_CONTRACTS) return routerNotDeployed();
   const quoted = await quoteRedeemPyForUsdc(pyAmount);
-  const minOut = quoted > 0n ? quoted - (quoted * EXIT_SLIPPAGE_BPS) / 10_000n : 0n;
+  const basis = await executableOut(
+    'redeem_py_for_usdc',
+    [addr(wallet), i128(pyAmount), i128(0n)],
+    wallet,
+    quoted,
+  );
+  const minOut = floorOut(basis, slippageBps);
   return writeContract(wallet, SR_CONTRACTS.router, 'redeem_py_for_usdc', [
     addr(wallet),
     i128(pyAmount),
@@ -1073,6 +1212,64 @@ export const getDepositCap = () => srRead('deposit_cap', 0n);
 export const getTotalAssets = () => srRead('total_assets', 0n);
 /** Underlying that can still be deposited before the cap bites. */
 export const getDepositHeadroom = () => srRead('deposit_headroom', 0n);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Honest valuation after a loss (FINAL_CHECK RISK-01)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `exchange_rate` is a HIGH-WATER MARK: it ratchets up and never falls. That is deliberate — it
+// stops the whole protocol repricing on a transient dip — but it means every value we show the
+// user (`assets_of`, `preview_redeem`, `total_assets`, and therefore this dashboard) reports MORE
+// underlying than a withdrawal would actually pay once Blend has taken a real loss.
+//
+// `sr.realizable_rate()` is the honest twin: total assets that actually exist / total SR shares.
+// It reads the venue with no monotonicity guard, so unlike `current_rate` it keeps answering while
+// exits are frozen — which is exactly when somebody needs the number.
+//
+// **It returns `null` on a deployment that predates the method**, which is the same graceful
+// degradation `srRead` uses for the deposit cap. The UI simply omits the comparison until the
+// contracts carrying `realizable_rate` are live, and lights up on its own afterwards with no
+// frontend change.
+
+/** Underlying per 1e12 SR valued on what ACTUALLY exists. `null` when the deployment predates it. */
+export const getRealizableRate = async (): Promise<bigint | null> => {
+  if (!SR_DEPLOYED || !SR_CONTRACTS) return null;
+  try {
+    const rate = toBig(await readContract(SR_CONTRACTS.sr, 'realizable_rate', []));
+    return rate > 0n ? rate : null;
+  } catch {
+    return null; // pre-`realizable_rate` deployment — omit the comparison rather than throwing
+  }
+};
+
+export type SrValueGap = {
+  /** What the protocol quotes — the high-water `exchange_rate`. */
+  quoted: bigint;
+  /** What actually exists, per 1e12 SR. */
+  realizable: bigint;
+  /** How far the quote overstates reality, in basis points. `0` when the quote is honest. */
+  shortfallBps: number;
+};
+
+/**
+ * Compare the quoted rate against the realizable one. `null` while `realizable_rate` is
+ * unavailable, so callers can render nothing rather than a misleading zero.
+ *
+ * `realizable` sitting slightly ABOVE `quoted` is normal and harmless — it sees accrual the stored
+ * rate has not synced yet. Only the other direction matters, so `shortfallBps` floors at 0.
+ */
+export const getValueGap = async (): Promise<SrValueGap | null> => {
+  const [quoted, realizable] = await Promise.all([getExchangeRate(), getRealizableRate()]);
+  if (realizable === null || quoted <= 0n) return null;
+  const shortfall = quoted > realizable ? ((quoted - realizable) * 10_000n) / quoted : 0n;
+  return { quoted, realizable, shortfallBps: Number(shortfall) };
+};
+
+/** Value `srShares` on what actually exists, not on the high-water quote. `null` if unavailable. */
+export const getRealizableValue = async (srShares: bigint): Promise<bigint | null> => {
+  const rate = await getRealizableRate();
+  return rate === null ? null : srToUsdc(srShares, rate);
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Exit liquidity (tofix.md #20)

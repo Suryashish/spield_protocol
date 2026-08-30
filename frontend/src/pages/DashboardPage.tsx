@@ -405,8 +405,8 @@ const HowVaultWorks = () => (
     blurb="The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT machinery is hidden underneath."
     steps={[
       { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC to the Fixed-Rate Vault — no need to understand PT or YT.' },
-      { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a guaranteed payout (principal + a fixed coupon) at maturity.' },
-      { icon: ShieldCheck, title: '3 · Backed by PT', body: 'The vault holds PT 1:1 against every payout, so your fixed return is solvent by construction.' },
+      { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a fixed payout (principal + a fixed coupon) at maturity.' },
+      { icon: ShieldCheck, title: '3 · Backed by PT', body: 'The vault holds PT 1:1 against every payout, so the vault itself is never over-committed. PT redeems from the Blend position \u2014 see the risks below.' },
       { icon: TrendingUp, title: '4 · Redeem at maturity', body: 'Redeem the receipt for your exact locked payout. The coupon is funded by the vault\u2019s real Blend yield.' },
     ]}
   />

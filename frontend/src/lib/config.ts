@@ -98,8 +98,6 @@ type NetworkProfile = NetworkMeta & {
   contracts: ContractSet;
   /** The v2 SR stack. `null` where it is not deployed yet (mainnet). */
   sr: SrContractSet | null;
-  /** PT/YT classic-asset issuer (G-address) for this network's trustlines. */
-  ptYtIssuer: string;
 };
 
 /** Read a `VITE_*` env var, falling back to a default when unset/empty. */
@@ -118,7 +116,6 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
     horizonUrl: 'https://horizon-testnet.stellar.org',
     explorer: 'https://stellar.expert/explorer/testnet',
     // v2 (post-update) PT/YT issuer — fresh assets for the redeployed contracts.
-    ptYtIssuer: 'GD6OOYY52IZRHSAMA6MMAG24MCPD5UWK7HLKPTBG5X2I2L7H3FF2U6LL',
     // Live testnet deployment — REDEPLOYED 2026-06-09 with the updated contracts (optimized WASMs,
     // fresh issuer spield_issuer_v2) vs the real Blend TestnetV2 pool. Seeded: vault 5 USDC capacity,
     // market 5 PT / 5 USDC at par. See contract/spield/TESTNET.md "Updated contracts (v2 redeploy)".
@@ -131,24 +128,24 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
       yt: 'CA2QLQDSJUR6H5QNZSYURGGMZPGJI7D4WEYPXBSXWDLX7FCFZF7FD2OU',
       usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
     },
-    // ── SR stack (v2). Redeployed 2026-08-25 WITH GOVERNANCE (two-step admin rotation + a 24h
-    // upgrade timelock on all three contracts), against the real Blend TestnetV2 pool.
-    // Opened at exactly 5.0000% implied APY, PT price 0.988042.
+    // ── SR stack (v2). Redeployed 2026-08-30 against the real Blend TestnetV2 pool, seeded to the
+    // planned MAINNET shape: 50 USDC deposit cap, 30-day series, 5 USDC per AMM side, 5 USDC of
+    // vault coupon capacity. Opened at 3.0000% implied APY, PT price 0.997574.
     // Source of truth: contract/spield/scripts/deploy_sr_testnet.state — see TESTNET_SR.md.
     sr: {
-      // Redeployed 2026-08-27. The previous deployment predates `add_liquidity`'s `min_shares`
-      // argument, `Receipt.collected`, the three TTL bump entry points, `srvault::sweep_surplus`
-      // and the corrected `strategy::available_liquidity` — none of which can be added in place,
-      // because the receipt schema changed. Old addresses are in
-      // scripts/deploy_sr_testnet.state.pre-redeploy-20260827.
-      sr: 'CCOXZUKCZGNJQYNWRLWD3TZFBQH2GNF4SKP65WAN5I63JXEKBAAT7QRX',
-      strategy: 'CDTTEX3YMXXNEO7BVWHYO7G4GOJJH5RXO4423RSC25HLZF66NM6J5CSX',
-      yieldEngine: 'CCL4K4ZNM2AVSJEHWX47DPOM3MCD7Z5SNJNHEIGV2ICV7CSZZL5Q6GFG',
-      market: 'CD5CEGFSBMXPNJUG2HRX7LFZCJ56WF35SMPPWW3OXRR75GBRXVA5WITN',
-      vault: 'CAHGFUDCMAYCGPLX5CDIIHMZZVKOKA2KL67DBHU6SQTZLDVQAYJ4AVF5',
-      router: 'CCU7J3JYNSO2R3YVYNVB46ZHKRCOIBC566F6MCN5SXGSJXE7HVIWYIFN',
-      pt: 'CCW4F7LXRIESZLOA6SJN7MA6FSRM7PMGTXXY7ZAQRDF3BN5M3WHELPYF',
-      ptAsset: 'SPLDPT6:GDGQUCGAZLMBZBF4CMNVFKVUWWM2RNRU7MYQJGYTZZW43L2QUOLXCOLL',
+      // Redeployed 2026-08-30. The previous deployment predates the whole `FINAL_CHECK.md` round:
+      // V2-01 (the market prices on a SYNCHRONIZED index via `yield.py_index_current`), V2-03 (the
+      // router compares against its entry snapshot, so a 1-stroop donation can no longer deny every
+      // route), RISK-01 (`sr.realizable_rate`) and ECO-02 (`strategy.claim_emissions`). None can be
+      // added in place. Old addresses: scripts/deploy_sr_testnet.state.bak.pre-eco02-20260830-210750.
+      sr: 'CDYAM3NGY5I3SUGPCDQUS25MGCIWT2YOBDSWYT6SJNIPN6A6OOUSSCZY',
+      strategy: 'CDPNSWSBVBRF52SED6UD7T2VQH6XODLEHXSCFTZHQP73SNYTKIHP5R2B',
+      yieldEngine: 'CDS2Q6L3QCUK4KX633M7QH53GC76EVOUAK7WJ54T3AP3J6IGXIM3LURD',
+      market: 'CBL7Z3BONITNSWO7NJLT67464HLVVQF5G3REI3XT6KUCK7YNHPICJX5A',
+      vault: 'CDKV7Z7FF3DA57LSO2JA6GFKAIDDIDMZD5XWCMV7G5I3E4ZA3NN2NMH7',
+      router: 'CDP3VUYH3GEGNOF4XUHKMP5GBTH3SBCL5R3GM5ZTVQAGV7FOAPAQJTGE',
+      pt: 'CB3T6FOMAH77Z2FMSA2IEVLQEIYOQRRFP7JMJMJGMUCO6HGOOZJZJ7OC',
+      ptAsset: 'SPLDPT7:GDTM2UMJEO6LV5HE2SI56IEWNX5OAF5HV2XNZMVZEDXMMPHZUWXSSLQU',
       usdc: 'CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU',
     },
   },
@@ -159,7 +156,6 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
     rpcUrl: 'https://mainnet.sorobanrpc.com',
     horizonUrl: 'https://horizon.stellar.org',
     explorer: 'https://stellar.expert/explorer/public',
-    ptYtIssuer: 'GA4R5M7ZWOQZWIYCW246YC5WJ4QHT3H74CAUSTCEUUWIELCWI7IP3MKB',
     // Live MAINNET deployment (2026-06-08 vs the real Blend FixedV2 pool + Circle USDC).
     // See contract/spield/MAINNETCONTRACTADDRESSES.md.
     contracts: {
@@ -261,18 +257,6 @@ export const DECIMALS = 7;
  * If it ever does, the contract still refuses correctly; only this hint goes stale.
  */
 export const MIN_MINT_BASE_UNITS = 2n;
-
-/**
- * PT and YT are classic Stellar assets (wrapped as the SACs above). A holder must
- * establish a trustline to each before the wrapper can mint them — otherwise the
- * first `mint` fails. The dashboard offers a one-click trustline setup using these.
- */
-export const PT_YT_ISSUER = env('VITE_PT_YT_ISSUER', profile.ptYtIssuer);
-
-export const ASSETS = {
-  pt: { code: 'SPLDPT', issuer: PT_YT_ISSUER },
-  yt: { code: 'SPLDYT', issuer: PT_YT_ISSUER },
-} as const;
 
 /** Waitlist API URL (same for both networks unless overridden). */
 export const BACKEND_URL = env('VITE_BACKEND_URL', 'http://api.spield.live');

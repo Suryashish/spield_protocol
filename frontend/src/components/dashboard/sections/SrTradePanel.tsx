@@ -32,6 +32,10 @@ import {
   solveYtFaceForUsdc,
   buyPtWithUsdc,
   sellPtForUsdc,
+  splitAdvice,
+  SLIPPAGE_CHOICES_BPS,
+  DEFAULT_SLIPPAGE_BPS,
+  type SplitAdvice,
   buyYtFromUsdc,
   sellYtToUsdc,
   impliedApyPct,
@@ -118,6 +122,9 @@ const SrTradePanel = () => {
   const [stats, setStats] = useState<SrMarketStats | null>(null);
   const [portfolio, setPortfolio] = useState<SrPortfolio | null>(null);
   const [, setRate] = useState<bigint>(10n ** 12n);
+  const [slippageBps, setSlippageBps] = useState<bigint>(DEFAULT_SLIPPAGE_BPS);
+  // ECO-01: null for almost every trade — it only speaks up when splitting would actually pay.
+  const [advice, setAdvice] = useState<SplitAdvice | null>(null);
   const [quote, setQuote] = useState<bigint | null>(null);
   /** For the YT buy: the face the solver landed on for the user's USDC budget. */
   const [ytFace, setYtFace] = useState<bigint>(0n);
@@ -208,6 +215,21 @@ const SrTradePanel = () => {
     };
   }, [amount, amountValid, mode]);
 
+  // ECO-01 — is this trade big enough that splitting it would beat one shot?
+  useEffect(() => {
+    if (!amountValid) {
+      setAdvice(null);
+      return;
+    }
+    let cancelled = false;
+    void splitAdvice(toBaseUnits(amount)).then((a) => {
+      if (!cancelled) setAdvice(a);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [amount, amountValid]);
+
   const onSubmit = async () => {
     if (!address || !amountValid) return;
     const units = toBaseUnits(amount);
@@ -221,9 +243,9 @@ const SrTradePanel = () => {
     await run(label, async () => {
       switch (mode) {
         case 'buyPt':
-          return buyPtWithUsdc(address, amount);
+          return buyPtWithUsdc(address, amount, slippageBps);
         case 'sellPt':
-          return sellPtForUsdc(address, units);
+          return sellPtForUsdc(address, units, slippageBps);
         case 'buyYt':
           if (ytFace <= 0n) throw new Error('No fillable size at that budget — try less.');
           return buyYtFromUsdc(address, ytFace, (step, of) => setYtStep(of > 1 ? `${step === 'wrap' ? 1 : 2} of ${of}` : null));
@@ -493,6 +515,56 @@ const SrTradePanel = () => {
           <p className="text-xs text-destructive">That is more {payToken} than this wallet holds.</p>
         )}
 
+        {/* ── ECO-01: large-trade guidance ─────────────────────────────────────────────────────
+            The curve prices a trade at its post-trade proportion, so one big fill is charged
+            conservatively and a split one converges on the fair integral. `splitAdvice` returns
+            null for almost everything; it speaks up only when the measured gain clears 0.1%. */}
+        {advice && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs leading-relaxed">
+            <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
+              <TrendingUp className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+              Large trade — splitting it would get a better price
+            </div>
+            <p className="text-muted-foreground">
+              This is <strong className="text-foreground">{advice.pctOfPool.toFixed(1)}%</strong> of
+              the pool. Doing it in{' '}
+              <strong className="text-foreground">{advice.slices} smaller trades</strong> should
+              gain roughly{' '}
+              <strong className="text-foreground">
+                {(advice.estimatedGainBps / 100).toFixed(2)}%
+              </strong>
+              , because a single large fill is priced at the rate it leaves behind rather than the
+              average rate along the way. More than about five pieces adds very little.
+            </p>
+          </div>
+        )}
+
+        {/* ── Slippage: the user's only protection between simulation and execution ───────────── */}
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <span className="text-muted-foreground">
+            Max slippage
+            <span className="ml-1 text-[11px]">
+              (the trade reverts rather than filling worse)
+            </span>
+          </span>
+          <div className="flex gap-1">
+            {SLIPPAGE_CHOICES_BPS.map((bps) => (
+              <button
+                key={String(bps)}
+                type="button"
+                onClick={() => setSlippageBps(bps)}
+                className={
+                  bps === slippageBps
+                    ? 'rounded-md border border-brand/60 bg-brand/10 px-2 py-1 font-medium text-brand-text tabular-nums'
+                    : 'rounded-md border border-border px-2 py-1 text-muted-foreground tabular-nums hover:border-brand/40'
+                }
+              >
+                {Number(bps) / 100}%
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Actions */}
         <div className="mt-auto space-y-2">
           {!isConnected ? (
@@ -500,6 +572,7 @@ const SrTradePanel = () => {
               <Wallet className="mr-2 h-4 w-4" aria-hidden />
               Connect wallet
             </Button>
+
           ) : !onCorrectNetwork ? (
             <Button className="w-full" disabled variant="secondary">
               Switch your wallet network

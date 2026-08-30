@@ -385,7 +385,7 @@ const DepositPanel = () => {
             <span className="flex min-w-0 items-start gap-2 text-muted-foreground">
               <Lock size={13} className="mt-px shrink-0 text-brand-text" />
               <span>
-                Want a <span className="font-medium text-foreground">fixed, guaranteed</span> return
+                Want a <span className="font-medium text-foreground">fixed rate</span>
                 instead of variable yield?
               </span>
             </span>

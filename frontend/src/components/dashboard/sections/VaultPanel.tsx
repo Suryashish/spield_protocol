@@ -134,7 +134,7 @@ const VaultPanel = () => {
           Fixed-Rate Vault
         </CardTitle>
         <CardDescription>
-          Deposit USDC and lock a guaranteed fixed return until maturity — backed 1:1 by PT.
+          Deposit USDC and lock a fixed rate until maturity — backed 1:1 by PT.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -161,7 +161,7 @@ const VaultPanel = () => {
         {/* Receive at maturity — the same field, read-only, so the deposit and
             the payout read as two halves of one instrument. */}
         <AmountField
-          label="Guaranteed at maturity"
+          label="Fixed payout at maturity"
           token="USDC"
           value={amountValid && liveQuote ? formatAmount(payout) : ''}
           loading={quoting}

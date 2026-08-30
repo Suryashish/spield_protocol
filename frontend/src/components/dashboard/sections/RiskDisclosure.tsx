@@ -4,7 +4,14 @@ import { AlertTriangle, ShieldAlert, Gauge, FileWarning } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatAmount } from '@/lib/soroban';
 import { SR_DEPLOYED } from '@/lib/config';
-import { getDepositCap, getDepositHeadroom, getTotalAssets } from '@/lib/srstack';
+import {
+  getDepositCap,
+  getDepositHeadroom,
+  getTotalAssets,
+  getValueGap,
+  fromScalar12,
+  type SrValueGap,
+} from '@/lib/srstack';
 
 type Risk = {
   icon: typeof AlertTriangle;
@@ -34,7 +41,8 @@ const RISKS: Risk[] = [
       'Spield holds its exchange rate at its highest observed level and never marks it down. That '
       + 'keeps the rest of the protocol from repricing on a temporary dip, but it means that after '
       + 'a loss the number shown for your position is the old, higher one while a withdrawal pays '
-      + 'the real, lower amount. Treat the displayed value as an upper bound, not a quote.',
+      + 'the real, lower amount. Treat the displayed value as an upper bound, not a quote \u2014 '
+      + 'the panel above compares it against what actually exists.',
   },
   {
     icon: AlertTriangle,
@@ -92,13 +100,21 @@ const RiskDisclosure = () => {
   const [cap, setCap] = useState<bigint | null>(null);
   const [headroom, setHeadroom] = useState<bigint | null>(null);
   const [assets, setAssets] = useState<bigint | null>(null);
+  // `null` until the deployed contracts carry `realizable_rate`; the panel stays hidden until then.
+  const [gap, setGap] = useState<SrValueGap | null>(null);
 
   const refresh = useCallback(async () => {
     if (!SR_DEPLOYED) return;
-    const [c, h, a] = await Promise.all([getDepositCap(), getDepositHeadroom(), getTotalAssets()]);
+    const [c, h, a, g] = await Promise.all([
+      getDepositCap(),
+      getDepositHeadroom(),
+      getTotalAssets(),
+      getValueGap(),
+    ]);
     setCap(c);
     setHeadroom(h);
     setAssets(a);
+    setGap(g);
   }, []);
 
   useEffect(() => {
@@ -151,6 +167,67 @@ const RiskDisclosure = () => {
             The cap is enforced on chain and gates deposits only — it can never block a withdrawal.
           </p>
         </div>
+
+        {/* Quoted vs actual. Rendered ONLY once `realizable_rate` is live on chain — the same
+            reasoning as the cap panel: a number the user can read makes the warning in the risk
+            list below a measurement rather than a claim. A shortfall of zero is worth showing too,
+            because "we checked, and today they agree" is the reassuring half of the same fact. */}
+        {gap !== null && (
+          <div
+            className={
+              gap.shortfallBps > 0
+                ? 'rounded-lg border border-destructive/40 bg-destructive/5 p-3'
+                : 'rounded-lg border bg-muted/30 p-3'
+            }
+          >
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle
+                className={gap.shortfallBps > 0 ? 'h-3.5 w-3.5 text-destructive' : 'h-3.5 w-3.5'}
+                aria-hidden
+              />
+              Quoted value vs what actually exists
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Quoted rate</div>
+                <div className="tabular-nums">{fromScalar12(gap.quoted).toFixed(6)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Actually backed</div>
+                <div className="tabular-nums">{fromScalar12(gap.realizable).toFixed(6)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Shortfall</div>
+                <div
+                  className={
+                    gap.shortfallBps > 0
+                      ? 'tabular-nums font-medium text-destructive'
+                      : 'tabular-nums'
+                  }
+                >
+                  {(gap.shortfallBps / 100).toFixed(2)}%
+                </div>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {gap.shortfallBps > 0 ? (
+                <>
+                  <strong className="text-destructive">
+                    Withdrawals currently pay {(gap.shortfallBps / 100).toFixed(2)}% less than the
+                    displayed value.
+                  </strong>{' '}
+                  The quoted rate is a high-water mark and does not mark down. The loss is shared in
+                  proportion to what you hold; exiting first does not avoid it.
+                </>
+              ) : (
+                <>
+                  The quoted rate is fully backed right now. This compares it against what the Blend
+                  position actually holds, and keeps reporting during a freeze.
+                </>
+              )}
+            </p>
+          </div>
+        )}
 
         <ul className="space-y-3">
           {RISKS.map((r) => {

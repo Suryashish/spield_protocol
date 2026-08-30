@@ -18,7 +18,8 @@ export type Receipt = {
   receiptId: number;
   /** USDC principal deposited, base units. */
   principal: bigint;
-  /** USDC guaranteed at maturity (principal + fixed coupon), base units. */
+  /** USDC the receipt pays at maturity (principal + fixed coupon), base units. Fixed, not
+   *  guaranteed: it is a claim on PT, which redeems from the Blend position. */
   payout: bigint;
   /** The fixed APR locked in, basis points. */
   rateBps: number;

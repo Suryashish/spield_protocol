@@ -77,7 +77,7 @@ const AmountField = ({
     <div className={cn('field-shell', className)} data-invalid={invalid || undefined}>
       <div className="flex items-center justify-between gap-3">
         {/* The label is only capped when it has to share the line. On a field
-            with no balance row it gets the full width, so "Guaranteed at
+            with no balance row it gets the full width, so "Fixed payout at
             maturity" reads out in a half-width column instead of clipping. */}
         <label
           htmlFor={editable ? id : undefined}

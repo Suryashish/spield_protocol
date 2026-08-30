@@ -512,7 +512,7 @@ export const deposit = (wallet: string, amount: string): Promise<WriteResult> =>
   ]);
 };
 
-/** Redeem a matured receipt for its guaranteed payout. */
+/** Redeem a matured receipt for its fixed payout. */
 export const redeem = (wallet: string, receiptId: number): Promise<WriteResult> => {
   if (!SR_DEPLOYED || !SR_CONTRACTS?.vault) return vaultNotDeployed();
   return writeContract(wallet, SR_CONTRACTS.vault, 'redeem', [u64(receiptId)]);
