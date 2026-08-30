@@ -16,6 +16,7 @@
 //   4. RESERVES BACKED   stored reserves <= real token balances        (market vs PT/SR)
 //   5. INDEX MONOTONIC   py_index never decreases between polls
 //   6. TREASURY MONOTONIC treasury_earned never decreases
+//   7. EXPIRY STAMPED    a matured series has its PY index pinned  (`anyfix.md` F5)
 //
 // ── Why check 2 is the important one ─────────────────────────────────────────────────────────────
 // PT is a Stellar CLASSIC asset wrapped as a SAC. Handing SAC admin to the yield engine governs the
@@ -330,6 +331,37 @@ async function poll() {
     } catch (e) {
       warnings.push(`exit-liquidity probe unavailable: ${String(e?.message ?? e).split('\n')[0]}`);
     }
+  }
+
+  // 6b. EXPIRY STAMP OUTSTANDING — not a solvency breach, a value-transfer race (`anyfix.md` F5).
+  //
+  // `yield::stamp_expiry_index()` freezes the PY index at the first post-expiry *observation*, and
+  // Blend exposes no historical rate to reconstruct the true expiry value from — so until somebody
+  // calls it, a matured YT keeps earning. Measured at 2x the honest claim after 30 days and 7x after
+  // 180. Nobody is paid to make the call, and a YT holder is paid to be last.
+  //
+  // `ttl_keeper.mjs` stamps it on every run. This is the independent check that the keeper is
+  // actually doing so, because the failure is silent: nothing reverts and no invariant breaks, the
+  // split simply drifts. It escalates with how overdue it is rather than paging immediately, since
+  // a few hours is the normal gap between a series expiring and the keeper's next pass.
+  try {
+    const expiry = Number((await read(CFG.yield, 'expiry')));
+    const nowSecs = Math.floor(Date.now() / 1000);
+    if (Number.isFinite(expiry) && nowSecs >= expiry) {
+      const pinned = await read(CFG.yield, 'expiry_index');
+      if (pinned === null || pinned === undefined) {
+        const hrs = Math.round((nowSecs - expiry) / 3600);
+        const msg =
+          `EXPIRY INDEX NOT STAMPED: the series expired ${hrs}h ago and yield::expiry_index() is ` +
+          `still unset. Post-expiry yield is accruing to YT holders until it is. Anyone can fix it: ` +
+          `invoke yield::stamp_expiry_index() — it is permissionless and write-once. Check that the ` +
+          `keeper workflow is running.`;
+        if (hrs >= 48) problems.push(msg);
+        else warnings.push(msg);
+      }
+    }
+  } catch (e) {
+    warnings.push(`expiry-stamp probe unavailable: ${String(e?.message ?? e).split('\n')[0]}`);
   }
 
   // 7. TREASURY MONOTONIC — revenue is cumulative; a fall means an unexpected outflow path.

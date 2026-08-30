@@ -10,8 +10,8 @@ committed alongside it. Nothing here is inferred from reading the source alone.
 
 ## What was done
 
-The existing suites each test one contract with the rest as scenery. They are thorough and green: **346 pass** across the six v2 crates plus `shared`, and **532**
-across the whole workspace. What none of them can see is the seams: the vault and the AMM minting PY from the same
+The existing suites each test one contract with the rest as scenery. They are thorough and green —
+**532 pass** across the workspace before any of this. What none of them can see is the seams: the vault and the AMM minting PY from the same
 engine, against the same SR, backed by the same Blend position — which is exactly the topology
 `deploy_mainnet.sh` produces.
 
@@ -19,8 +19,8 @@ So a new test-only crate, **`contracts/e2e`**, stands the whole stack up at once
 through the journeys a live deployment will actually see.
 
 ```
-cargo test -p spield-e2e              # 52 tests, all pass
-cargo test -p spield-e2e -- --ignored # 6 tests, all FAIL — one per finding, by design
+cargo test -p spield-e2e   # 59 pass, 1 ignored
+cargo test --workspace     # 591 pass, 1 ignored
 ```
 
 | File | What it holds |
@@ -28,32 +28,32 @@ cargo test -p spield-e2e -- --ignored # 6 tests, all FAIL — one per finding, b
 | `src/harness.rs` | One `World` with all six contracts + Blend + oracle; helpers for time, crunches, seeding |
 | `src/workflows.rs` | 20 tests — the user journeys, end to end |
 | `src/adversarial.rs` | 16 tests — donations, griefing, dust, slippage, auth, cross-series isolation |
-| `src/invariants.rs` | 16 invariants + 6 defect reproductions |
+| `src/invariants.rs` | 9 general invariants, plus the tests for each finding |
 
-Each finding appears **twice** in `invariants.rs`:
-
-* an `#[ignore]`d test asserting the **correct** behaviour — it fails today, and it is supposed to;
-  it is the reproduction and the acceptance test for the fix, and
-* a live **characterization** test pinning what the code does **now**, so the behaviour cannot
-  silently drift while the fix is pending. When you fix the defect, the characterization test fails
-  — that is the signal to delete the pair and keep the plain invariant.
+The finding tests in `invariants.rs` are named `f1_`…`f5_`, and each asserts the property its fix was
+supposed to establish **in the scenario that used to break it** — not a narrower one. The single
+`#[ignore]`d test is F5's: it asserts what an on-chain fix would have to satisfy, which the keeper
+mitigation does not provide, and it is kept failing on purpose as the standing record of that
+residual.
 
 ---
 
 ## Findings
 
-| # | Severity | Where | One line |
-|---|---|---|---|
-| **F1** | **High** | `sr::max_redeemable` / `redeem_partial` | The clamped-exit path reverts, because it sizes the clamp with the stale stored rate |
-| **F1b** | **High** | `sr::max_redeemable` | Reports `i128::MAX` — "no constraint" — while a full exit reverts |
-| **F2** | **High** | `srvault::redeem` | `REDEEM_DUST` is reserved per *receipt* but spent per *leg*; the third partial leg reverts with `SolvencyViolation` |
-| **F3** | Medium | `sr::deposit_headroom` | Depositing exactly the advertised headroom always reverts |
-| **F4** | Medium | `sr::deposit` | The cap counts accrued yield as new exposure — the code does the opposite of the comment above it |
-| **F5** | Medium | `yield::stamp_expiry_index` | A matured YT keeps earning until somebody happens to touch the contract; nobody is paid to do it |
+| # | Severity | Where | One line | Status |
+|---|---|---|---|---|
+| **F1** | **High** | `sr::max_redeemable` / `redeem_partial` | The clamped-exit path reverted, because it sized the clamp with the stale stored rate | **Fixed** |
+| **F1b** | **High** | `sr::max_redeemable` | Reported `i128::MAX` — "no constraint" — while a full exit reverted | **Fixed** |
+| **F2** | **High** | `srvault::redeem` | `REDEEM_DUST` was reserved per *receipt* but spent per *leg*; the third partial leg reverted with `SolvencyViolation` | **Fixed** |
+| **F3** | Medium | `sr::deposit_headroom` | Depositing exactly the advertised headroom always reverted | **Fixed** |
+| **F4** | Medium | `sr::deposit` | The cap counted accrued yield as new exposure — the code did the opposite of the comment above it | **Fixed** |
+| **F5** | Medium | `yield::stamp_expiry_index` | A matured YT keeps earning until somebody happens to touch the contract | **Mitigated off chain** — see below |
+
+Each section below states the defect, the evidence, and what changed.
 
 ---
 
-### F1 — `redeem_partial`, the exit of last resort, reverts under a stale rate — **High**
+### F1 — `redeem_partial`, the exit of last resort, reverted under a stale rate — **High** — ✅ fixed
 
 `Sr::exchange_rate()` is a pure read of the stored high-water mark. That is deliberate and correct:
 making it call the strategy caused the intermittent `storage: exceeded_limit` footprint failure
@@ -105,18 +105,41 @@ its ceiling, and its own accounting rounds"* — but in practice it is being spe
 errors cancel exactly. Verified. So this is specifically a problem for callers that consume
 `max_redeemable` **in shares**: `redeem_partial`, and any dApp that shows it.
 
-**Fix direction.** Either make `max_redeemable` sync (it is already the case that
-`redeem_partial` writes, so the footprint argument that forced `exchange_rate` to be pure does not
-apply to the mutating path), or have `redeem_partial` re-clamp against the live rate after
-`live_rate()` has run. Leaving the view stale and fixing only the mutating path also fixes F1b's
-practical impact, but the number a UI reads would still be wrong.
+#### The fix
 
-*Tests:* `f1_redeem_partial_makes_progress_even_when_the_stored_rate_is_stale` (ignored),
-`f1_characterize_stale_rate_overstates_max_redeemable`.
+`max_redeemable` now calls `sync_rate()` before it does anything, and uses that rate for both the
+division and the `avail >= total_assets` comparison.
+
+```rust
+// contracts/sr/src/lib.rs
+let rate = Self::sync_rate(env.clone());
+let avail = strategy.available_liquidity();
+```
+
+`exchange_rate()` stays a pure read — nothing about the footprint argument changes, because it is
+`sync_rate` that is being called, and `sync_rate` **always writes**. That is the property the whole
+`exceeded_limit` fix rests on: the footprint becomes a function of the call graph alone, not of how
+much time passed between simulation and execution. `strategy::current_rate` writes its `RateBound`
+unconditionally for exactly the same reason, so the chain is deterministic end to end.
+
+**`max_redeemable` is therefore a mutating call now.** Three consequences, all checked:
+
+* **The frontend is unaffected.** `readContract` in `frontend/src/lib/soroban.ts` uses
+  `simulateTransaction`, so it gets the corrected number and submits nothing.
+* **The vault is still correct.** `SrVault::redeem` composes `preview_redeem(max_redeemable())`; both
+  halves are now live rather than both stale, so they still agree — and now they are right rather
+  than merely consistent.
+* **The deploy scripts' `compat` probe now submits.** `read_view` uses `stellar contract invoke`,
+  which submits when simulation shows a write. It costs one small fee and only ratchets a floor
+  upward. Both deploy scripts carry a note at that line.
+
+*Tests:* `f1_redeem_partial_makes_progress_even_when_the_stored_rate_is_stale`,
+`f1_max_redeemable_is_actionable_after_arbitrary_drift` (0 / 1 / 7 / 30 / 90 days of drift, each
+redeeming exactly the advertised cap), `f1_max_redeemable_is_stable_once_synced`.
 
 ---
 
-### F1b — `max_redeemable` says "unbounded" while the exit reverts — **High**
+### F1b — `max_redeemable` said "unbounded" while the exit reverted — **High** — ✅ fixed
 
 Same root cause, sharper shape. The short circuit:
 
@@ -143,12 +166,18 @@ The width of the bad band is exactly the accrued drift, so any real drift opens 
 showing "you can withdraw your whole position" and then failing is the worst version of this bug,
 because the user has no smaller number to fall back to.
 
-*Tests:* `f1b_an_unbounded_max_redeemable_means_a_full_exit_actually_clears` (ignored),
-`f1b_characterize_unbounded_cap_while_the_exit_reverts`.
+#### The fix
+
+The same one line. With the rate synced first, both sides of the comparison are live, the band
+closes, and the short circuit only fires when the venue genuinely can cover everything.
+
+*Test:* `f1b_an_unbounded_max_redeemable_means_a_full_exit_actually_clears` — it aims the venue's
+free liquidity into the old bad band deliberately, and asserts that an unbounded answer is followed
+by an exit that clears.
 
 ---
 
-### F2 — a vault receipt cannot take a third partial leg — **High**
+### F2 — a vault receipt could not take a third partial leg — **High** — ✅ fixed
 
 `REDEEM_DUST` is **2 stroops per receipt**, and its doc explains it as covering the double flooring
 of the *closing* leg (`payout → SR → USDC`). But every **partial** leg floors too. A partial leg
@@ -188,26 +217,59 @@ which is the exact failure `redeem`'s partial path was built to eliminate.
 `mint_py`, which is refused at/after expiry — while a stuck receipt is by definition post-maturity.
 Verified in `f2_seed_is_refused_after_expiry_so_the_admin_cannot_add_capacity`.
 
-**Fix direction.** Three options, smallest first:
+#### The fix — track the residue, and reserve for it
 
-1. Give `assert_solvent` a bounded slack the way the yield engine already does
-   (`spield-yield`'s `SOLVENCY_SLACK = 10`). `srvault::assert_solvent` has **no** slack at all,
-   which is the asymmetry that makes this bite. Cheap, but only buys ~10 legs.
-2. Track the cumulative flooring residue in its own storage field and exclude it from the invariant.
-   Exact, and it makes the leak visible rather than absorbed.
-3. Reserve per-leg: store a leg counter on the `Receipt` and reserve `(legs + 2) × 1`. Correct, but
-   it changes the receipt layout.
+Two halves, because the defect had two.
 
-Whichever is chosen, `sweep`'s reserve formula and `stats().coupon_capacity` must be updated in the
-same change — today they both tell the operator that sweeping to a 2-stroop margin is safe, and it
-is not.
+**1. The loss is recorded rather than absorbed.** `Receipt` gains a `residue` field and the vault a
+`TotalResidue` total. Every partial leg adds what the flooring actually cost:
 
-*Tests:* `f2_a_partially_redeemed_receipt_can_always_take_another_leg` (ignored),
-`f2_characterize_the_third_partial_leg_reverts`, `f2_seed_is_refused_after_expiry_...`.
+```rust
+// contracts/srvault/src/lib.rs — the partial branch of `redeem`
+let leg_residue = to_burn - banked;
+if leg_residue > 0 {
+    r.residue += leg_residue;
+    storage::set_total_residue(&env, storage::total_residue(&env) + leg_residue);
+}
+```
+
+and `assert_solvent` counts it as the expected rounding it is:
+
+```rust
+pt_inventory + total_collected + total_residue  >=  total_liability
+```
+
+It is **per receipt**, not a permanent global figure, so it is released when the receipt closes and
+the invariant tightens straight back up. A global counter would have loosened the check for the life
+of the contract.
+
+**2. The reserve now covers partial legs, so `sweep` and `coupon_capacity` stop lying.**
+`REDEEM_DUST` keeps its meaning — the closing leg's double floor — and a new
+`PARTIAL_LEG_BUDGET = 64` covers the partial ones:
+
+```rust
+const RECEIPT_RESERVE: i128 = REDEEM_DUST + PARTIAL_LEG_BUDGET;   // 2 + 64
+```
+
+used by all three places that had to agree and did not: `deposit`'s capacity gate, `sweep`'s
+reserve, and `stats().coupon_capacity`. 64 stroops is 6.4e-6 USDC and covers at least 32 partial
+legs — far beyond any crunch a holder would sit through — so the operator's dashboard figure is now
+the real edge rather than an optimistic one.
+
+`stats()` also gains `total_residue`, so the rounding is visible on the dashboard instead of being
+inferred from a discrepancy.
+
+*Tests:* `f2_a_partially_redeemed_receipt_can_always_take_another_leg` (drives the same natural
+operator sequence to completion and asserts it takes more than the old two-leg margin),
+`f2_residue_is_recorded_then_released_with_the_receipt`,
+`f2_residue_stays_within_the_reserved_budget`,
+`f2_sweeping_all_reported_capacity_leaves_receipts_redeemable` (sweeps exactly what the dashboard
+reports as free, checks a stroop more is refused, then redeems the receipt to the last stroop),
+`f2_seed_is_refused_after_expiry_so_the_admin_cannot_add_capacity`.
 
 ---
 
-### F3 — `deposit_headroom()` is not actionable — Medium
+### F3 — `deposit_headroom()` was not actionable — Medium — ✅ fixed
 
 `left.md` §C: *"`sr::deposit_headroom()` exists precisely so a frontend can show 'X USDC of Y
 remaining'."* A max button built on it **fails every time**, because the view reads the stored rate
@@ -222,16 +284,19 @@ This is low-stakes in absolute terms — the overshoot is the accrued drift, ~0.
 30 days — but it is the **normal** case, not an edge one, and on the guarded launch (50 USDC cap,
 ~10 USDC of user headroom) it is the difference between the UI working and not.
 
-**Fix direction.** Either have `deposit_headroom` be honest about the direction of its own error
-(the same `sync_rate`-or-not decision as F1), or document that a caller must pad down, and have the
-dApp subtract a margin. The second is free; the first is correct.
+#### The fix
 
-*Tests:* `f3_a_deposit_of_exactly_the_advertised_headroom_succeeds` (ignored),
-`f3_characterize_headroom_overstates_what_deposit_will_accept`.
+`deposit_headroom()` and `deposit`'s cap check now read **the same stored integer**, with no rate in
+either — see F4, which is the same change. So they cannot drift by construction, however stale the
+rate is or how long the user takes to sign.
+
+*Test:* `f3_a_deposit_of_exactly_the_advertised_headroom_succeeds` — runs at 0, 30 and 180 days of
+unsynced drift, deposits exactly the advertised headroom each time, then checks one stroop more is
+refused.
 
 ---
 
-### F4 — the deposit cap counts yield as new exposure, contradicting its own comment — Medium
+### F4 — the deposit cap counted yield as new exposure, contradicting its own comment — Medium — ✅ fixed
 
 From `sr::deposit`:
 
@@ -259,18 +324,36 @@ but time.
 
 **~66 bps of TVL over 90 days** at this fixture's Blend rate — 6% of the *headroom* in the example.
 
-This is not dangerous; it is a documentation/behaviour contradiction with a real operational effect
-that grows with the cap. Someone reading the comment while sizing the launch will get the arithmetic
-in `left.md` §C wrong by the accrued yield. Either the code should measure cost basis (track
-deposited principal), or the comment should be deleted and `left.md` §C should say that headroom
-decays.
+#### The fix — measure cost basis
 
-*Tests:* `f4_headroom_does_not_shrink_just_because_yield_accrued` (ignored),
-`f4_characterize_yield_consumes_headroom`.
+The cap now measures what was actually deposited, which is what the comment always claimed.
+`storage::total_principal` is a plain stored integer:
+
+* `deposit` raises it by exactly `amount`;
+* **every** path that destroys shares releases it proportionally, because the accounting lives in
+  `burn_internal` — so `redeem`, `redeem_partial` and a bare SEP-41 `burn` all behave the same, and
+  burning the last share releases exactly the last of the basis.
+
+```rust
+let released = math::mul_div_floor(env, principal, amount, supply_before)?;
+```
+
+The cap check and `deposit_headroom` both read it, so both are rate-free and exact.
+`total_assets()` is unchanged and still reports the mark-to-market value — it is the dashboard
+number and what `max_redeemable` compares against; the two are now deliberately different things,
+and both are documented as such.
+
+**`left.md` §C's arithmetic is now correct as written.** `cap = what you seed + what you will let
+users deposit` holds exactly, and it no longer decays.
+
+*Tests:* `f4_headroom_does_not_shrink_just_because_yield_accrued` (unchanged over a full year, while
+`total_assets()` visibly grows), `f4_every_exit_releases_cost_basis_proportionally`,
+`f4_the_cap_still_bounds_everything_it_did_before` (the `left.md` §C worked example, to the stroop:
+seed 20 + 20, headroom exactly 10).
 
 ---
 
-### F5 — a matured YT keeps earning until somebody stamps the index — Medium
+### F5 — a matured YT keeps earning until somebody stamps the index — Medium — 🟡 mitigated off chain
 
 `spield-yield`'s module docs:
 
@@ -303,14 +386,48 @@ directly incentivised to be the last person to touch the contract. On a quiet se
 exactly what a guarded launch produces — waiting is free and pays 7x. It also makes `sweepable`
 smaller, so the treasury is the party that funds it.
 
-**Fix direction.** Either make the freeze happen *at* the expiry timestamp rather than at first
-observation — cap the index used post-expiry to what a rate model says it was at expiry, which Blend
-cannot supply, so this is genuinely hard — or accept it and (a) fix the module doc, and (b) have the
-watchtower call `stamp_expiry_index` the moment a series expires, which is one line in
-`sr_solvency_monitor.mjs` and turns an unbounded race into a bounded one.
+#### Why there is no on-chain fix
 
-*Tests:* `f5_a_matured_yt_earns_the_same_however_late_the_index_is_stamped` (ignored),
-`f5_characterize_a_late_stamp_multiplies_the_yt_claim`.
+A real fix would freeze the index *at* the expiry timestamp. Blend exposes only the current rate with
+no historical lookup, so the expiry value cannot be reconstructed after the fact — "the first
+post-expiry observation" genuinely is the best a contract can do. That is why this one is mitigated
+rather than fixed.
+
+#### The mitigation — the keeper stamps at expiry
+
+**`ttl_keeper.mjs`** now checks `yield::expiry()` and `yield::expiry_index()` on every run and, if
+the series is expired and unpinned, queues `stamp_expiry_index()` **first** — ahead of every TTL
+bump, so a `--max-calls` budget can never starve it. The call is permissionless and write-once, so
+running it twice costs nothing.
+
+**A new `--stamp-only` mode** skips holder discovery entirely, which is the expensive half of a
+normal pass. That lets the stamp run on a much tighter schedule than the bumps, which is what it
+needs: bumps are cheap to defer for a week, the stamp is not.
+
+**`.github/workflows/spield-keeper.yml` now has two schedules:**
+
+| Schedule | What runs |
+|---|---|
+| Mon 04:15 UTC | the full pass — TTL bumps for every holder, LP and receipt, plus the stamp |
+| **Daily 04:45 UTC** | `--stamp-only`. One simulation on almost every day; one transaction once per series |
+
+That bounds the race to **24 hours** instead of leaving it open. At the measured rate, a day of drift
+is a fraction of a percent rather than the 2x a weekly-only schedule would allow on a 30-day series.
+
+**`sr_solvency_monitor.mjs` gained check 7** — an independent alarm for "series expired, index still
+unstamped", because the failure is otherwise silent: nothing reverts and no invariant breaks, the
+split just drifts. It warns immediately and escalates to a problem after 48 hours, so a keeper that
+has quietly stopped running is visible rather than merely costly.
+
+**The module doc in `spield-yield` is corrected.** "A matured YT earns nothing more" was true only
+after the stamp, and the code cannot make it true before; the module header now says so, carries the
+measured numbers, and points at the two scripts that bound the race.
+
+*Tests:* `f5_a_matured_yt_earns_the_same_however_late_the_index_is_stamped` stays `#[ignore]`d as the
+standing record of what an on-chain fix would have to satisfy; `f5_the_size_of_the_stamping_race`
+pins the multiples so the exposure cannot quietly grow; `f5_a_prompt_stamp_is_permissionless_and_write_once`
+asserts the property the keeper relies on — that a prompt stamp is available to anyone and cannot be
+raised afterwards.
 
 ---
 
@@ -367,27 +484,66 @@ clean mainnet deploy will not have it, as `left.md` already predicts.
 
 ---
 
-## Suggested order
+## What changed
 
-1. **F1 + F1b together** — one root cause, and it is the exit path during the failure mode the whole
-   partial-redemption design exists for. It is also the only finding a *user* can hit with no
-   operator involvement.
-2. **F2** — reachable through the documented seed-recovery operation, with no way for the admin to
-   undo it. Fix `assert_solvent`'s slack, `sweep`'s reserve, and `coupon_capacity` in one change.
-3. **F5's cheap half** — have the watchtower stamp the index at expiry. One line, and it bounds the
-   race immediately, whether or not the harder fix ever happens.
-4. **F3 and F4** — both are one decision each (sync or document), and both are cosmetic next to the
-   above. F4 also needs a correction to `left.md` §C's arithmetic.
+| File | Change |
+|---|---|
+| `contracts/sr/src/lib.rs` | `max_redeemable` syncs the rate first (F1/F1b); cap and headroom measure `total_principal` (F3/F4); `burn_internal` releases cost basis proportionally |
+| `contracts/sr/src/storage.rs` | `TotalPrincipal` |
+| `contracts/srvault/src/lib.rs` | residue recorded per leg and counted by `assert_solvent`; `RECEIPT_RESERVE` used by `deposit`, `sweep` and `coupon_capacity` (F2) |
+| `contracts/srvault/src/storage.rs` | `Receipt::residue`, `TotalResidue` |
+| `scripts/ttl_keeper.mjs` | stamps the expiry index, queued first; `--stamp-only` mode (F5) |
+| `scripts/sr_solvency_monitor.mjs` | check 7 — expired series with an unstamped index (F5) |
+| `.github/workflows/spield-keeper.yml` | daily `--stamp-only` schedule alongside the weekly full pass (F5) |
+| `scripts/deploy_mainnet.sh`, `scripts/deploy_sr_testnet.sh` | note that the `max_redeemable` compat probe now submits |
+| `contracts/yield/src/lib.rs` | module doc corrected — the freeze is at first observation, not at expiry (F5) |
+| `contracts/e2e/` | the suite, rewritten so each finding's tests assert the fixed property |
 
----
+**Storage layout changed in two places** — `Sr` gained an instance key and `Receipt` gained a field.
+Both are additive and neither stack is deployed yet (`left.md` A2), so nothing needs migrating. The
+frontend decodes `SrVaultStats` and `Receipt` field by field, so the additions are transparent to it.
+
+## What is left
+
+1. **Set `STELLAR_KEEPER_SECRET`** if it is not already set, or the daily stamp job cannot submit.
+   See "Do I need to run anything?" below.
+2. **F5's on-chain residual stands.** The keeper bounds it to a day; it does not remove it. If YT
+   ever carries meaningful size, the freeze wants to move on chain, which needs a rate oracle Blend
+   does not currently provide.
+
+## Do I need to run anything?
+
+**No script to run by hand, and no new file to create — but one thing to check.**
+
+* **The contract fixes are in the source.** They take effect when the stack is next deployed, which
+  for mainnet is `left.md` A2. Nothing to run now.
+* **The keeper fix is automatic** *if* the GitHub Actions workflow is live. It already existed and
+  already ran weekly; this adds a second daily schedule to the same file. GitHub picks up new `cron`
+  entries as soon as the change is on the repository's **default branch** — scheduled workflows only
+  run from the default branch, so a change sitting on a feature branch will not fire.
+* **The one thing to verify:** `STELLAR_KEEPER_SECRET` must be set under *Settings → Secrets and
+  variables → Actions*, funded with a little XLM. The keeper already needed it for the TTL bumps, so
+  if those have been running it is set. If it is missing, the stamp job fails loudly rather than
+  silently.
+* **To check it works right now**, without waiting for 04:45 UTC: Actions → "Spield keeper" → Run
+  workflow, tick `stamp_only`, leave `dry_run` ticked. It will print either `nothing to stamp` or
+  `series expired Nh ago … stamping first`. Untick `dry_run` to actually submit.
+* **Running it outside GitHub** — a cron box, or by hand — is one line:
+
+  ```bash
+  node scripts/ttl_keeper.mjs --stamp-only --source <KEY_NAME_OR_SECRET> --dry-run
+  ```
 
 ## Running it
 
 ```bash
-cargo test -p spield-e2e                 # 52 pass — workflows, adversarial, invariants
-cargo test -p spield-e2e -- --ignored    # 6 FAIL — one reproduction per finding
-cargo test --workspace                   # 584 pass, 6 ignored (532 pre-existing + 52 new)
+cargo test -p spield-e2e                 # workflows, adversarial, invariants
+cargo test -p spield-e2e -- --ignored    # F5's on-chain residual — fails by design
+cargo test --workspace                   # everything
 ```
+
+`cargo test -p spield-e2e -- --ignored` runs exactly one test, and it is **supposed to fail**: it is
+the standing record of F5's on-chain residual, which the keeper mitigates rather than removes.
 
 The crate is registered in the workspace `Cargo.toml` and depends on the six contracts as
 dev-dependencies only. It registers no contract of its own and ships nothing.

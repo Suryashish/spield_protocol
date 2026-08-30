@@ -38,16 +38,33 @@ use spield_shared::{governance, math, Error};
 
 pub use storage::Receipt;
 
-/// PT face burned ABOVE a receipt's payout, to absorb double-flooring on the way out.
+/// PT face burned ABOVE a receipt's payout, to absorb double-flooring on the **closing** leg.
 ///
 /// Redemption converts `payout` -> SR -> USDC, and BOTH conversions floor. `payout / index * index`
 /// therefore lands up to one stroop below `payout`, which would short the holder by a stroop and
 /// trip `WithdrawShortfall`. Burning a two-stroop buffer guarantees the holder receives their exact
 /// promised payout; the remainder stays with the vault.
-///
-/// The buffer is RESERVED, not hoped for: `deposit` requires it on top of the new liability, and
-/// `sweep` refuses to release it. So the last receipt out is as redeemable as the first.
 const REDEEM_DUST: i128 = 2;
+
+/// PT face reserved per open receipt for the flooring on its **partial** legs (`anyfix.md` F2).
+///
+/// `REDEEM_DUST` covers one closing leg. Every partial leg floors too — it burns `take` PT and banks
+/// `got <= take` USDC — so a receipt driven through a long liquidity crunch loses roughly a stroop
+/// per leg, and the leg count is not bounded by anything the contract controls.
+///
+/// Reserving only `REDEEM_DUST` was therefore wrong twice over: `sweep` told the operator that
+/// releasing inventory down to a two-stroop margin was safe, and `deposit`'s capacity gate agreed.
+/// It is not: two partial legs spend that margin and the third trips `assert_solvent`, leaving the
+/// holder unable to redeem until the venue can pay the entire remainder in a single call — the
+/// all-or-nothing behaviour `tofix.md` #20 exists to prevent.
+///
+/// 64 stroops is 6.4e-6 USDC and covers at least 32 partial legs, which is far beyond any crunch a
+/// holder would sit through. It is reserved by `deposit`, refused by `sweep`, and netted out of
+/// `stats().coupon_capacity`, so all three agree on what is actually free.
+const PARTIAL_LEG_BUDGET: i128 = 64;
+
+/// Total PT face held back per open receipt, over and above its unpaid balance.
+const RECEIPT_RESERVE: i128 = REDEEM_DUST + PARTIAL_LEG_BUDGET;
 
 /// Read-only snapshot for the dashboard.
 #[derive(Clone, Debug, PartialEq)]
@@ -59,8 +76,12 @@ pub struct SrVaultStats {
     pub yt_inventory: i128,
     /// Sum of `payout` across open receipts.
     pub total_liability: i128,
-    /// `pt_inventory - total_liability`: spare PT available to back new coupons.
+    /// Spare PT available to back new coupons: inventory, less every unpaid balance, less the
+    /// per-receipt redemption reserve. This is exactly what `deposit` and `sweep` will allow.
     pub coupon_capacity: i128,
+    /// Flooring loss already realized by partial redemptions, across open receipts. Expected, tiny,
+    /// and excluded from the solvency check rather than absorbed silently (`anyfix.md` F2).
+    pub total_residue: i128,
     /// USDC banked against partially-redeemed receipts. Reserved: it backs those payouts in place
     /// of the PT that was burned to obtain it, and no sweep may touch it.
     pub total_collected: i128,
@@ -185,7 +206,7 @@ impl SrVault {
         // receipt unredeemable.
         let liability = storage::total_liability(&env) + payout;
         let receipts_after = storage::open_receipts(&env) as i128 + 1;
-        if Self::pt_inventory(&env) < liability + receipts_after * REDEEM_DUST {
+        if Self::pt_inventory(&env) < liability + receipts_after * RECEIPT_RESERVE {
             panic_with_error!(&env, Error::InsufficientCapacity);
         }
 
@@ -193,7 +214,16 @@ impl SrVault {
         storage::save_receipt(
             &env,
             id,
-            &Receipt { owner: user.clone(), principal: amount, payout, rate_bps: rate, maturity, open: true, collected: 0 },
+            &Receipt {
+                owner: user.clone(),
+                principal: amount,
+                payout,
+                rate_bps: rate,
+                maturity,
+                open: true,
+                collected: 0,
+                residue: 0,
+            },
         );
         storage::set_total_liability(&env, liability);
         storage::set_open_receipts(&env, storage::open_receipts(&env) + 1);
@@ -281,6 +311,21 @@ impl SrVault {
 
             if r.collected < r.payout {
                 // Partial. Keep the receipt open and retryable; the USDC stays reserved.
+                //
+                // **Record what the flooring cost** (`anyfix.md` F2). This leg burned `to_burn` PT
+                // face and banked `banked` USDC against the liability; the gap is real inventory
+                // that the two floors on the way out (`PT -> SR -> USDC`) consumed. Without this,
+                // `assert_solvent` reads that gap as a deficit — and since it recurs every leg, the
+                // third one on any receipt reverted with `SolvencyViolation` and the holder was
+                // stuck until the venue could pay the whole remainder at once.
+                //
+                // Recorded per receipt so it can be released again when the receipt closes: a
+                // permanent global figure would loosen the invariant for the life of the contract.
+                let leg_residue = to_burn - banked;
+                if leg_residue > 0 {
+                    r.residue += leg_residue;
+                    storage::set_total_residue(&env, storage::total_residue(&env) + leg_residue);
+                }
                 storage::save_receipt(&env, receipt_id, &r);
                 storage::bump_instance(&env);
                 events::redeemed_partial(&env, &r.owner, receipt_id, banked, r.payout - r.collected);
@@ -294,7 +339,11 @@ impl SrVault {
         let paid = r.payout;
 
         storage::set_total_collected(&env, storage::total_collected(&env) - r.collected);
+        // The receipt is settled, so its rounding slack goes with it — the invariant tightens back
+        // up rather than keeping the allowance forever.
+        storage::set_total_residue(&env, storage::total_residue(&env) - r.residue);
         r.collected = 0;
+        r.residue = 0;
         r.open = false;
         storage::save_receipt(&env, receipt_id, &r);
         storage::set_total_liability(&env, storage::total_liability(&env) - r.payout);
@@ -367,12 +416,17 @@ impl SrVault {
         // Reserve the per-receipt redemption buffer as well, so a sweep can never make an open
         // receipt unredeemable by a stroop.
         //
+        // That buffer is [`RECEIPT_RESERVE`], not [`REDEEM_DUST`] (`anyfix.md` F2). It used to be
+        // the two-stroop closing-leg figure, which told the operator that recovering seed capital
+        // down to that margin was safe. It was not: two partial legs under a crunch spend it and the
+        // third reverts. The reserve now covers the partial legs too.
+        //
         // Only the **uncollected** part of the liability still needs PT behind it: whatever a
         // partial redemption already banked is held as USDC instead (`tofix.md` #20), and is
         // reserved separately by `sweep_surplus`. Subtracting it here is what stops a partial
         // redemption from making previously sweepable PT look reserved twice over.
         let uncollected = storage::total_liability(&env) - storage::total_collected(&env);
-        let reserved = uncollected + storage::open_receipts(&env) as i128 * REDEEM_DUST;
+        let reserved = uncollected + storage::open_receipts(&env) as i128 * RECEIPT_RESERVE;
         let capacity = Self::pt_inventory(&env) - reserved;
         if pt_amount > capacity {
             panic_with_error!(&env, Error::InsufficientCapacity);
@@ -474,13 +528,14 @@ impl SrVault {
         // Net of the reserved redemption buffer, so this number matches what `deposit` and `sweep`
         // will actually allow rather than overstating it by a few stroops. Only the uncollected
         // part of the liability still needs PT behind it — see `sweep`.
-        let reserved = (liability - collected) + storage::open_receipts(&env) as i128 * REDEEM_DUST;
+        let reserved = (liability - collected) + storage::open_receipts(&env) as i128 * RECEIPT_RESERVE;
         SrVaultStats {
             pt_inventory: pt,
             yt_inventory: Self::yt_inventory(&env),
             total_liability: liability,
             coupon_capacity: if pt > reserved { pt - reserved } else { 0 },
             total_collected: collected,
+            total_residue: storage::total_residue(&env),
             rate_bps: storage::rate_bps(&env),
             maturity: storage::get_maturity(&env),
             open_receipts: storage::open_receipts(&env),
@@ -507,6 +562,8 @@ impl SrVault {
     pub fn yield_contract(env: Env) -> Address { storage::get_yield(&env) }
     pub fn admin(env: Env) -> Address { storage::get_admin(&env) }
     pub fn total_liability(env: Env) -> i128 { storage::total_liability(&env) }
+    /// Flooring loss realized by partial redemptions across open receipts (`anyfix.md` F2).
+    pub fn total_residue(env: Env) -> i128 { storage::total_residue(&env) }
 
     // ================= admin =================
 
@@ -615,7 +672,14 @@ impl SrVault {
     /// rather than bond face. Comparing PT alone against liability would trip on the vault's own
     /// correct behaviour the moment any receipt is partially collected.
     fn assert_solvent(env: &Env) {
-        if Self::pt_inventory(env) + storage::total_collected(env) < storage::total_liability(env) {
+        // `total_residue` is the third term for the reason `Receipt::residue` explains: PT face that
+        // a partial redemption burned and the flooring ate, rather than value that went missing. It
+        // is bounded by `PARTIAL_LEG_BUDGET` per open receipt — which `deposit` and `sweep` both
+        // hold back — and it is released when the receipt closes, so this stays a real check and not
+        // an ever-widening one.
+        if Self::pt_inventory(env) + storage::total_collected(env) + storage::total_residue(env)
+            < storage::total_liability(env)
+        {
             panic_with_error!(env, Error::SolvencyViolation);
         }
     }

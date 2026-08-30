@@ -32,11 +32,33 @@
 //! * `mint_py` is **refused** at/after expiry.
 //! * `redeem_py` **before** expiry burns PT **and** YT; **after** expiry it burns **PT only** —
 //!   YT is not required, because a matured YT has no principal claim.
-//! * The index freezes at the first post-expiry observation, so a matured YT earns nothing more.
+//! * The index freezes at the first post-expiry observation — see the caveat below; it is not the
+//!   same thing as freezing at expiry.
 //! * Interest accrued **before** expiry stays claimable forever.
 //! * Post-expiry residue that is provably owed to nobody is sweepable to the treasury — but see
 //!   [`Yield::sweep_surplus`]: in a share-based design that residue is *small*, and the surplus
 //!   above PT cover is **not** free money. Getting this wrong was a real bug caught in testing.
+//!
+//! ## The expiry freeze is at the first OBSERVATION, not at expiry (`anyfix.md` F5)
+//!
+//! Worth stating plainly, because the natural reading of the rule above is wrong. A matured YT does
+//! not stop earning at expiry — it stops earning when somebody first calls
+//! [`Yield::stamp_expiry_index`], and until then the post-expiry appreciation of the **whole** SR
+//! backing, PT's share included, is credited to YT holders. Measured on a 30-day series holding
+//! 10,000 USDC of face: **21.37 USDC** if stamped at expiry, **42.65** thirty days later,
+//! **147.69** after a hundred and eighty.
+//!
+//! It cannot be fixed here. Freezing at the expiry *timestamp* would need the rate as it was at that
+//! moment, and Blend exposes only the current rate with no historical lookup — so the first
+//! observation genuinely is the tightest ceiling this contract can construct.
+//!
+//! The mitigation is operational, and it is why [`Yield::stamp_expiry_index`] is permissionless:
+//! `scripts/ttl_keeper.mjs` stamps daily, as soon as a series expires, and
+//! `scripts/sr_solvency_monitor.mjs` (check 7) pages if a matured series is still unstamped. That
+//! bounds the race to a day rather than leaving it open.
+//!
+//! **PT holders are never short-changed by this** — PT redeems at face regardless. What moves is the
+//! split between YT holders and the treasury's sweepable surplus.
 //!
 //! ## Solvency
 //! Asserted after every mutation: the SR this contract holds must cover PT at par **plus** every

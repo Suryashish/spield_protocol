@@ -19,6 +19,18 @@ pub enum DataKey {
     RateHighWater,
     /// Launch TVL cap, in underlying. `0` = uncapped. See `Sr::set_deposit_cap`.
     DepositCap,
+    /// **Cost basis**: the underlying users have actually deposited, less what has been taken back
+    /// out. This — not the mark-to-market value — is what the cap is measured against, so accrued
+    /// yield never consumes deposit headroom. See `Sr::total_principal`.
+    TotalPrincipal,
+}
+
+/// Underlying deposited and not yet withdrawn — the cap's measure of exposure.
+pub fn total_principal(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::TotalPrincipal).unwrap_or(0)
+}
+pub fn set_total_principal(env: &Env, v: i128) {
+    env.storage().instance().set(&DataKey::TotalPrincipal, &v);
 }
 
 /// The TVL cap in underlying units. `0` means uncapped.

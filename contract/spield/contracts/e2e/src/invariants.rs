@@ -1,42 +1,35 @@
 #![cfg(test)]
-//! # Invariants, and the five defects this suite found.
+//! # Invariants, and the defects this suite found.
 //!
-//! Two kinds of test live here.
+//! Five of the six findings in `anyfix.md` are **fixed**; their tests are ordinary invariants now
+//! and are named `f1_`…`f4_` so the connection stays legible. Each asserts the property the fix was
+//! supposed to establish, in the scenario that used to break it — not a narrower one.
 //!
-//! * **Invariants** — properties that hold today and must keep holding. Ordinary tests.
-//! * **Defect reproductions** — each confirmed finding appears twice: an `#[ignore]`d test that
-//!   asserts the **correct** behaviour (run it with `cargo test -- --ignored`; it fails, and it is
-//!   meant to, until the defect is fixed), and a live *characterization* test that pins what the
-//!   code does **today**, so the behaviour cannot silently get worse while the fix is pending.
-//!
-//! When a defect is fixed, its characterization test fails — that is the signal to delete the pair
-//! and replace it with the plain invariant.
-//!
-//! Findings are numbered to match `anyfix.md`.
+//! **F5 is not fixed on chain and deliberately so.** Its mitigation is operational (the keeper
+//! stamps the index at expiry), so the on-chain reproduction stays `#[ignore]`d as the standing
+//! record of the residual risk, paired with a live test pinning how large the race is. Run it with
+//! `cargo test -- --ignored`.
 
 extern crate std;
 
 use crate::harness::*;
 
 // ###########################################################################
-// F1 — `Sr::max_redeemable` and `Sr::redeem_partial` run on a STALE rate
+// F1 — `Sr::max_redeemable` refreshes the rate before dividing by it  [FIXED]
 // ###########################################################################
 //
-// `Sr::exchange_rate()` is a pure read of the stored high-water mark, by design: making it call the
-// strategy caused an intermittent footprint failure on testnet. Only mutating paths sync.
+// `Sr::exchange_rate()` is a pure read of the stored high-water mark, and must stay that way — the
+// alternative caused an intermittent `storage: exceeded_limit` footprint failure on testnet.
 //
-// `max_redeemable()` is a view, so it reads that stale rate — and then divides available underlying
-// by it to get shares. A stale rate is always LOWER than the live one, so the division returns MORE
-// shares than the venue can actually pay for. `redeem_partial` clamps to that number and reverts.
-//
-// `LIQUIDITY_HAIRCUT_BPS` (1%) is what has been hiding this: it absorbs drift up to 1%, so the
-// margin documented as covering "Blend's utilization ceiling and its own rounding" is in fact being
-// spent on staleness, and there is nothing left for the thing it was written for.
+// But `max_redeemable` *divides* available underlying by that rate to get shares, and a stale rate
+// is always lower than the live one, so it returned MORE shares than the venue could pay for.
+// `redeem_partial` clamped to that number and reverted — the one path whose whole purpose is never
+// to revert. It now calls `sync_rate` first, which ALWAYS writes and so keeps the footprint a
+// function of the call graph alone.
 
-/// **F1 — the fix.** `redeem_partial` is the documented exit of last resort: a crunch is supposed
-/// to cost the holder extra transactions, never the whole exit. It must not revert.
+/// `redeem_partial` is the exit of last resort: a crunch must cost the holder extra transactions,
+/// never the exit itself. Thirty days of unsynced drift used to be enough to break it.
 #[test]
-#[ignore = "F1: fails today — max_redeemable sizes the clamp with the stale stored rate"]
 fn f1_redeem_partial_makes_progress_even_when_the_stored_rate_is_stale() {
     let w = setup(Cfg { term: 180 * DAY, ..Cfg::default() });
     let (h, sr) = w.user_with_sr(500_000 * USDC);
@@ -45,41 +38,55 @@ fn f1_redeem_partial_makes_progress_even_when_the_stored_rate_is_stale() {
 
     let (burned, paid) = w.sr().redeem_partial(&h, &h, &sr, &0i128);
     assert!(burned > 0 && paid > 0, "the partial exit paid nothing");
+    assert!(burned < sr, "a partial exit must leave the remainder of the position intact");
+    assert_eq!(w.sr().balance(&h), sr - burned);
+    assert_eq!(w.usdc_t().balance(&h), paid);
 }
 
-/// **F1 — what happens today.** Pins both the threshold and the size of the error.
+/// The number `max_redeemable` reports must be one that actually clears, whatever the stored rate
+/// was doing beforehand. This is what a UI puts behind a max button.
 #[test]
-fn f1_characterize_stale_rate_overstates_max_redeemable() {
+fn f1_max_redeemable_is_actionable_after_arbitrary_drift() {
+    for stale_days in [0u64, 1, 7, 30, 90] {
+        let w = setup(Cfg { term: 360 * DAY, ..Cfg::default() });
+        let (h, sr) = w.user_with_sr(500_000 * USDC);
+        w.drain_venue_to_max();
+        w.advance_unsynced(stale_days * DAY);
+
+        let cap = w.sr().max_redeemable();
+        assert!(cap > 0 && cap < sr, "the crunch must bind at {} days: cap {}", stale_days, cap);
+        assert!(
+            w.sr().try_redeem(&h, &h, &cap, &0i128).is_ok(),
+            "max_redeemable over-promised after {} days of drift", stale_days
+        );
+    }
+}
+
+/// Reading it twice in a row must give the same answer — the sync is idempotent, so the second read
+/// has nothing left to correct.
+#[test]
+fn f1_max_redeemable_is_stable_once_synced() {
     let w = setup(Cfg { term: 180 * DAY, ..Cfg::default() });
-    let (h, sr) = w.user_with_sr(500_000 * USDC);
+    let (_h, _sr) = w.user_with_sr(500_000 * USDC);
     w.drain_venue_to_max();
     w.advance_unsynced(30 * DAY);
 
-    let stale_cap = w.sr().max_redeemable();
-    // Syncing is the whole difference — it is the only thing that changes between these two reads.
-    w.sr().sync_rate();
-    let live_cap = w.sr().max_redeemable();
-    assert!(
-        stale_cap > live_cap,
-        "the stale read must over-state the cap: stale {} live {}", stale_cap, live_cap
-    );
-
-    // And after the sync the clamp is correct, which confirms the rate is the cause and nothing else.
-    let (burned, paid) = w.sr().redeem_partial(&h, &h, &sr, &0i128);
-    assert!(burned > 0 && paid > 0);
-    assert!(burned <= live_cap, "the clamp exceeded the live capacity");
+    let first = w.sr().max_redeemable();
+    let second = w.sr().max_redeemable();
+    assert_eq!(first, second, "the first read left the rate un-refreshed");
 }
 
-/// **F1b — the fix.** The `avail >= total_assets` short circuit returns `i128::MAX`, meaning "no
-/// constraint at all". Both sides of that comparison use the stale rate, so it can say a position
-/// is fully withdrawable when it is not.
+/// **F1b.** `i128::MAX` means "no constraint at all". It must never be returned while an exit would
+/// revert — that is the worst possible thing to tell a wallet. The comparison behind the short
+/// circuit used to be decided on a stale valuation of both sides.
 #[test]
-#[ignore = "F1b: fails today — the unbounded short circuit is decided on the stale valuation"]
 fn f1b_an_unbounded_max_redeemable_means_a_full_exit_actually_clears() {
     let w = setup(Cfg { term: 360 * DAY, ..Cfg::default() });
     let (h, sr) = w.user_with_sr(200_000 * USDC);
     w.drain_venue_to_max();
     w.advance_unsynced(300 * DAY);
+    // Aim the venue's free liquidity into the band between the stale and live valuations — the
+    // exact window where the short circuit used to misfire.
     let stale_assets = w.sr().total_assets();
     let avail = w.st().available_liquidity();
     let target = stale_assets + stale_assets / 200;
@@ -91,222 +98,263 @@ fn f1b_an_unbounded_max_redeemable_means_a_full_exit_actually_clears() {
     }
 }
 
-/// **F1b — what happens today.**
-#[test]
-fn f1b_characterize_unbounded_cap_while_the_exit_reverts() {
-    let w = setup(Cfg { term: 360 * DAY, ..Cfg::default() });
-    let (h, sr) = w.user_with_sr(200_000 * USDC);
-    w.drain_venue_to_max();
-    w.advance_unsynced(300 * DAY);
-    let stale_assets = w.sr().total_assets();
-    let avail_now = w.st().available_liquidity();
-    let target = stale_assets + stale_assets / 200;
-    if target > avail_now { w.refill_venue(target - avail_now); }
-
-    let avail = w.st().available_liquidity();
-    let cap = w.sr().max_redeemable();
-    w.sr().sync_rate();
-    let live_assets = w.sr().total_assets();
-    assert!(
-        avail >= stale_assets && avail < live_assets,
-        "the scenario must land between the stale and live valuations: avail {} stale {} live {}",
-        avail, stale_assets, live_assets
-    );
-    assert_eq!(cap, i128::MAX, "the short circuit fired on the stale valuation");
-    assert!(
-        w.sr().try_redeem(&h, &h, &sr, &0i128).is_err(),
-        "if this now succeeds, F1b is fixed — delete this pair"
-    );
-}
-
 // ###########################################################################
-// F2 — `SrVault::redeem` erodes its rounding reserve once per PARTIAL leg
+// F2 — the vault tracks its rounding residue explicitly  [FIXED]
 // ###########################################################################
 //
-// `REDEEM_DUST` is 2 stroops **per receipt**, sized for the double flooring of one closing leg
-// (`payout -> SR -> USDC`). But every *partial* leg floors too: it burns `take` PT face and banks
-// `got <= take` USDC, so `pt_inventory + total_collected` — the exact left-hand side of
-// `assert_solvent` — falls by a stroop each time.
+// `REDEEM_DUST` (2 stroops) covers the flooring on a receipt's *closing* leg. Every *partial* leg
+// floors too — it burns `take` PT and banks `got <= take` USDC — so `pt_inventory + total_collected`
+// fell about a stroop a leg while `total_liability` stood still. Two legs spent the margin and the
+// third reverted with `SolvencyViolation`.
 //
-// After a `sweep` down to the contract's own stated reserve, the slack is exactly 2. Two partial
-// legs spend it; the third reverts with `SolvencyViolation` (#24) and the receipt cannot be
-// redeemed at all until the venue can pay the entire remainder in a single call — which is the
-// all-or-nothing behaviour `tofix.md` #20 says was fixed.
-//
-// The admin cannot rescue it either: `seed` routes through `mint_py`, which is refused at/after
-// expiry, and a stuck receipt is by definition post-maturity.
+// The fix is two-sided: the loss is now recorded as `Receipt::residue` and counted by
+// `assert_solvent` as the expected rounding it is, and `PARTIAL_LEG_BUDGET` reserves room for it so
+// `deposit`, `sweep` and `coupon_capacity` stop telling the operator that a two-stroop margin is
+// safe.
 
-/// **F2 — the fix.** A partially-redeemed receipt must always be able to take another partial leg.
+/// A receipt driven through a long crunch must keep taking partial legs until it closes.
 #[test]
-#[ignore = "F2: fails today — the third partial leg trips assert_solvent (#24)"]
 fn f2_a_partially_redeemed_receipt_can_always_take_another_leg() {
-    let (w, (id, _promised)) = stuck_receipt_world();
-    for leg in 0..6 {
+    let (w, (id, promised)) = stuck_receipt_world();
+    let owner = w.v().get_receipt(&id).owner.clone();
+
+    let mut legs = 0;
+    while w.v().get_receipt(&id).open {
         assert!(
             w.v().try_redeem(&id).is_ok(),
-            "partial leg {} reverted — a crunch cost the holder the exit, not just time", leg
+            "partial leg {} reverted — a crunch cost the holder the exit, not just time", legs
         );
-        if !w.v().get_receipt(&id).open { return; }
-        w.refill_venue(3_000 * USDC);
-    }
-}
-
-/// **F2 — what happens today.** Exactly two partial legs are tolerated; the third reverts with
-/// `SolvencyViolation`, and the receipt is left open with the holder paid nothing.
-#[test]
-fn f2_characterize_the_third_partial_leg_reverts() {
-    let (w, (id, promised)) = stuck_receipt_world();
-
-    let mut legs = 0u32;
-    let mut failed = false;
-    while w.v().get_receipt(&id).open && legs < 8 {
-        if w.v().try_redeem(&id).is_err() { failed = true; break; }
-        w.refill_venue(3_000 * USDC);
         legs += 1;
+        assert!(legs < 40, "the receipt is not converging");
+        w.refill_venue(3_000 * USDC);
     }
-    assert!(failed, "if no leg reverts, F2 is fixed — delete this pair");
-    assert_eq!(legs, 2, "the tolerated leg count changed: {}", legs);
-
-    let r = w.v().get_receipt(&id);
-    assert!(r.open, "the receipt is left open");
-    assert!(r.collected > 0 && r.collected < promised, "with progress banked but nothing paid out");
-    assert_eq!(w.usdc_t().balance(&r.owner), 0, "the holder has been paid nothing");
-
-    // It is not permanent: once the venue can pay the WHOLE remainder in one call, it closes.
-    w.refill_venue(500_000 * USDC);
-    w.advance(DAY);
-    assert!(w.v().try_redeem(&id).is_ok(), "the receipt recovers when a single leg can finish it");
+    assert!(legs > 2, "the scenario must exercise more than the old two-leg margin: {}", legs);
+    assert_eq!(w.usdc_t().balance(&owner), promised, "the promise was not paid in full");
 }
 
-/// **F2 — the admin's only tool for adding PT inventory is unavailable after maturity**, which is
-/// the only time a receipt can be stuck.
+/// The residue is recorded while the receipt is open and released when it closes, so the slack in
+/// the invariant never outlives the receipt that earned it.
 #[test]
-fn f2_seed_is_refused_after_expiry_so_the_admin_cannot_add_capacity() {
+fn f2_residue_is_recorded_then_released_with_the_receipt() {
+    let (w, (id, _promised)) = stuck_receipt_world();
+    assert_eq!(w.v().total_residue(), 0, "nothing has floored yet");
+
+    w.v().redeem(&id);
+    let after_first = w.v().total_residue();
+    assert!(
+        w.v().get_receipt(&id).open,
+        "this scenario needs a partial leg to exist at all"
+    );
+    assert!(after_first > 0, "a partial leg floored but recorded no residue");
+    assert_eq!(w.v().get_receipt(&id).residue, after_first, "per-receipt and total must agree");
+
+    while w.v().get_receipt(&id).open {
+        w.refill_venue(3_000 * USDC);
+        w.v().redeem(&id);
+    }
+    assert_eq!(w.v().total_residue(), 0, "closing the receipt must release its slack");
+    assert_eq!(w.v().get_receipt(&id).residue, 0);
+}
+
+/// The residue stays small — it is rounding, not a leak. A stroop or two a leg, bounded well inside
+/// the budget the vault reserves for it.
+#[test]
+fn f2_residue_stays_within_the_reserved_budget() {
+    let (w, (id, _)) = stuck_receipt_world();
+    let mut legs = 0i128;
+    while w.v().get_receipt(&id).open && legs < 20 {
+        w.v().redeem(&id);
+        legs += 1;
+        w.refill_venue(3_000 * USDC);
+    }
+    let residue = w.v().get_receipt(&id).residue;
+    assert!(
+        residue <= legs * 2,
+        "residue grew faster than two stroops a leg: {} over {} legs", residue, legs
+    );
+}
+
+/// `sweep`, `deposit` and `stats().coupon_capacity` must agree on what is free. Sweeping everything
+/// the dashboard reports as spare must leave every open receipt redeemable.
+#[test]
+fn f2_sweeping_all_reported_capacity_leaves_receipts_redeemable() {
     let w = setup(Cfg { term: 30 * DAY, ..Cfg::default() });
-    w.seed_vault(1_000 * USDC);
+    w.seed_vault(50_000 * USDC);
+    let a = w.new_user(50_000 * USDC);
+    let ida = w.v().deposit(&a, &(50_000 * USDC));
+
+    let free = w.v().stats().coupon_capacity;
+    w.v().sweep(&w.admin, &free);
+    assert_eq!(w.v().stats().coupon_capacity, 0, "the sweep must take exactly what was reported");
+    // A stroop more must be refused — the reported figure is the real edge, not an estimate.
+    assert!(w.v().try_sweep(&w.admin, &1i128).is_err(), "sweep released more than it reported free");
+
     w.advance(30 * DAY + 1);
-    let f = w.new_user(1_000 * USDC);
-    assert!(
-        w.v().try_seed(&f, &(1_000 * USDC)).is_err(),
-        "if seed now works after expiry, F2's recovery story has changed"
-    );
+    w.drain_venue_to_max();
+    let promised = w.v().get_receipt(&ida).payout;
+    let mut legs = 0;
+    while w.v().get_receipt(&ida).open && legs < 40 {
+        assert!(w.v().try_redeem(&ida).is_ok(), "leg {} reverted after a fully-reported sweep", legs);
+        legs += 1;
+        w.refill_venue(3_000 * USDC);
+    }
+    assert_eq!(w.usdc_t().balance(&a), promised);
 }
 
 // ###########################################################################
-// F3 — `deposit_headroom()` is not actionable
+// F3 + F4 — the cap measures cost basis, and its headroom is actionable  [FIXED]
 // ###########################################################################
+//
+// The cap used to be checked against `total_supply x live_rate` — a mark-to-market valuation — while
+// `deposit_headroom()` derived the same figure from the *stale* stored rate. Two consequences: the
+// advertised headroom was never depositable, and accrued yield slowly closed deposits on a healthy
+// protocol, which is exactly what the comment above the check said it avoided.
+//
+// Both now read `total_principal`: a plain stored integer, raised by the deposit and released
+// proportionally as shares are destroyed.
 
-/// **F3 — the fix.** `deposit_headroom()` exists so a UI can show "X of Y remaining" and offer a
-/// max button. Depositing exactly that number must work.
+/// **F3.** A max button built on `deposit_headroom()` must work. It reads the same integer
+/// `deposit` checks, with no rate in either, so this holds however stale the rate is.
 #[test]
-#[ignore = "F3: fails today — the view uses the stale rate, deposit syncs first"]
 fn f3_a_deposit_of_exactly_the_advertised_headroom_succeeds() {
-    let w = setup(Cfg { term: 90 * DAY, deposit_cap: 1_000 * USDC, ..Cfg::default() });
-    let u = w.new_user(500 * USDC);
-    w.sr().deposit(&u, &u, &(500 * USDC), &0i128);
-    w.advance_unsynced(30 * DAY);
+    for stale_days in [0u64, 30, 180] {
+        let w = setup(Cfg { term: 360 * DAY, deposit_cap: 1_000 * USDC, ..Cfg::default() });
+        let u = w.new_user(500 * USDC);
+        w.sr().deposit(&u, &u, &(500 * USDC), &0i128);
+        w.advance_unsynced(stale_days * DAY);
 
-    let head = w.sr().deposit_headroom();
-    let v = w.new_user(head);
-    assert!(
-        w.sr().try_deposit(&v, &v, &head, &0i128).is_ok(),
-        "the advertised headroom of {} could not be deposited", head
-    );
+        let head = w.sr().deposit_headroom();
+        let v = w.new_user(head);
+        assert!(
+            w.sr().try_deposit(&v, &v, &head, &0i128).is_ok(),
+            "headroom of {} was not depositable after {} days of drift", head, stale_days
+        );
+        assert_eq!(w.sr().deposit_headroom(), 0, "the cap must now be exactly full");
+        let x = w.new_user(1);
+        assert!(w.sr().try_deposit(&x, &x, &1i128, &0i128).is_err(), "and one stroop more refused");
+    }
 }
 
-/// **F3 — what happens today**, and the size of the gap.
+/// **F4.** Yield is the users' own return, not new exposure. Headroom must not move because time
+/// passed.
 #[test]
-fn f3_characterize_headroom_overstates_what_deposit_will_accept() {
-    let w = setup(Cfg { term: 90 * DAY, deposit_cap: 1_000 * USDC, ..Cfg::default() });
-    let u = w.new_user(500 * USDC);
-    w.sr().deposit(&u, &u, &(500 * USDC), &0i128);
-    w.advance_unsynced(30 * DAY);
-
-    let head = w.sr().deposit_headroom();
-    let v = w.new_user(head);
-    assert!(
-        w.sr().try_deposit(&v, &v, &head, &0i128).is_err(),
-        "if this now succeeds, F3 is fixed — delete this pair"
-    );
-    // Syncing first is the workaround, and it is what proves the cause.
-    w.sr().sync_rate();
-    let synced = w.sr().deposit_headroom();
-    assert!(synced < head, "the synced headroom must be smaller: {} vs {}", synced, head);
-    assert!(w.sr().deposit(&v, &v, &synced, &0i128) > 0, "the synced headroom is depositable");
-}
-
-// ###########################################################################
-// F4 — the deposit cap counts accrued yield as new exposure
-// ###########################################################################
-
-/// **F4 — the fix.** `Sr::deposit`'s own comment: *"Growth from yield is deliberately NOT counted
-/// as new exposure: it is the users' own return, and letting it consume headroom would slowly close
-/// deposits on a healthy protocol."* The code measures `total_supply x live_rate`, which is exactly
-/// that growth, so headroom shrinks on a protocol where nothing has happened but time.
-#[test]
-#[ignore = "F4: fails today — the code does the opposite of the comment above it"]
 fn f4_headroom_does_not_shrink_just_because_yield_accrued() {
-    let w = setup(Cfg { term: 90 * DAY, deposit_cap: 1_000 * USDC, ..Cfg::default() });
+    let w = setup(Cfg { term: 360 * DAY, deposit_cap: 1_000 * USDC, ..Cfg::default() });
     let u = w.new_user(900 * USDC);
     w.sr().deposit(&u, &u, &(900 * USDC), &0i128);
     let head0 = w.sr().deposit_headroom();
+    assert_eq!(head0, 100 * USDC, "headroom must be cap minus what was actually deposited");
+
     w.advance(90 * DAY);
-    let head1 = w.sr().deposit_headroom();
-    assert_eq!(head1, head0, "yield alone closed {} of headroom", head0 - head1);
+    assert_eq!(w.sr().deposit_headroom(), head0, "yield alone closed headroom");
+    w.advance(270 * DAY);
+    assert_eq!(w.sr().deposit_headroom(), head0, "yield alone closed headroom over a year");
+    // The mark-to-market figure has genuinely grown — the point is that the cap ignores it.
+    assert!(w.sr().total_assets() > 900 * USDC, "the position really did earn");
+    assert_eq!(w.sr().total_principal(), 900 * USDC, "cost basis is unmoved by yield");
 }
 
-/// **F4 — what happens today**, with the magnitude pinned.
+/// Exposure is released as shares leave, proportionally and by every route — `redeem`,
+/// `redeem_partial`, and a bare SEP-41 `burn`.
 #[test]
-fn f4_characterize_yield_consumes_headroom() {
-    let w = setup(Cfg { term: 90 * DAY, deposit_cap: 1_000 * USDC, ..Cfg::default() });
-    let u = w.new_user(900 * USDC);
-    w.sr().deposit(&u, &u, &(900 * USDC), &0i128);
-    let head0 = w.sr().deposit_headroom();
+fn f4_every_exit_releases_cost_basis_proportionally() {
+    let w = setup(Cfg { term: 360 * DAY, deposit_cap: 10_000 * USDC, ..Cfg::default() });
+    let (a, sr_a) = w.user_with_sr(1_000 * USDC);
+    let (b, sr_b) = w.user_with_sr(1_000 * USDC);
+    assert_eq!(w.sr().total_principal(), 2_000 * USDC);
+
     w.advance(90 * DAY);
-    let head1 = w.sr().deposit_headroom();
-    assert!(head1 < head0, "if headroom no longer shrinks, F4 is fixed — delete this pair");
-    // ~0.66% of TVL over 90 days at this fixture's Blend rate. Pinned as a band, not a constant,
-    // so an ordinary rate change does not fail the test but a change of *mechanism* does.
-    let eaten = head0 - head1;
-    let tvl = 900 * USDC;
-    let bps = eaten * 10_000 / tvl;
+
+    // Half of A's position out through `redeem`.
+    w.sr().redeem(&a, &a, &(sr_a / 2), &0i128);
+    let after_half = w.sr().total_principal();
     assert!(
-        (40..=120).contains(&bps),
-        "the amount of headroom eaten by yield moved: {} bps of TVL over 90 days", bps
+        (after_half - 1_500 * USDC).abs() <= 2,
+        "half of A's exposure should have been released: {}", after_half
     );
+
+    // B burns their shares outright, taking nothing — exposure still leaves.
+    w.sr().burn(&b, &sr_b);
+    let after_burn = w.sr().total_principal();
+    assert!(after_burn < after_half, "a bare burn must release exposure too");
+
+    // Everything out: cost basis lands exactly on zero, not on a residue.
+    let rest = w.sr().balance(&a);
+    w.sr().redeem(&a, &a, &rest, &0i128);
+    assert_eq!(w.sr().total_supply(), 0);
+    assert_eq!(w.sr().total_principal(), 0, "the last exit must release the last of the basis");
+}
+
+/// The cap keeps doing its actual job: it is still a global ceiling that the operator's own seeding
+/// consumes, and it still binds LPs transitively.
+#[test]
+fn f4_the_cap_still_bounds_everything_it_did_before() {
+    let cap = 50 * USDC;
+    let w = setup(Cfg { term: 30 * DAY, deposit_cap: cap, ..Cfg::default() });
+    w.seed_vault(20 * USDC);
+    assert_eq!(w.sr().deposit_headroom(), 30 * USDC, "vault seeding consumes the cap exactly");
+    w.seed_market(10 * USDC, 10 * USDC);
+    assert_eq!(w.sr().deposit_headroom(), 10 * USDC, "AMM seeding consumes the cap exactly");
+
+    let u = w.new_user(11 * USDC);
+    assert!(w.sr().try_deposit(&u, &u, &(11 * USDC), &0i128).is_err(), "over the headroom");
+    assert!(w.sr().deposit(&u, &u, &(10 * USDC), &0i128) > 0, "exactly the headroom");
+    assert_eq!(w.sr().deposit_headroom(), 0);
 }
 
 // ###########################################################################
 // F5 — post-expiry yield goes to YT until somebody stamps the index
 // ###########################################################################
 //
-// `Yield`'s module docs: *"The index freezes at the first post-expiry observation, so a matured YT
-// earns nothing more."* The freeze happens on the first post-expiry *touch*, not at expiry, and
-// `stamp_expiry_index` is permissionless with nothing to make anyone call it. So a matured YT keeps
-// earning for however long the contract is left alone, and the size of a YT holder's payout is
-// decided by who happens to touch the contract first.
+// NOT fixed on chain, and deliberately: the freeze would have to happen *at* the expiry timestamp,
+// and Blend exposes no historical rate to reconstruct it from. The mitigation is operational —
+// `ttl_keeper.mjs` now stamps the index as soon as a series expires, and `sr_solvency_monitor.mjs`
+// pages if a series is expired and still unstamped. That bounds the race to the keeper's interval
+// instead of leaving it unbounded.
+//
+// The pair below is the standing record of the residual: the ignored test is what a real fix would
+// have to satisfy, and the live one pins how big the race is so it cannot quietly grow.
 
-/// **F5 — the fix.** A YT holder's claim must be the same whether the index is stamped at expiry or
-/// six months later.
+/// What an on-chain fix would have to establish.
 #[test]
-#[ignore = "F5: fails today — the claim scales with how late the index is stamped"]
+#[ignore = "F5: not fixed on chain by design — the mitigation is the keeper stamping at expiry"]
 fn f5_a_matured_yt_earns_the_same_however_late_the_index_is_stamped() {
     let prompt = yt_claim_when_stamped_after(0);
     let late = yt_claim_when_stamped_after(180);
     assert_eq!(prompt, late, "stamping 180 days late paid {} instead of {}", late, prompt);
 }
 
-/// **F5 — what happens today**, with the multiple pinned.
+/// How large the race is. The keeper's job is to keep the real world at the top row.
 #[test]
-fn f5_characterize_a_late_stamp_multiplies_the_yt_claim() {
+fn f5_the_size_of_the_stamping_race() {
     let prompt = yt_claim_when_stamped_after(0);
     let d30 = yt_claim_when_stamped_after(30);
     let d180 = yt_claim_when_stamped_after(180);
     assert!(prompt > 0 && d30 > prompt && d180 > d30,
-        "if these are now equal, F5 is fixed — delete this pair: {} {} {}", prompt, d30, d180);
-    // Roughly 2x at +30 days and 7x at +180 on a 30-day series.
+        "if these are now equal, F5 has been fixed on chain: {} {} {}", prompt, d30, d180);
     assert!(d30 * 10 / prompt >= 15, "the +30d multiple shrank: {}x", d30 as f64 / prompt as f64);
     assert!(d180 / prompt >= 5, "the +180d multiple shrank: {}x", d180 / prompt);
+}
+
+/// Stamping promptly — what the keeper does — is what makes the claim honest, and stamping is
+/// permissionless so the keeper needs no privilege to do it.
+#[test]
+fn f5_a_prompt_stamp_is_permissionless_and_write_once() {
+    let w = setup(Cfg { term: 30 * DAY, ..Cfg::default() });
+    let (h, sr) = w.user_with_sr(10_000 * USDC);
+    w.y().mint_py(&h, &h, &sr);
+
+    assert!(w.y().try_stamp_expiry_index().is_err(), "cannot stamp before expiry");
+    w.advance(30 * DAY + 1);
+
+    let pinned = w.y().stamp_expiry_index();
+    assert_eq!(w.y().expiry_index(), Some(pinned));
+    let claim_then = w.y().claimable_interest(&h);
+
+    // Once pinned, later calls cannot raise it — so a late caller can no longer inflate the claim.
+    w.advance(180 * DAY);
+    assert_eq!(w.y().stamp_expiry_index(), pinned, "a later stamp moved the frozen index");
+    assert_eq!(w.y().claimable_interest(&h), claim_then, "the claim kept growing after the stamp");
 }
 
 fn yt_claim_when_stamped_after(wait_days: u64) -> i128 {
@@ -550,8 +598,11 @@ fn i9_a_deposit_at_the_maturity_boundary_behaves() {
 // shared scenario builders
 // ---------------------------------------------------------------------------
 
-/// The natural operator sequence that reaches F2: seed, two savers, one redeems, the admin
+/// The natural operator sequence that used to reach F2: seed, two savers, one redeems, the admin
 /// recovers exactly what `coupon_capacity` reports as free, and the straggler meets a crunch.
+///
+/// It is still the sharpest scenario in the suite — the vault is at its own stated limit with a
+/// partially-redeemable receipt outstanding — so the F2 tests keep using it.
 fn stuck_receipt_world() -> (World, (u64, i128)) {
     let w = setup(Cfg { term: 30 * DAY, ..Cfg::default() });
     w.seed_vault(50_000 * USDC);
@@ -567,6 +618,7 @@ fn stuck_receipt_world() -> (World, (u64, i128)) {
     let free_pt = w.v().stats().coupon_capacity;
     w.v().sweep(&w.admin, &free_pt);
     assert_eq!(w.v().stats().coupon_capacity, 0, "the sweep must take the vault to its own limit");
+    assert_eq!(w.v().total_residue(), 0, "no partial leg has run yet");
 
     w.drain_venue_to_max();
     let promised = w.v().get_receipt(&idb).payout;

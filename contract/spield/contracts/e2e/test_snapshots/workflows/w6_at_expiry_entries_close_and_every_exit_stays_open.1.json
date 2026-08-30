@@ -402,7 +402,7 @@
                   "string": "spield-pool"
                 },
                 {
-                  "bytes": "85ca2b8ba6c2a5cb2cb6649906be3d14d9ad674064e309e83c3234c6e8e5538b"
+                  "bytes": "e16c2ff305bcc3f5df7d85cff0283632638f87dd82b3b13ae2ce016818c18657"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
@@ -423,7 +423,7 @@
             {
               "function": {
                 "contract_fn": {
-                  "contract_address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+                  "contract_address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
                   "function_name": "__constructor",
                   "args": [
                     {
@@ -465,7 +465,7 @@
         {
           "function": {
             "contract_fn": {
-              "contract_address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract_address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "function_name": "queue_set_reserve",
               "args": [
                 {
@@ -593,7 +593,7 @@
         {
           "function": {
             "contract_fn": {
-              "contract_address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract_address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "function_name": "queue_set_reserve",
               "args": [
                 {
@@ -728,7 +728,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                  "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                 },
                 {
                   "i128": "500000000000"
@@ -767,7 +767,7 @@
         {
           "function": {
             "contract_fn": {
-              "contract_address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract_address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "function_name": "set_status",
               "args": [
                 {
@@ -831,7 +831,7 @@
         {
           "function": {
             "contract_fn": {
-              "contract_address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract_address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "function_name": "submit",
               "args": [
                 {
@@ -945,7 +945,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                     },
                     {
-                      "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                      "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                     },
                     {
                       "i128": "5000000000000"
@@ -965,7 +965,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                     },
                     {
-                      "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                      "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                     },
                     {
                       "i128": "10000000000000"
@@ -994,7 +994,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
                 },
                 {
-                  "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                  "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                 },
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
@@ -2677,7 +2677,7 @@
                     "symbol": "PoolBalance"
                   },
                   {
-                    "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                    "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                   }
                 ]
               },
@@ -2735,7 +2735,7 @@
                           "symbol": "pool"
                         },
                         "val": {
-                          "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                          "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                         }
                       },
                       {
@@ -2854,7 +2854,7 @@
                     "symbol": "Contracts"
                   },
                   {
-                    "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                    "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                   }
                 ]
               },
@@ -3413,6 +3413,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "TotalPrincipal"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "221018156040"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "TotalSupply"
                           }
                         ]
@@ -3527,7 +3539,7 @@
                         ]
                       },
                       "val": {
-                        "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                        "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                       }
                     },
                     {
@@ -4334,6 +4346,14 @@
                     "val": {
                       "u32": 300
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "residue"
+                    },
+                    "val": {
+                      "i128": "0"
+                    }
                   }
                 ]
               }
@@ -4507,6 +4527,18 @@
                         "vec": [
                           {
                             "symbol": "TotalLiability"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalResidue"
                           }
                         ]
                       },
@@ -6144,7 +6176,7 @@
                     "symbol": "Balance"
                   },
                   {
-                    "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                    "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                   }
                 ]
               },
@@ -6344,7 +6376,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "symbol": "ResList"
               },
@@ -6371,7 +6403,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "vec": [
                   {
@@ -6449,7 +6481,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "vec": [
                   {
@@ -6510,7 +6542,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "vec": [
                   {
@@ -6642,7 +6674,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "vec": [
                   {
@@ -6774,7 +6806,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "vec": [
                   {
@@ -6858,7 +6890,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": {
                 "vec": [
                   {
@@ -6942,7 +6974,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ",
+              "contract": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF",
               "key": "ledger_key_contract_instance",
               "durability": "persistent",
               "val": {
@@ -7403,7 +7435,7 @@
                     "symbol": "Balance"
                   },
                   {
-                    "address": "CCVRMSMAT2MKLVQDUXE2OCCTI7PQEXKVGYRA7TLKSAH4FKM4YFZBP4EZ"
+                    "address": "CC3XKF3K775W6GYQ33DGQHGT63PJCIYMZ6FI52M5PM7WXEQCTMKUDTIF"
                   }
                 ]
               },

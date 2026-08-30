@@ -23,14 +23,31 @@
 # ## Running it by hand
 #
 #   Actions → "Spield keeper" → Run workflow. Leave `dry_run` ticked to preview.
+#
+# ## Two schedules, on purpose
+#
+#   Weekly (Mon 04:15 UTC)  full pass — TTL bumps for every holder, LP and receipt, plus the stamp.
+#   Daily  (04:45 UTC)      `--stamp-only`: freeze the PY index the day a series expires and nothing
+#                           else. Costs one simulation on almost every day. See `anyfix.md` F5.
 
 name: Spield keeper
 
 on:
   schedule:
-    # 04:15 UTC every Monday. Weekly is ample: entries are bumped to cover maturity plus a grace
-    # period, and the network's maximum lifetime is months. This is a safety net, not a heartbeat.
+    # 04:15 UTC every Monday — the full pass. Weekly is ample for TTL: entries are bumped to cover
+    # maturity plus a grace period, and the network's maximum lifetime is months. This is a safety
+    # net, not a heartbeat.
     - cron: '15 4 * * 1'
+    # 04:45 UTC every day — the expiry stamp only (`anyfix.md` F5).
+    #
+    # This one wants a much tighter cadence than the bumps. `yield::stamp_expiry_index()` freezes the
+    # PY index at the first post-expiry OBSERVATION, so until it is called a matured YT keeps
+    # earning — 2x the honest claim after 30 days, 7x after 180. Weekly would leave a 7-day window
+    # on a 30-day series; daily bounds it to 24h.
+    #
+    # It costs almost nothing: `--stamp-only` skips holder discovery, so on every day but one it is
+    # a single simulation that submits nothing.
+    - cron: '45 4 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -41,6 +58,10 @@ on:
         description: 'Cap submissions this run (0 = no limit)'
         type: string
         default: '0'
+      stamp_only:
+        description: 'Only stamp the expiry index — skip the TTL bumps'
+        type: boolean
+        default: false
 
 # Never let two keeper runs overlap: they would share a source account and collide on its
 # transaction sequence number.
@@ -82,6 +103,8 @@ jobs:
         # run is visibly red.
         continue-on-error: true
 
+      # The daily 04:45 schedule stamps the expiry index and nothing else; the weekly 04:15 one does
+      # the full pass. A manual run does whatever `stamp_only` says.
       - name: TTL keeper
         env:
           KEEPER_SECRET: ${{ secrets.STELLAR_KEEPER_SECRET }}
@@ -89,6 +112,7 @@ jobs:
           PASSPHRASE: ${{ vars.STELLAR_PASSPHRASE }}
           DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           MAX_CALLS: ${{ inputs.max_calls || '0' }}
+          STAMP_ONLY: ${{ github.event.schedule == '45 4 * * *' || inputs.stamp_only || false }}
         run: |
           if [ -z "$KEEPER_SECRET" ] && [ "$DRY" != "true" ]; then
             echo "::error::STELLAR_KEEPER_SECRET is not set — add it under Settings → Secrets and variables → Actions."
@@ -96,6 +120,7 @@ jobs:
           fi
           node ttl_keeper.mjs \
             ${DRY:+$([ "$DRY" = "true" ] && echo --dry-run)} \
+            ${STAMP_ONLY:+$([ "$STAMP_ONLY" = "true" ] && echo --stamp-only)} \
             ${KEEPER_SECRET:+--source "$KEEPER_SECRET"} \
             ${RPC:+--rpc "$RPC"} \
             ${PASSPHRASE:+--passphrase "$PASSPHRASE"} \

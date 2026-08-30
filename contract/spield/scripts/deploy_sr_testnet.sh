@@ -642,6 +642,9 @@ compat() {  # compat <label> <contract> <fn> [args...]
     COMPAT_FAIL=1
   fi
 }
+# NOTE: `max_redeemable` refreshes SR's stored rate before dividing by it (`anyfix.md` F1), so
+# unlike the other checks here this one submits a transaction rather than only simulating. It
+# is permissionless and only ever ratchets a floor upward, so the cost is one small fee.
 compat "sr.max_redeemable -> strategy.available_liquidity" "$SR" max_redeemable
 compat "sr.total_assets"                                   "$SR" total_assets
 compat "sr.deposit_cap"                                    "$SR" deposit_cap

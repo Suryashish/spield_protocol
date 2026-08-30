@@ -29,6 +29,19 @@ pub struct Receipt {
     /// **reserved for this receipt** — it is counted by `assert_solvent` in place of the PT that was
     /// burned to obtain it, and excluded from every sweep.
     pub collected: i128,
+    /// PT face burned by this receipt's partial redemptions that did **not** turn into banked USDC
+    /// (`anyfix.md` F2).
+    ///
+    /// Each partial leg burns `take` PT and banks `got <= take` USDC, because both conversions on
+    /// the way out (`PT -> SR -> USDC`) floor. The gap is a genuine loss of vault inventory, about
+    /// a stroop a leg. Recording it is what lets [`SrVault::assert_solvent`] tell expected rounding
+    /// residue apart from a real deficit — before this, the third partial leg on any receipt
+    /// tripped the invariant and the receipt could not be redeemed at all until the venue could pay
+    /// the whole remainder in one call.
+    ///
+    /// Released from the running total when the receipt closes, so the slack never outlives the
+    /// receipt that earned it.
+    pub residue: i128,
 }
 
 #[derive(Clone)]
@@ -49,6 +62,9 @@ pub enum DataKey {
     TotalLiability,
     /// Sum of `collected` across open receipts — obligation already backed by USDC rather than PT.
     TotalCollected,
+    /// Sum of `Receipt::residue` across open receipts — flooring loss already realized by partial
+    /// redemptions, which `assert_solvent` must not mistake for a deficit (`anyfix.md` F2).
+    TotalResidue,
     NextReceiptId,
     /// Count of open receipts, for the dashboard.
     OpenReceipts,
@@ -105,6 +121,13 @@ pub fn total_collected(env: &Env) -> i128 {
 }
 pub fn set_total_collected(env: &Env, v: i128) {
     env.storage().instance().set(&DataKey::TotalCollected, &v);
+}
+
+pub fn total_residue(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::TotalResidue).unwrap_or(0)
+}
+pub fn set_total_residue(env: &Env, v: i128) {
+    env.storage().instance().set(&DataKey::TotalResidue, &v);
 }
 
 pub fn open_receipts(env: &Env) -> u64 {

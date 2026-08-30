@@ -153,18 +153,25 @@ impl Sr {
         // enforce it operationally". A cap that lives in a runbook is not a cap. It is enforced here
         // instead, so exceeding it is impossible rather than merely against policy.
         //
-        // Checked against assets already deployed, not against SR supply, because the cap bounds the
-        // **loss** — and the loss is denominated in the underlying a depositor could fail to get back.
-        // Growth from yield is deliberately NOT counted as new exposure: it is the users' own return,
-        // and letting it consume headroom would slowly close deposits on a healthy protocol.
+        // ## Measured on COST BASIS, not on mark-to-market value (`anyfix.md` F4)
+        //
+        // The cap bounds the **loss**, and the loss is denominated in the underlying a depositor
+        // could fail to get back — so growth from yield must not count as new exposure. It is the
+        // users' own return, and letting it consume headroom would slowly close deposits on a
+        // healthy protocol.
+        //
+        // This used to compare `total_supply x rate`, which is exactly that growth: measured at
+        // 66 bps of TVL over 90 days, closing 6% of a 100-USDC headroom on a protocol where nothing
+        // had happened but time. [`storage::total_principal`] tracks what was actually deposited
+        // instead — it rises by the deposit and falls proportionally as shares are destroyed — so
+        // the check is rate-free and cannot drift.
+        //
+        // Being rate-free is also what makes [`Self::deposit_headroom`] **actionable**
+        // (`anyfix.md` F3): the view and this check now read the same stored integer, so depositing
+        // exactly the advertised headroom always succeeds.
         let cap = storage::deposit_cap(&env);
-        if cap > 0 {
-            let principal_after = math::shares_to_underlying(&env, tok::total_supply(&env), rate)
-                .unwrap_or_else(|e| panic_with_error!(&env, e))
-                + amount;
-            if principal_after > cap {
-                panic_with_error!(&env, Error::DepositCapExceeded);
-            }
+        if cap > 0 && storage::total_principal(&env) + amount > cap {
+            panic_with_error!(&env, Error::DepositCapExceeded);
         }
 
         token::Client::new(&env, &underlying).transfer(&from, &me, &amount);
@@ -178,6 +185,7 @@ impl Sr {
         }
 
         Self::mint_internal(&env, &receiver, shares);
+        storage::set_total_principal(&env, storage::total_principal(&env) + amount);
         events::deposited(&env, &from, &receiver, amount, shares, rate);
         shares
     }
@@ -236,6 +244,22 @@ impl Sr {
     /// Being wrong low costs a user a second transaction; being wrong high costs them a revert.
     pub fn max_redeemable(env: Env) -> i128 {
         let strategy = YieldStrategyClient::new(&env, &storage::get_strategy(&env));
+        // **Refresh the stored rate before using it** (`anyfix.md` F1/F1b).
+        //
+        // This function divides available underlying by the rate to get shares, so a rate that lags
+        // — and the stored one only ever lags — returns MORE shares than the venue can pay for.
+        // Measured at 787 bps of over-statement after 30 days unsynced, which is enough to make
+        // `redeem_partial` revert: the exit path whose entire purpose is to never revert.
+        //
+        // The comparison below has the same problem in a sharper form: with both sides valued at a
+        // stale rate it can return `i128::MAX` — "no constraint at all" — while a full redemption
+        // reverts, which is the worst thing a wallet can be told.
+        //
+        // Syncing here is safe for the reason `sync_rate` explains: it ALWAYS writes, so the
+        // footprint is a function of the call graph alone. That is the property whose absence caused
+        // the intermittent `storage: exceeded_limit` failure, and it is preserved. `exchange_rate`
+        // stays a pure read; this is not that.
+        let rate = Self::sync_rate(env.clone());
         let avail = strategy.available_liquidity();
         if avail <= 0 {
             return 0;
@@ -254,7 +278,6 @@ impl Sr {
         if usable <= 0 {
             return 0;
         }
-        let rate = storage::rate_high_water(&env);
         math::underlying_to_shares(&env, usable, rate).unwrap_or(0)
     }
 
@@ -490,19 +513,39 @@ impl Sr {
         storage::deposit_cap(&env)
     }
 
-    /// Underlying currently deployed through this wrapper — what the cap is measured against.
+    /// Underlying currently deployed through this wrapper, **marked to market** — supply valued at
+    /// the stored rate. This is the dashboard number; it is NOT what the cap measures.
+    ///
+    /// It may lag by one sync, which under-states it. See [`Self::total_principal`] for the cap's
+    /// measure and why the two are deliberately different.
     pub fn total_assets(env: Env) -> i128 {
         math::shares_to_underlying(&env, tok::total_supply(&env), storage::rate_high_water(&env))
             .unwrap_or(0)
     }
 
+    /// **Cost basis** — underlying deposited and not yet withdrawn. This is what the deposit cap is
+    /// measured against (`anyfix.md` F4).
+    ///
+    /// It rises by the exact amount deposited and falls proportionally as shares are destroyed, so
+    /// it is unaffected by yield: a protocol where nothing happens but time does not slowly close
+    /// its own deposits. It is a plain stored integer, which is what makes
+    /// [`Self::deposit_headroom`] exact rather than an estimate.
+    pub fn total_principal(env: Env) -> i128 {
+        storage::total_principal(&env)
+    }
+
     /// Underlying that could still be deposited before the cap bites. `i128::MAX` when uncapped.
+    ///
+    /// **Actionable**: this is computed from the same stored integer [`Self::deposit`] checks, with
+    /// no rate in either, so depositing exactly this number always succeeds (`anyfix.md` F3). It
+    /// used to be derived from a mark-to-market valuation while `deposit` synced the rate first, so
+    /// a max button built on it failed every time.
     pub fn deposit_headroom(env: Env) -> i128 {
         let cap = storage::deposit_cap(&env);
         if cap == 0 {
             return i128::MAX;
         }
-        let used = Self::total_assets(env.clone());
+        let used = storage::total_principal(&env);
         if used >= cap { 0 } else { cap - used }
     }
 
@@ -657,14 +700,35 @@ impl Sr {
         storage::bump_instance(env);
     }
 
+    /// Destroy `amount` shares and release the matching slice of cost basis.
+    ///
+    /// Every path that destroys shares comes through here — `redeem`, `redeem_partial`, and the
+    /// SEP-41 burns — so the cap's exposure figure is released proportionally no matter how the
+    /// shares leave. Proportional rather than "the amount paid out" on purpose: the cap measures
+    /// what was put in, and a holder taking out half their shares has withdrawn half their
+    /// exposure whatever the rate has done since.
+    ///
+    /// Burning the last share releases exactly the remaining principal, because
+    /// `principal * shares / shares == principal`.
     fn burn_internal(env: &Env, from: &Address, amount: i128) {
         let b = tok::balance(env, from);
         if b < amount {
             panic_with_error!(env, Error::InsufficientBalance);
         }
+        let supply_before = tok::total_supply(env);
         let h = Self::bump_horizon(env);
         tok::set_balance(env, from, b - amount, h);
-        tok::set_total_supply(env, tok::total_supply(env) - amount);
+        tok::set_total_supply(env, supply_before - amount);
+
+        let principal = storage::total_principal(env);
+        if principal > 0 {
+            let released = if supply_before > 0 {
+                math::mul_div_floor(env, principal, amount, supply_before).unwrap_or(0)
+            } else {
+                principal
+            };
+            storage::set_total_principal(env, principal - released);
+        }
         storage::bump_instance(env);
     }
 

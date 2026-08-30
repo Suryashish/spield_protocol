@@ -30,6 +30,22 @@
  * PT needs nothing — it is a classic Stellar asset, so its balances are trustlines in the classic
  * ledger and are not subject to archival.
  *
+ * ## It also stamps the expiry index (`anyfix.md` F5)
+ *
+ * Not a TTL job, but the same shape: a permissionless call nobody is paid to make, which costs real
+ * money if it is left undone.
+ *
+ * `yield::stamp_expiry_index()` freezes the PY index at the first post-expiry *observation*, not at
+ * expiry itself — and Blend exposes no historical rate to reconstruct the true expiry value from, so
+ * "the first observation" is the best the contract can do. Until somebody calls it, a matured YT
+ * keeps earning: measured at **2x** the honest claim after 30 days and **7x** after 180, on the same
+ * position. Whoever touches the contract first decides the split, and a YT holder is paid to be
+ * last.
+ *
+ * So this stamps as soon as a series expires, which turns an unbounded race into one bounded by the
+ * keeper's schedule. It is write-once — a later call returns the pinned value and changes nothing —
+ * so running it twice is free, and it is queued FIRST so `--max-calls` can never starve it.
+ *
  * ## How holders are discovered
  *
  * From chain, not from a database the front end has to maintain — a list that only knows about
@@ -50,7 +66,7 @@
  *   node ttl_keeper.mjs --source <KEY_NAME_OR_SECRET> [--state ../scripts/deploy_sr_testnet.state]
  *                       [--sr C…] [--yield C…] [--market C…] [--vault C…]
  *                       [--from-ledger N] [--max-receipts 256] [--extra G…,G…]
- *                       [--dry-run]
+ *                       [--stamp-only] [--dry-run]
  *
  * `--dry-run` lists what it would bump and submits nothing. Run that first.
  */
@@ -107,6 +123,14 @@ const CFG = {
   // be split across bounded runs if it ever has to live somewhere with a hard time budget. On a
   // scheduler with no meaningful limit (GitHub Actions, cron on a box) leave it at 0.
   maxCalls: Number(arg('max-calls', '0')),
+  // Stamp the expiry index and do nothing else.
+  //
+  // The stamp wants to run OFTEN — every hour it is late moves value between YT holders and the
+  // treasury — while the TTL bumps want to run rarely, because each costs a transaction and entries
+  // live for months. Different cadences, so they get a flag rather than a shared schedule. This mode
+  // skips holder discovery entirely, which is the expensive half of a normal pass, so a daily run
+  // costs one simulation on almost every day and one transaction once per series.
+  stampOnly: has('stamp-only'),
   dryRun: has('dry-run'),
 };
 
@@ -266,11 +290,17 @@ if (!contracts.length) {
   process.exit(1);
 }
 
-console.log(`TTL keeper → ${CFG.rpc}${CFG.dryRun ? '  (DRY RUN — nothing will be submitted)' : ''}`);
+console.log(
+  `TTL keeper${CFG.stampOnly ? ' (stamp only)' : ''} → ${CFG.rpc}` +
+    `${CFG.dryRun ? '  (DRY RUN — nothing will be submitted)' : ''}`,
+);
 
-const holders = await holdersFromEvents(contracts, CFG.fromLedger);
-for (const e of CFG.extra) if (StrKey.isValidEd25519PublicKey(e)) holders.add(e);
-const receiptIds = CFG.vault ? await openReceiptIds(CFG.vault, CFG.maxReceipts) : [];
+const holders = CFG.stampOnly ? new Set() : await holdersFromEvents(contracts, CFG.fromLedger);
+if (!CFG.stampOnly) {
+  for (const e of CFG.extra) if (StrKey.isValidEd25519PublicKey(e)) holders.add(e);
+}
+const receiptIds =
+  CFG.vault && !CFG.stampOnly ? await openReceiptIds(CFG.vault, CFG.maxReceipts) : [];
 
 console.log(`  discovered ${holders.size} holder address(es) and ${receiptIds.length} open receipt(s)`);
 
@@ -296,14 +326,41 @@ async function available(contractId, fn, probeArgs) {
   }
 }
 
+/**
+ * Is the series expired with its index still unpinned?
+ *
+ * Returns `null` when there is nothing to do — not expired, already stamped, or the engine is too
+ * old to have the entry point — so the caller can treat any non-null answer as "queue the stamp".
+ */
+async function pendingExpiryStamp(yieldC) {
+  if (!yieldC) return null;
+  try {
+    const expiry = Number((await simulate(yieldC, 'expiry')));
+    const now = Math.floor(Date.now() / 1000);
+    if (!Number.isFinite(expiry) || now < expiry) return null;
+    // `expiry_index()` is `Option<i128>`: null/undefined means nobody has pinned it yet.
+    const pinned = await simulate(yieldC, 'expiry_index');
+    if (pinned !== null && pinned !== undefined) return null;
+    return { expiry, overdueSecs: now - expiry };
+  } catch (e) {
+    // An engine without these views is one we cannot stamp; say so rather than failing the run.
+    console.error(`  ⚠ could not check the expiry stamp: ${String(e?.message ?? e).split('\n')[0]}`);
+    return null;
+  }
+}
+
 const probeAddr = new Address(SIM_SOURCE).toScVal();
-const caps = {
-  sr: await available(CFG.sr, 'bump_holder', [probeAddr]),
-  yieldC: await available(CFG.yieldC, 'bump_holder', [probeAddr]),
-  market: await available(CFG.market, 'bump_lp', [probeAddr]),
-  vault: CFG.vault ? await available(CFG.vault, 'bump_receipt', [nativeToScVal(0, { type: 'u64' })]) : false,
-};
-const missing = Object.entries(caps).filter(([k, v]) => !v && CFG[k === 'yieldC' ? 'yieldC' : k]).map(([k]) => k);
+const caps = CFG.stampOnly
+  ? { sr: false, yieldC: false, market: false, vault: false }
+  : {
+      sr: await available(CFG.sr, 'bump_holder', [probeAddr]),
+      yieldC: await available(CFG.yieldC, 'bump_holder', [probeAddr]),
+      market: await available(CFG.market, 'bump_lp', [probeAddr]),
+      vault: CFG.vault ? await available(CFG.vault, 'bump_receipt', [nativeToScVal(0, { type: 'u64' })]) : false,
+    };
+const missing = CFG.stampOnly
+  ? []
+  : Object.entries(caps).filter(([k, v]) => !v && CFG[k === 'yieldC' ? 'yieldC' : k]).map(([k]) => k);
 if (missing.length) {
   console.error(
     `  \u26a0 not deployed on this network: ${missing.join(', ')} \u2014 their bump entry points are ` +
@@ -312,6 +369,19 @@ if (missing.length) {
 }
 
 const jobs = [];
+
+// Queued FIRST, deliberately: every hour this goes unmade moves value from the treasury's sweepable
+// surplus to whoever still holds YT. A `--max-calls` budget must never spend itself on TTL bumps and
+// leave this undone.
+const stamp = await pendingExpiryStamp(CFG.yieldC);
+if (stamp) {
+  const hrs = Math.round(stamp.overdueSecs / 3600);
+  console.log(`  series expired ${hrs}h ago and the index is not pinned — stamping first`);
+  jobs.push([CFG.yieldC, 'stamp_expiry_index', [], 'yield::stamp_expiry_index()']);
+} else if (CFG.stampOnly) {
+  console.log('  nothing to stamp (series not expired, or already pinned)');
+}
+
 for (const h of holders) {
   const a = new Address(h).toScVal();
   if (caps.sr) jobs.push([CFG.sr, 'bump_holder', [a], `sr::bump_holder(${h.slice(0, 8)}…)`]);
@@ -331,7 +401,7 @@ if (CFG.maxCalls > 0 && jobs.length > CFG.maxCalls) {
 }
 
 if (CFG.dryRun) {
-  for (const [, , , label] of jobs) console.log(`  would bump ${label}`);
+  for (const [, , , label] of jobs) console.log(`  would call ${label}`);
   console.log(`  ${jobs.length} call(s)${planned !== jobs.length ? ` of ${planned}` : ''}. Re-run without --dry-run to submit.`);
   process.exit(0);
 }
