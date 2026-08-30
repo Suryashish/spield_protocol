@@ -28,7 +28,7 @@ place, marked ✅ DONE.
 | [§11](#11-repair-the-documented-pnpm-test-command---done) | pnpm test command | P2 | Tooling | ✅ **DONE** — `pnpm run test:unit` passes 218 |
 | [§12](#12-calibrate-the-redemption-liquidity-haircut---done) | Liquidity haircut | Decision | Risk parameter | ✅ **DONE** — cap computed; residual **measured at 0 bps** across 50–94% utilization |
 | [§13](#13-calibrate-the-blend-utilization-alert) | Utilization alert | Decision | Monitoring | ⬜ **Open** — pick warning/critical levels for the coverage ratio |
-| [§14](#14-calibrate-the-markets-scalar_root) | `scalar_root` | Decision | Market parameter | ⬜ **Open** — unblocked by §2, first readings below |
+| [§14](#14-calibrate-the-markets-scalar_root---done) | `scalar_root` | Decision | Market parameter | ✅ **DONE** — closed form derived, **160** recommended (from 40); 5 tests |
 | [§15](#15-calibrate-the-vaults-fixed-rate---done) | Vault fixed rate | **P0** | Risk parameter | ✅ **DONE** — was an uncalibrated hardcoded 5%; rule + gate + 23 tests, rate now 3% |
 
 **Two extra fixes, not originally listed:**
@@ -815,48 +815,90 @@ A threshold that is always active causes alert fatigue. Raising it without measu
 
 ---
 
-## 14. Calibrate the market's `scalar_root`
+## 14. Calibrate the market's `scalar_root` — ✅ DONE
 
-**Unblocked 2026-08-26** — §2 is fixed, so the curve's sensitivity is now measurable. This is the remaining work.
+**Measured 2026-08-30** in `contracts/srmarket/src/calibration_test.rs` (5 tests). §14 previously
+had first readings and no decision; this is the decision and how it was derived.
 
-### What is wrong
+### Two structural facts, both measured, that make this a single number
 
-`scalar_root` controls how strongly trades move the market's implied yield. The live testnet value is **40** (SCALAR_12), alongside `ln_fee_root` 0.0025 and a 2,000 bps treasury fee share.
+**1. Sensitivity is time-invariant.** `rate_scalar = scalar_root / years`, so a short series has a
+much flatter *price* curve — it is natural to assume a 30-day market is ~12x less rate-sensitive
+than the one-year market §14 first measured. **It is not.** A price move is proportional to
+`years / scalar_root`, and converting price to APY divides by `years` again. The two cancel:
 
-Whether that value is right was **unmeasurable** until §2 was fixed: `implied_apy()` and `pt_price()` did not move in response to trading, so the observable sensitivity of the curve was zero at every trade size.
+| days elapsed (30-day series) | 1% buy | 5% buy | 25% buy |
+|---|---|---|---|
+| 0d (30d left) | −5.2 | −25.8 | −131.0 |
+| 15d (15d left) | −5.2 | −25.8 | −130.8 |
+| 29d (1d left) | −5.1 | −25.7 | −130.6 |
 
-With the anchor fixed there is now a signal. First measurements at `scalar_root = 40` on a 500,000/500,000 pool, one year to expiry:
+So `scalar_root` is a whole-series constant, and the original one-year readings do transfer.
 
-| buy, as % of the SR side | implied APY | move |
-|---:|---:|---:|
-| — | 5.0000% | — |
-| 1% | 4.9436% | −5.6 bps |
-| 5% | 4.7185% | −28.2 bps |
-| 25% | 3.5810% | −142 bps |
+**2. It is scale-free.** The same %-of-pool trade moves the quote identically at 20, 200, 2,000 and
+20,000 USDC per side — all rows read −5.2 / −25.8 / −131.0. Seed size does not enter.
 
-Whether that is the right sensitivity is the open question — these numbers are the input to the decision, not the decision.
+### The closed form
 
-### Correction to the previous draft
+Fitted across 16 points (`scalar_root` 40–320 x trade 1–25%), K held between 206.7 and 211.1 —
+a spread of 4.5, about ±1%:
 
-The earlier version of this item cited a measurement of 4.990% → 4.406% after a single 2,000 USDC buy, persisting at 4.361% six months later, and attributed the persistence to a fixed anchor that never re-anchors.
+```text
+bps_move  ≈  208 × trade_pct / scalar_root
 
-**That measurement is from the v1 market**, `contracts/market/src/test.rs`, which is a different contract with a different curve implementation and a PT/USDC pool rather than PT/SR. v1 does pin `rate_anchor` at par forever; `srmarket` was written specifically to re-derive it. Those numbers say nothing about `srmarket` and must not be used to size its `scalar_root`.
+    =>    scalar_root  =  208 × trade_pct / acceptable_bps_move
+```
 
-### How to address it — now possible
+### The criterion, and why it is Blend-anchored
 
-Choose `scalar_root` against:
+`scalar_root` is not Blend-derived — it is an AMM property. The *criterion* is: the vault quotes a
+Blend-funded fixed rate (300 bps, calibrated ceiling 312 — `blendcalibration.md`), and PT trading
+beside it should not imply a wildly different rate for the same maturity. `tofix.md` #34 asks
+exactly this. **A moderate trade should leave the market inside the vault's own 12 bps calibration
+band.**
 
-- Expected seed liquidity.
-- Typical and large trade sizes.
-- Expected balance of PT and YT flow.
-- Maximum acceptable quote movement per trade.
-- How far the market rate may reasonably diverge from the vault rate.
+| criterion | required `scalar_root` |
+|---|---|
+| 10% trade stays within the vault's 12 bps band | **173** |
+| 5% trade ≤ 6.5 bps | 160 |
+| 10% trade ≤ 15 bps | 139 |
+| 25% trade ≤ 50 bps | 104 |
 
-Then re-run the sensitivity measurement on `srmarket` itself — buy and sell sweeps across sizes, at several times to expiry — and select the deployment value from that data.
+### The cost of a flatter curve — measured, not hand-waved
 
-### Why it must be done
+Raising `scalar_root` steadies the quote *and* cheapens arbitrage, because a trader moves the price
+less for the same size. Round-tripping a 10%-of-pool trade measures the toll:
 
-If the curve is too sensitive, moderate trades cause large rate changes. If it is too insensitive, pricing responds too slowly and more liquidity is needed to reflect demand. Neither can be judged until the reported rate reflects reality.
+| `scalar_root` | 10% buy moves | round-trip cost |
+|---|---|---|
+| 40 (current) | −51.7 bps | 8.2 bps |
+| 80 | −25.9 bps | 6.2 bps |
+| **160** | **−13.0 bps** | **5.1 bps** |
+| 320 | −6.5 bps | 4.6 bps |
+| 640 | −3.2 bps | 4.4 bps |
+
+Round-trip cost asymptotes to ~4.4 bps — the `ln_fee_root` floor (0.25%/yr over 30 days, both
+legs). Past ~160 the fee dominates, so extra flatness buys little further stability at little
+further cost. **160 sits at the knee.**
+
+### Recommendation: `scalar_root = 160` (up from 40)
+
+Same value for testnet and mainnet — it is scale-free, time-invariant and not Blend-derived, so
+there is no network-specific figure to give.
+
+At 40 the current market is too sensitive to look credible next to the vault: a 25% trade moves the
+quote 131 bps, taking a 3.00% headline to 1.69%. At 160 the same trade moves 33 bps.
+
+**Not applied** — `MARKET_SCALAR_ROOT` is still `40000000000000` in both deploy scripts, pending
+sign-off.
+
+### One caveat the parameter cannot fix
+
+At the guarded-launch sizing (20 USDC AMM side, 10 USDC of user headroom under the 50 USDC cap) a
+single user can trade **50% of the pool**. At `scalar_root = 160` that moves the quote 65 bps
+(300 → 235); at the current 40 it moves 260 bps and floors the quote out entirely. Raising
+`scalar_root` improves this but cannot solve it — the real fix is more AMM seed relative to the
+deposit cap, or accepting wide quotes on a deliberately tiny test market.
 
 ---
 

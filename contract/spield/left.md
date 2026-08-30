@@ -295,24 +295,31 @@ built; see `MAINNET.md` §6.1. A single offline key is defensible for a small la
 
 ## E. Engineering still open — can follow the launch
 
-### E1. Settle the `available_liquidity()` dispute — do this first
+### E1. Fix `available_liquidity()` — resolved, needs a deploy
 
-There is a genuine unresolved contradiction, written up in `blendcalibration.md` §7:
+**The dispute is settled** (`blendcalibration.md` §7). `max_util` does **not** bind withdrawals —
+a pool sitting at its ceiling paid out four probes that pushed utilization to 96%. The real bound is
+**`pool_cash − backstop_credit`**, probed to the stroop.
 
-* the test harness says the function under-reports what Blend will pay by **18.4x**, but
-* `tofix.md` #20 records a real live Blend rejection (`#1207`) that says the opposite.
+`tofix.md` #20 was right that the raw balance overstates headroom — by exactly `backstop_credit`,
+which is why the overstatement "is not a constant". It just fixed it with the wrong formula.
 
-**I could not reproduce `#1207`.** Until someone does, do not change the function — the current
-behaviour is the conservative side of the disagreement.
+**What to do:** change `available_liquidity()` from `min(balance, supplied − borrowed/max_util)` to
+`min(balance − backstop_credit, …)`. `backstop_credit` is already in the `get_reserve` payload the
+strategy reads, so there is no extra call. Contract change — ship it with the next deploy.
 
-**What to do:** try to reproduce `#1207` against the live testnet pool. That is the missing
-experiment.
+**Why it matters:** the current formula reported **0.00 available against ~29,978 USDC actually
+withdrawable**. The error direction is safe (under-sizing never fails a transaction), but the
+magnitude is not — it tells users they cannot exit during a crunch, which is exactly when a false
+alarm hurts most.
 
-### E2. Exit-coverage alert thresholds
+### E2. Retune the exit-coverage thresholds — after E1
 
-Currently 5x warn / 3x critical. Measurement showed a full exit still succeeding at **0.05x**, so
-they page far too early. **Blocked on E1** — retuning against a metric whose accuracy is disputed by
-18x achieves nothing. (V2_WORK §13.)
+Currently 5x warn / 3x critical. Coverage divides by `available_liquidity()`, so today it inherits
+E1's error: a full exit succeeded at **0.05x** coverage.
+
+Once E1 lands the metric means what it says. A full exit needs coverage ≥ 1.0x, so something like
+**1.5x critical / 3x warn** is the shape — but measure it rather than adopting those numbers.
 
 ### E3. `scalar_root`
 

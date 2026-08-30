@@ -107,9 +107,18 @@ EXPIRY="${EXPIRY:-$(( $(date +%s) + MATURITY_DAYS*24*60*60 ))}"
 YIELD_FEE_BPS="${YIELD_FEE_BPS:-500}"
 
 # ─── Market parameters ───────────────────────────────────────────────────────────────────────────
-# Curve steepness. With a DYNAMIC anchor this only controls price impact — it no longer drives the
-# seed ratio, so any PT:SR ratio opens the pool at MARKET_APY_BPS.
-MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-40000000000000}"     # 40 * 1e12
+# Curve steepness — how hard a trade moves the quoted implied rate.
+#
+# 160, derived in V2_WORK.md §14 (measured, `srmarket/src/calibration_test.rs`). Sensitivity obeys
+# `bps_move ~= 208 x trade_pct / scalar_root`, is SCALE-FREE (seed size does not enter) and
+# TIME-INVARIANT (the years term cancels between price and APY), so one value serves every series
+# and both networks. 160 keeps a 10%-of-pool trade inside the vault's own 12 bps calibration band
+# (13.0 bps) and sits at the knee of the stability-vs-arbitrage trade-off: past it the `ln_fee_root`
+# floor dominates round-trip cost, so extra flatness buys little.
+#
+# Was 40, where a 25% trade moved the quote 131 bps — a 3.00% headline to 1.69%, beside a vault
+# quoting 3.00%.
+MARKET_SCALAR_ROOT="${MARKET_SCALAR_ROOT:-160000000000000}"    # 160 * 1e12
 
 # ANNUALIZED fee root, SCALAR_12: fee_rate = exp(ln_fee_root * years_to_expiry).
 # 0.25%/yr, chosen from `calibrate_the_fee_root`: PT round trip 0.17%, YT round trip 13.3%

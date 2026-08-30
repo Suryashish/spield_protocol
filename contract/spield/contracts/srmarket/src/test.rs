@@ -134,6 +134,17 @@ fn register_sac<'a>(env: &'a Env, admin: &Address) -> Address {
 }
 
 pub fn setup(term: u64, initial_apy_bps: u32, ln_fee_root: i128, treasury_bps: u32) -> World {
+    setup_with_scalar(term, initial_apy_bps, ln_fee_root, treasury_bps, SCALAR_ROOT)
+}
+
+/// Same, with `scalar_root` under the caller's control — used by `calibration_test.rs` to sweep it.
+pub fn setup_with_scalar(
+    term: u64,
+    initial_apy_bps: u32,
+    ln_fee_root: i128,
+    treasury_bps: u32,
+    scalar_root: i128,
+) -> World {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().set_timestamp(1_700_000_000);
@@ -206,7 +217,7 @@ pub fn setup(term: u64, initial_apy_bps: u32, ln_fee_root: i128, treasury_bps: u
     let apy = (initial_apy_bps as i128) * SCALAR_12 / 10_000;
     SrMarketClient::new(&env, &market).initialize(
         &yield_c,
-        &SCALAR_ROOT,
+        &scalar_root,
         &ln_fee_root,
         &apy,
         &treasury_bps,

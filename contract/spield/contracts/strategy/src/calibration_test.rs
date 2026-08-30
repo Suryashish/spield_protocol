@@ -1069,3 +1069,164 @@ fn calibration_i_what_fixedv2_pays_with_ir_mod_on_the_floor() {
 
     assert!(supply_bps >= 0.0);
 }
+
+
+/// **The missing experiment: does Blend refuse a withdrawal that crosses `max_util`?**
+///
+/// `tofix.md` #20 records a live Blend `#1207` when sizing against the raw balance "and the pool was
+/// already at its utilization ceiling". Tests F and G never reproduced it — withdrawals were paid
+/// well past what `available_liquidity()` reported, and even above `max_util`.
+///
+/// Those tests may simply never have constructed a withdrawal that genuinely crosses the boundary:
+/// the strategy's position was small relative to the pool, so cash was never the binding side.
+/// This builds the crossing explicitly and reports the exact arithmetic and the exact error.
+#[test]
+fn calibration_j_does_blend_refuse_a_withdrawal_that_crosses_max_util() {
+    use crate::{BlendStrategy, BlendStrategyClient};
+    use soroban_sdk::token::StellarAssetClient;
+
+    let v = setup(85); // whale supplies 200k, borrows 170k
+    let wrapper = Address::generate(&v.env);
+    let admin = Address::generate(&v.env);
+    let sid = v.env.register(BlendStrategy, (admin.clone(),));
+    let strategy = BlendStrategyClient::new(&v.env, &sid);
+    strategy.initialize(&wrapper, &v.pool, &v.usdc, &30_000u32);
+
+    // Spield supplies a MATERIAL amount, then the whale draws it back out to the ceiling.
+    let ours = 100_000 * USDC;
+    StellarAssetClient::new(&v.env, &v.usdc).mint(&wrapper, &ours);
+    strategy.deposit(&wrapper, &ours);
+    for extra in [40_000i128, 30_000, 20_000, 10_000, 5_000] {
+        v.borrow_more(extra * USDC);
+    }
+    v.advance(86_400);
+
+    let token = soroban_sdk::token::TokenClient::new(&v.env, &v.usdc);
+    let r = v.pool_client().get_reserve(&v.usdc);
+    let supplied = r.data.b_supply * r.data.b_rate / SCALAR_12;
+    let borrowed = r.data.d_supply * r.data.d_rate / SCALAR_12;
+    let cash = token.balance(&v.pool);
+    let max_util = r.config.max_util as f64 / SCALAR_7 as f64;
+    let util = borrowed as f64 / supplied as f64;
+
+    std::println!("\n=== J. Does Blend refuse a withdrawal that crosses max_util? ===");
+    std::println!(
+        "  pool: supplied {:.0}  borrowed {:.0}  cash {:.0}",
+        supplied as f64 / USDC as f64, borrowed as f64 / USDC as f64, cash as f64 / USDC as f64
+    );
+    std::println!("  utilization {:.2}%   max_util {:.0}%", util * 100.0, max_util * 100.0);
+    std::println!("  available_liquidity() {:.2}", strategy.available_liquidity() as f64 / USDC as f64);
+
+    // The exact withdrawal that takes utilization from below max_util to above it:
+    //   util_after = borrowed / (supplied - W) > max_util   <=>   W > supplied - borrowed/max_util
+    let crossing = supplied - (borrowed as f64 / max_util) as i128;
+    std::println!(
+        "\n  crossing point: W > {:.2} USDC takes utilization past max_util",
+        crossing as f64 / USDC as f64
+    );
+    std::println!("{:>16}  {:>14}  {:>12}  {:>22}", "withdraw", "util after", "vs max_util", "Blend says");
+
+    // When the pool is already AT/above max_util the crossing point is <= 0, i.e. EVERY withdrawal
+    // crosses. Probe fixed sizes in that case — that is precisely tofix #20's scenario.
+    let probes: std::vec::Vec<i128> = if crossing > 0 {
+        [0.5f64, 0.9, 1.1, 2.0, 5.0].iter().map(|m| (crossing as f64 * m) as i128).collect()
+    } else {
+        std::vec![100 * USDC, 1_000 * USDC, 5_000 * USDC, 20_000 * USDC]
+    };
+    for w in probes {
+        if w <= 0 || w > cash { continue; }
+        // Fresh venue each probe so a success does not change the next one's state.
+        let v2 = setup(85);
+        let wr = Address::generate(&v2.env);
+        let ad = Address::generate(&v2.env);
+        let s2 = v2.env.register(BlendStrategy, (ad.clone(),));
+        let st = BlendStrategyClient::new(&v2.env, &s2);
+        st.initialize(&wr, &v2.pool, &v2.usdc, &30_000u32);
+        StellarAssetClient::new(&v2.env, &v2.usdc).mint(&wr, &ours);
+        st.deposit(&wr, &ours);
+        for extra in [40_000i128, 30_000, 20_000, 10_000, 5_000] { v2.borrow_more(extra * USDC); }
+        v2.advance(86_400);
+
+        let util_after = borrowed as f64 / (supplied - w) as f64;
+        let res = st.try_redeem_underlying(&wr, &w);
+        std::println!(
+            "{:>15.0}  {:>13.2}%  {:>12}  {:>22}",
+            w as f64 / USDC as f64,
+            util_after * 100.0,
+            if util_after > max_util { "ABOVE" } else { "below" },
+            match res { Ok(Ok(_)) => "PAID", _ => "REFUSED" }
+        );
+    }
+    std::println!("\n  refusals only in ABOVE rows => tofix #20 is right and the formula is correct");
+    std::println!("  no refusals at all      => the formula is over-conservative, as F/G suggested");
+}
+
+
+/// **What DOES bind a withdrawal, then?**
+///
+/// J settled that `max_util` does not. But `tofix.md` #20 says the raw balance *overstated* true
+/// headroom by 12.8% on the live pool — and if cash were the only bound, the raw balance would be
+/// exactly right, not an overstatement. Something between the two must bind.
+///
+/// The candidate is `backstop_credit`: accrued interest owed to the backstop that sits inside the
+/// pool's token balance but is not available to suppliers. That would make the raw balance overstate
+/// withdrawable cash by exactly that amount — an overstatement that grows with time and utilization,
+/// which matches #20's "the gap is not a constant".
+///
+/// This walks a withdrawal up to and past the cash boundary and reports where it actually fails.
+#[test]
+fn calibration_k_what_actually_bounds_a_withdrawal() {
+    use crate::{BlendStrategy, BlendStrategyClient};
+    use soroban_sdk::token::StellarAssetClient;
+
+    let build = || {
+        let v = setup(85);
+        let wrapper = Address::generate(&v.env);
+        let admin = Address::generate(&v.env);
+        let sid = v.env.register(BlendStrategy, (admin.clone(),));
+        let st = BlendStrategyClient::new(&v.env, &sid);
+        st.initialize(&wrapper, &v.pool, &v.usdc, &30_000u32);
+        let ours = 100_000 * USDC;
+        StellarAssetClient::new(&v.env, &v.usdc).mint(&wrapper, &ours);
+        st.deposit(&wrapper, &ours);
+        for extra in [40_000i128, 30_000, 20_000, 10_000, 5_000] { v.borrow_more(extra * USDC); }
+        v.advance(86_400);
+        (v, wrapper, sid)
+    };
+
+    let (v, _w, _s) = build();
+    let token = soroban_sdk::token::TokenClient::new(&v.env, &v.usdc);
+    let r = v.pool_client().get_reserve(&v.usdc);
+    let cash = token.balance(&v.pool);
+    let bcredit = r.data.backstop_credit;
+
+    std::println!("\n=== K. What actually bounds a withdrawal? ===");
+    std::println!("  pool cash            {:>14.4} USDC", cash as f64 / USDC as f64);
+    std::println!("  backstop_credit      {:>14.4} USDC  ({:.3}% of cash)",
+        bcredit as f64 / USDC as f64, bcredit as f64 / cash as f64 * 100.0);
+    std::println!("  cash - backstop      {:>14.4} USDC", (cash - bcredit) as f64 / USDC as f64);
+    std::println!("  available_liquidity(){:>14.4} USDC   <- what the adapter reports\n",
+        BlendStrategyClient::new(&v.env, &_s).available_liquidity() as f64 / USDC as f64);
+
+    // Probe the exact candidate boundary, not just fractions of cash.
+    std::println!("{:>18}  {:>26}  {:>12}", "withdraw", "vs cash - backstop_credit", "Blend says");
+    let boundary = cash - bcredit;
+    for (w, label) in [
+        (boundary - 100 * USDC, "-100 USDC"),
+        (boundary - USDC, "-1 USDC"),
+        (boundary, "exactly"),
+        (boundary + USDC, "+1 USDC"),
+        (boundary + 100 * USDC, "+100 USDC"),
+        (cash, "= full cash"),
+    ] {
+        let (v2, wr2, s2) = build();
+        let st = BlendStrategyClient::new(&v2.env, &s2);
+        let res = st.try_redeem_underlying(&wr2, &w);
+        std::println!(
+            "{:>17.4}  {:>26}  {:>12}",
+            w as f64 / USDC as f64, label,
+            match res { Ok(Ok(_)) => "PAID", _ => "REFUSED" }
+        );
+    }
+    std::println!("\n  PAID up to the boundary and REFUSED past it => the bound is cash - backstop_credit");
+}

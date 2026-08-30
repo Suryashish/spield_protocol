@@ -5,7 +5,7 @@ behaves · **Status:** report only — **no production value was changed by this
 
 The one thing added to the tree is a test harness,
 [`contracts/strategy/src/calibration_test.rs`](./contracts/strategy/src/calibration_test.rs)
-(13 tests, all passing), which runs against the **real Blend v2 WASM** driven to the states that
+(15 tests, all passing), which runs against the **real Blend v2 WASM** driven to the states that
 matter. Every number below is measured by it or read from a live pool. Nothing here is recalled.
 
 ---
@@ -19,8 +19,8 @@ matter. Every number below is measured by it or read from a live pool. Nothing h
 | 3 | `MAX_APR_BPS` | deploy scripts | 30000 | ✅ **Now measured AND checked** | Safe for both live pools (2.78x / 2.69x). Was safe *by accident of their config*; a derived gate now enforces it. See §4. |
 | 4 | Utilization metric | `sr_solvency_monitor.mjs`, `blend_rate.mjs` | share-based | ✅ **Correct — earlier finding RETRACTED** | I claimed Blend used cash-based utilization. **That was wrong.** A controlled experiment settles it: share-based. See §5. |
 | 5 | `ir_mod` assumptions | `blend_rate.mjs` stress | floor 1.0 | ✅ **Yes — now measured** | Real bounds are **[0.1, 10.0]**. Stressing to 1.0 is confirmed a *moderate* stress. See §6. |
-| 6 | `available_liquidity()` | `strategy` contract | `min(utilCap, cash)` | ⚠️ **Disputed — 18.4x too conservative in the harness** | Blend never refused on `max_util` grounds here, even above it. **But this conflicts with a live `#1207` in `tofix.md` #20 that I could not reproduce.** Do not act yet. See §7. |
-| 7 | Exit-coverage alert | `sr_solvency_monitor.mjs` | 5x warn / 3x crit | ⚠️ **Measured — but built on #6** | A full exit succeeded at **0.05x coverage**. The thresholds are safe (they page early) but measure a quantity that is not exit capacity. See §7. |
+| 6 | `available_liquidity()` | `strategy` contract | `min(utilCap, cash)` | ❌ **Wrong constraint — RESOLVED 2026-08-30** | `max_util` does not bind withdrawals; the real bound is **`cash − backstop_credit`**. Reconciles with `tofix.md` #20. Fix in the next deploy. See §7. |
+| 7 | Exit-coverage alert | `sr_solvency_monitor.mjs` | 5x warn / 3x crit | ⚠️ **Recalibrate after #6 lands** | Coverage divides by `available_liquidity()`, so it inherits #6's error — a full exit succeeded at **0.05x**. Once #6 is fixed the metric becomes meaningful and 5x/3x can be set against it. See §7. |
 | 8 | SR deposit cap | `sr.deposit_cap` | **50 USDC** in the scripts; **5 USDC** live on testnet | ✅ **Set** | A GLOBAL cap — it bounds LPs too, and counts operator seeding. See §8. |
 | 9 | `scalar_root` | `srmarket` | 40e12 | ⛔ **Open** | V2_WORK §14. Not Blend-derived; listed for completeness. |
 | 10 | `RATE_BOUND_DUST` | `shared::math` | 16 | ✅ Fine | Microscopic next to any real rate; no evidence of false trips. |
@@ -224,7 +224,7 @@ Two consequences, both confirming existing decisions rather than overturning the
 
 ---
 
-## 7. SUSPECTED DEFECT — `available_liquidity()` may understate exit capacity by 18.4x
+## 7. CONFIRMED — `available_liquidity()` uses the wrong constraint
 
 The adapter computes what Blend can pay as `min(utilCap, pool_cash)` where
 `utilCap = supplied - borrowed/max_util`, on the stated premise that *"Blend refuses any withdrawal
@@ -272,43 +272,58 @@ One thing E also settled: growing Spield's own position cannot produce a crunch.
 liquidity, so `available` rises with it and coverage self-corrects to ~1.01x. A crunch is only ever
 somebody else drawing down cash we already supplied.
 
-### An unresolved conflict with `tofix.md` #20 — read this before acting
+### ✅ RESOLVED 2026-08-30 — both observations were real, the diagnosis was wrong
 
-The current formula is not arbitrary. `tofix.md` #20 records that using the pool's **raw balance**
-produced a real Blend rejection (`#1207`) on the live testnet pool "already at its utilization
-ceiling", overstating headroom by 12.8% — and that the current formula was then measured at a
-**0 bps haircut across 50–94% utilization**. That is a documented live observation, and it says
-Blend refuses *something*.
+`tofix.md` #20 is not in conflict with F/G after all. Three more tests settle it.
 
-Test G probes the boundary that could reconcile the two, sweeping utilization across `max_util`:
+**J — `max_util` does not bind withdrawals.** A pool sitting exactly at `max_util` (90.01% vs a 90%
+ceiling), with `available_liquidity()` reporting **0.00**:
 
-| utilization | vs max_util | reported available | withdrawal tried | Blend says |
-|---|---|---|---|---|
-| 80.92% | below | 22210.50 | 20002.74 | PAID |
-| 83.01% | below | 17943.02 | 21000.33 | PAID |
-| 84.92% | below | 13663.82 | 22000.67 | PAID |
-| 88.26% | below | 5105.42 | 24001.33 | PAID |
-| **93.51%** | **AT/ABOVE** | **0.00** | **1000.00** | **PAID** |
+| withdraw | utilization after | vs max_util | Blend says |
+|---|---|---|---|
+| 100 | 90.04% | ABOVE | PAID |
+| 1,000 | 90.31% | ABOVE | PAID |
+| 5,000 | 91.54% | ABOVE | PAID |
+| 20,000 | 96.44% | ABOVE | PAID |
 
-**Even above `max_util`, with `available_liquidity()` reporting zero, the withdrawal was paid.** In
-this harness the `utilCap` term never binds anywhere in the range.
+Four probes, all past the ceiling, all paid. The `utilCap` term is not a constraint Blend applies.
 
-Note what #20's own measurement actually shows: its table reads *"largest accepted = 100% of probe
-ceiling"* at every utilization. It established that the ceiling is **achievable**, never that it is
-**tight** — it never probed above it. So #20's haircut result and F/G's over-payment are not in
-conflict. What *is* in conflict is #20's live `#1207`, and **I have not reproduced it.** The harness
-pool has one borrower and two reserves; the live pool has neither.
+**K — the real bound is `pool_cash − backstop_credit`.** #20 said the raw balance *overstated*
+headroom by 12.8%, and if cash alone were the bound the raw balance would be exactly right. The
+missing term is `backstop_credit`: accrued interest owed to the backstop that sits inside the pool's
+token balance and is not available to suppliers. Probed to the stroop:
 
-### Recommended (NOT applied — and not yet safe to act on)
+| withdraw | vs `cash − backstop_credit` | Blend says |
+|---|---|---|
+| 29,876.81 | −100 USDC | PAID |
+| 29,976.81 | −1 USDC | PAID |
+| **29,977.81** | **exactly** | **REFUSED** |
+| 29,978.81 | +1 USDC | REFUSED |
+| 30,000.00 | = full cash | REFUSED |
 
-1. **Do not change `available_liquidity()` on this evidence alone.** The harness says `utilCap` is
-   ~18x too conservative; a live observation says the raw balance is unsafe. Both cannot be acted
-   on at once, and the current formula is the conservative side of that disagreement. Reproduce
-   `#1207` against the live testnet pool first — that is the missing experiment.
-2. **Do not retune 5x/3x until #1 resolves.** Retuning against a metric whose accuracy is disputed
-   by 18x would just substitute one uncalibrated pair for another.
-3. The direction is safe meanwhile: the alarm fires early, never late, and the adapter under-sizes
-   rather than over-sizes withdrawals — which is the failure mode you want.
+### What this means
+
+* **#20's observation was correct.** The raw balance really does overstate headroom, and the
+  overstatement "is not a constant" exactly as #20 said — `backstop_credit` grows with time and
+  utilization. It was 12.8% on the live pool; it is 0.074% in this young harness, which is why F and
+  G never tripped it.
+* **#20's fix used the wrong formula.** `utilCap` is conservative enough to avoid `#1207`, which is
+  why it worked in practice — but it over-corrects enormously: **0.00 reported against ~29,978 USDC
+  actually withdrawable.**
+* **The correct formula is `min(position, cash − backstop_credit)`.** The strategy already reads
+  `get_reserve`, and `backstop_credit` is in that same payload — no extra call.
+
+### Recommended — now safe to act on
+
+**Change `available_liquidity()` to `min(balance − backstop_credit, …)`.** It is a contract change,
+so it belongs in the next deploy rather than a hot patch. The direction of the current error is safe
+(under-sizing a withdrawal never fails; over-sizing is what produced `#1207`), but the magnitude is
+not: reporting 0 tells users they cannot exit during a crunch, which is the moment a false alarm does
+the most damage.
+
+**One caveat.** These are measurements against the Blend v2 WASM shipped in `blend-contract-sdk
+2.25.0`. A live pool may run a different build. That said, this model *explains* the live `#1207`
+rather than contradicting it, which is corroboration rather than conflict.
 
 ---
 
@@ -368,6 +383,8 @@ node scripts/sr_solvency_monitor.mjs --state scripts/deploy_sr_testnet.state --o
 | `calibration_e_exit_coverage_under_a_real_crunch` | coverage vs what a full exit actually returns |
 | `calibration_f_does_available_liquidity_predict...` | whether `available_liquidity()` is real |
 | `calibration_g_where_does_blend_actually_refuse...` | the `max_util` boundary, vs `tofix.md` #20 |
+| `calibration_j_does_blend_refuse_a_withdrawal...` | does `max_util` bind a withdrawal? (no) |
+| `calibration_k_what_actually_bounds_a_withdrawal` | the real bound: `cash − backstop_credit` |
 | `calibration_h_mainnet_exact_pool_parameters...` | FixedV2's exact knobs, full 90-day cycle |
 | `calibration_i_what_fixedv2_pays_with_ir_mod...` | what mainnet pays at the `ir_mod` floor |
 
@@ -381,7 +398,7 @@ node scripts/sr_solvency_monitor.mjs --state scripts/deploy_sr_testnet.state --o
 |---|---|---|
 | `MAX_APR_BPS` validated against the pool's own rate ceiling; `max_util > 95%` flagged | `blend_rate.mjs`, `calibrate_vault_rate.mjs`, all 3 deploy scripts | ✅ Gate live. Value 30000 unchanged — it was already correct. |
 | SR deposit cap → **50 USDC** in both v2 scripts; **5 USDC** live on testnet | scripts + on-chain testnet SR | ✅ Live testnet cap sits below its 93.98 TVL, so testnet deposits are closed. Exits unaffected. |
-| Calibration harness | `contracts/strategy/src/calibration_test.rs` | ✅ 13 tests |
+| Calibration harness | `contracts/strategy/src/calibration_test.rs` | ✅ 15 tests |
 
 ### Retracted
 
@@ -393,7 +410,7 @@ node scripts/sr_solvency_monitor.mjs --state scripts/deploy_sr_testnet.state --o
 
 | Pri | Change | Why |
 |---|---|---|
-| **P1** | **Reproduce `tofix.md` #20's live `#1207`**, then decide whether `available_liquidity()` is over-conservative | The harness says `utilCap` never binds (18.4x too tight, full exit at 0.05x coverage); a documented live observation says the raw balance is unsafe. Unresolved — investigate before touching the contract (§7). |
+| **P1** | **Fix `available_liquidity()`** to `min(balance − backstop_credit, …)` | Resolved 2026-08-30: `max_util` does not bind withdrawals; the real bound is `cash − backstop_credit`, probed to the stroop. Reconciles with `tofix.md` #20. Contract change — next deploy (§7). |
 | **P2** | Retune the 5x/3x exit-coverage thresholds | Blocked on P1 — retuning against a metric wrong by 18x achieves nothing (§7). Direction is currently safe: pages early, never late. |
 | — | `scalar_root` | V2_WORK §14, not Blend-derived. |
 
