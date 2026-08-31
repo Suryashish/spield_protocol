@@ -216,19 +216,29 @@ const SrTradePanel = () => {
   }, [amount, amountValid, mode]);
 
   // ECO-01 — is this trade big enough that splitting it would beat one shot?
+  //
+  // Measure the notional the CURVE actually sees, not whatever is in the input box. For a YT buy
+  // the box holds a USDC *budget* while the trade is priced on the YT face — and the two differ by
+  // the leverage factor, which is 100x+ on a short-dated series. Feeding the budget in made a
+  // 0.02 USDC trade report as "38% of the pool".
   useEffect(() => {
     if (!amountValid) {
       setAdvice(null);
       return;
     }
+    const notional = mode === 'buyYt' ? ytFace : toBaseUnits(amount);
+    if (notional <= 0n) {
+      setAdvice(null);
+      return;
+    }
     let cancelled = false;
-    void splitAdvice(toBaseUnits(amount)).then((a) => {
+    void splitAdvice(notional).then((a) => {
       if (!cancelled) setAdvice(a);
     });
     return () => {
       cancelled = true;
     };
-  }, [amount, amountValid]);
+  }, [amount, amountValid, mode, ytFace]);
 
   const onSubmit = async () => {
     if (!address || !amountValid) return;

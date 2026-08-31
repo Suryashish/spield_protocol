@@ -3,7 +3,7 @@ import { AlertTriangle, ShieldAlert, Gauge, FileWarning } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatAmount } from '@/lib/soroban';
-import { SR_DEPLOYED } from '@/lib/config';
+import { SR_DEPLOYED, NETWORK_KEY } from '@/lib/config';
 import {
   getDepositCap,
   getDepositHeadroom,
@@ -67,13 +67,24 @@ const RISKS: Risk[] = [
   },
   {
     icon: Gauge,
-    severity: 'medium',
-    title: 'PT is a classic Stellar asset, and its issuer must stay locked',
+    // On testnet the issuer is deliberately NOT locked, so this is the more serious risk there.
+    severity: NETWORK_KEY === 'testnet' ? 'high' : 'medium',
+    title:
+      NETWORK_KEY === 'testnet'
+        ? 'On testnet the PT issuer is NOT locked — anyone holding its key could mint unbacked PT'
+        : 'PT is a classic Stellar asset, and its issuer must stay locked',
     body:
-      'Principal tokens are ordinary Stellar assets. The issuing account is locked at deployment so '
-      + 'only the protocol can mint them — if that step were ever skipped or reversed, PT could be '
-      + 'created that nothing backs. An off-chain monitor checks total PT supply against what the '
-      + 'contracts have issued and alarms on any discrepancy.',
+      NETWORK_KEY === 'testnet'
+        ? 'Principal tokens are ordinary Stellar assets, and on mainnet the issuing account is '
+          + 'locked at deployment so only the protocol can mint them. On testnet it is deliberately '
+          + 'left unlocked so the stack can be redeployed, which means PT here is only as trustworthy '
+          + 'as whoever holds that key. Treat testnet balances as a demonstration, never as value. An '
+          + 'off-chain monitor still checks total PT supply against what the contracts have issued and '
+          + 'alarms on any discrepancy.'
+        : 'Principal tokens are ordinary Stellar assets. The issuing account is locked at deployment '
+          + 'so only the protocol can mint them — if that step were ever skipped or reversed, PT could '
+          + 'be created that nothing backs. An off-chain monitor checks total PT supply against what '
+          + 'the contracts have issued and alarms on any discrepancy.',
   },
 ];
 

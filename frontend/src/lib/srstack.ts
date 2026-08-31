@@ -1159,30 +1159,51 @@ export const claimYieldToUsdc = (wallet: string): Promise<WriteResult> => {
 export const solveYtFaceForUsdc = async (usdcBudget: bigint): Promise<bigint> => {
   if (!ROUTER_AVAILABLE || usdcBudget <= 0n) return 0n;
 
-  // Opening guess: a 90-day 5% pool prices YT near 1.2% of face, so ~80x is the right order of
-  // magnitude. Being wrong is cheap — the first probe corrects it.
+  // Opening guess. The multiplier depends on the series: YT costs roughly the yield over the
+  // remaining term, so a 90-day 5% pool prices it near 1.2% of face (~80x) while a 30-day 2.5% one
+  // prices it near 0.37% (~270x). Being wrong is cheap — phase 1 corrects it.
   let face = usdcBudget * 80n;
-  let best = 0n;
+  let cost = 0n;
 
+  // ── Phase 1: find ANY fillable size ───────────────────────────────────────────────────────────
+  //
+  // **The binding constraint is usually the POOL, not the budget.** A thin pool caps the face far
+  // below what the budget could afford, and halving from the opening guess can take a dozen steps
+  // to reach it. This phase therefore gets its own generous bound.
+  //
+  // Sharing one iteration budget across both phases produced a bug where a LARGER budget returned a
+  // WORSE answer: measured on a 2.6 USDC PT reserve, a 1 USDC budget found a fill on its last
+  // allowed probe while a 2 USDC budget ran out one step short and quoted nothing at all.
+  for (let i = 0; i < 40 && face > 0n; i += 1) {
+    cost = await quoteBuyYtFromUsdc(face);
+    if (cost > 0n) break;
+    face /= 2n;
+  }
+  if (face <= 0n || cost <= 0n) return 0n;
+
+  // ── Phase 2: refine toward the budget ─────────────────────────────────────────────────────────
+  //
+  // Cost is very nearly linear in face over any size a single user trades, so a scaled secant
+  // converges in two or three probes. Returning slightly UNDER budget is the safe direction — the
+  // padded ceiling absorbs the difference and the remainder is refunded.
+  let best = cost <= usdcBudget ? face : 0n;
   for (let i = 0; i < 5; i += 1) {
-    const cost = await quoteBuyYtFromUsdc(face);
-    if (cost <= 0n) {
-      // Too big for the pool to fill. Halve and retry rather than giving up: the user's budget may
-      // simply exceed available liquidity, and a smaller fill is still a useful answer.
-      face /= 2n;
-      if (face <= 0n) return best;
-      continue;
-    }
-    if (cost <= usdcBudget) {
-      best = face;
-      // Within 0.5% of the budget is close enough to stop probing.
-      if (usdcBudget - cost <= usdcBudget / 200n) return face;
-    }
+    if (cost > 0n && cost <= usdcBudget && usdcBudget - cost <= usdcBudget / 200n) return face;
     const next = (face * usdcBudget) / cost;
-    if (next <= 0n) return best;
-    // Damp the very first correction; an opening guess far off can otherwise overshoot into a size
-    // the pool cannot quote at all, wasting a probe.
+    if (next <= 0n) break;
+    // Damp the first correction; an opening guess far off can otherwise overshoot into a size the
+    // pool cannot quote at all, wasting a probe.
     face = i === 0 ? (face + next) / 2n : next;
+    if (face <= 0n) break;
+    cost = await quoteBuyYtFromUsdc(face);
+    if (cost <= 0n) {
+      // Overshot the pool's capacity. Step back toward the last size that worked.
+      face = best > 0n ? (face + best) / 2n : face / 2n;
+      if (face <= 0n) break;
+      cost = await quoteBuyYtFromUsdc(face);
+      if (cost <= 0n) break;
+    }
+    if (cost <= usdcBudget && face > best) best = face;
   }
   return best;
 };
