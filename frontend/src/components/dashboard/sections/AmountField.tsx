@@ -137,7 +137,7 @@ const AmountField = ({
       </div>
 
       {hint && (
-        <p className={cn('mt-2 truncate text-[12px] font-medium', HINT[hintTone])}>{hint}</p>
+        <p className={cn('mt-2 text-[12px] leading-snug font-medium text-pretty', HINT[hintTone])}>{hint}</p>
       )}
     </div>
   );

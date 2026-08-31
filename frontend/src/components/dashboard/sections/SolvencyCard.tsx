@@ -107,7 +107,7 @@ const SolvencyCard = () => {
         </div>
 
         {/* Figures — also serve as the bar legend via the colored dots. */}
-        <div className="grid grid-cols-3 gap-2 @md:gap-3">
+        <div className="grid grid-cols-3 gap-2 max-[359px]:grid-cols-1 @md:gap-3">
           <Metric label="Backing" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
           <Metric
             label="Principal"
@@ -157,8 +157,8 @@ const Metric = ({
   /** Optional Tailwind bg-class for a small legend swatch beside the label. */
   dot?: string;
 }) => (
-  <div className="min-w-0 well rounded-lg p-2.5 sm:p-3">
-    <p className="flex items-center gap-1 eyebrow sm:gap-1.5">
+  <div className="min-w-0 well rounded-lg p-2 @md:p-3">
+    <p className="flex items-center gap-1 eyebrow @md:gap-1.5">
       {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
       <span className="truncate">{label}</span>
     </p>

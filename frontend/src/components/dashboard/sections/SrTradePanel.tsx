@@ -550,14 +550,14 @@ const SrTradePanel = () => {
         )}
 
         {/* ── Slippage: the user's only protection between simulation and execution ───────────── */}
-        <div className="flex items-center justify-between gap-3 text-xs">
+        <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <span className="text-muted-foreground">
             Max slippage
             <span className="ml-1 text-[11px]">
               (the trade reverts rather than filling worse)
             </span>
           </span>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {SLIPPAGE_CHOICES_BPS.map((bps) => (
               <button
                 key={String(bps)}

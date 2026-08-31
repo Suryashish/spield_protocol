@@ -756,7 +756,7 @@ const BridgePanel = ({
           <Label className="eyebrow">From</Label>
           <div className="flex gap-2">
             <Select value={String(source.chainId)} onValueChange={(value) => void selectSource(value)}>
-              <SelectTrigger className="h-11 flex-1">
+              <SelectTrigger className="h-11 min-w-0 flex-1">
                 <span className="flex min-w-0 items-center gap-2">
                   <NetworkIcon chainSymbol={source.short} size={20} />
                   <span className="truncate text-sm font-medium">{source.name}</span>
@@ -793,7 +793,7 @@ const BridgePanel = ({
               </SelectContent>
             </Select>
             <Select value="USDC" disabled>
-              <SelectTrigger className="h-11 w-[118px]">
+              <SelectTrigger className="h-11 w-[118px] shrink-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent><SelectItem value="USDC">USDC</SelectItem></SelectContent>
