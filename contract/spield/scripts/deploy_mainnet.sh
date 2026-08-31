@@ -21,7 +21,8 @@
 #  * The vault rate calibration is a **HARD GATE**, not advisory: mainnet Blend genuinely funds
 #    3.00%, so a rate that fails the gate is a mistake rather than an accepted testnet subsidy.
 #  * `MAX_APR_BPS` is validated against FixedV2's own rate ceiling (see `blendcalibration.md` §4).
-#  * The issuer cannot be friendbot-funded — it must exist and hold XLM before the run.
+#  * Neither account can be friendbot-funded. Both must exist ON CHAIN and hold XLM before the
+#    run — checked against Horizon up front, so the run cannot die half-deployed for want of fees.
 #  * `SR_DEPOSIT_CAP` defaults to **50 USDC** (`500_000_000` base units), deliberately small for launch.
 #
 # ── Prerequisites ────────────────────────────────────────────────────────────────────────────────
@@ -286,15 +287,89 @@ expect() {  # expect <label> <actual> <wanted>
   echo "    ✓ $1"
 }
 
-# The issuer must already exist and hold XLM. There is no friendbot on mainnet, and generating a
-# key here would produce an unfunded account that fails several steps later, after the run has
-# already spent fees.
-if ! stellar keys address "$ISSUER" >/dev/null 2>&1; then
-  echo "ERROR: issuer identity '$ISSUER' does not exist."
-  echo "       Create and fund it first (it needs XLM for the PT issuance + lockdown):"
-  echo "         stellar keys generate $ISSUER"
-  echo "         # then send it XLM from a funded account"
-  exit 1
+# Both identities must exist LOCALLY. There is no friendbot on mainnet, and generating a key here
+# would produce an unfunded account that fails several steps later, after the run has already
+# spent fees.
+for _id in "$SOURCE" "$ISSUER"; do
+  if ! stellar keys address "$_id" >/dev/null 2>&1; then
+    echo "ERROR: identity '$_id' does not exist."
+    echo "       Create and fund it first:"
+    echo "         stellar keys generate $_id"
+    echo "         # then send it XLM from a funded account (no friendbot on mainnet)"
+    exit 1
+  fi
+done
+
+# ...and they must exist ON CHAIN with enough XLM to finish.
+#
+# A local identity is just a keypair. It can exist with no ledger account and no balance, and the
+# run would then die partway through with a raw CLI error, after real fees had been spent and some
+# contracts were already live. Both figures below come from MAINNET.md §4 / left.md §B.
+#
+# WARN below the comfortable number, REFUSE below the bare minimum. Set SKIP_FUNDING_CHECK=1 to
+# bypass (CI, or a deliberate re-run where you know the remaining steps are cheap).
+MIN_DEPLOYER_XLM="${MIN_DEPLOYER_XLM:-45}"        # bare minimum; ~180 is the comfortable figure
+MIN_ISSUER_XLM="${MIN_ISSUER_XLM:-3}"             # bare minimum; ~10 is the comfortable figure
+WANT_DEPLOYER_XLM="${WANT_DEPLOYER_XLM:-180}"
+WANT_ISSUER_XLM="${WANT_ISSUER_XLM:-10}"
+
+# Prints the account's native XLM balance, or "MISSING" when the account does not exist, or
+# "UNREADABLE" when Horizon could not be reached. Never prints an empty string — an empty balance
+# read must not be mistaken for zero, nor for "fine".
+xlm_balance() {  # xlm_balance <G-address>
+  local json
+  json=$(curl -s --max-time 20 "$HORIZON_URL/accounts/$1" 2>/dev/null) || { printf 'UNREADABLE'; return 0; }
+  [ -n "$json" ] || { printf 'UNREADABLE'; return 0; }
+  printf '%s' "$json" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('UNREADABLE'); raise SystemExit(0)
+if d.get('status') == 404 or 'balances' not in d:
+    print('MISSING'); raise SystemExit(0)
+for b in d['balances']:
+    if b.get('asset_type') == 'native':
+        print(b['balance']); raise SystemExit(0)
+print('MISSING')
+" 2>/dev/null || printf 'UNREADABLE'
+}
+
+if [ "${SKIP_FUNDING_CHECK:-0}" != "1" ]; then
+  echo "==> Checking both accounts exist on chain and are funded..."
+  _funding_ok=1
+  for _pair in "deployer:$SOURCE:$MIN_DEPLOYER_XLM:$WANT_DEPLOYER_XLM" \
+               "issuer:$ISSUER:$MIN_ISSUER_XLM:$WANT_ISSUER_XLM"; do
+    _role="${_pair%%:*}"; _rest="${_pair#*:}"
+    _key="${_rest%%:*}";  _rest="${_rest#*:}"
+    _min="${_rest%%:*}";  _want="${_rest##*:}"
+    _addr=$(stellar keys address "$_key")
+    _bal=$(xlm_balance "$_addr")
+    case "$_bal" in
+      MISSING)
+        echo "    ✗ $_role ($_key) — NO ACCOUNT on mainnet: $_addr"
+        echo "      Send it at least $_want XLM from a funded account. There is no friendbot here."
+        _funding_ok=0 ;;
+      UNREADABLE)
+        echo "    ✗ $_role ($_key) — could not read $HORIZON_URL. Refusing to deploy blind."
+        _funding_ok=0 ;;
+      *)
+        if [ "$(printf '%s\n' "$_bal < $_min" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+          echo "    ✗ $_role ($_key) — $_bal XLM, below the $_min XLM minimum. Top it up to ~$_want."
+          _funding_ok=0
+        elif [ "$(printf '%s\n' "$_bal < $_want" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+          echo "    ⚠ $_role ($_key) — $_bal XLM. Above the $_min minimum but below the"
+          echo "      comfortable $_want. A fee spike or a mid-deploy re-run could strand this run."
+        else
+          echo "    ✓ $_role ($_key) — $_bal XLM"
+        fi ;;
+    esac
+  done
+  [ "$_funding_ok" = "1" ] || {
+    echo "ERROR: refusing to start. Fund the accounts above, then re-run."
+    echo "       (SKIP_FUNDING_CHECK=1 bypasses this deliberately.)"
+    exit 1
+  }
 fi
 
 # ─── Mainnet preflight ───────────────────────────────────────────────────────────────────────────

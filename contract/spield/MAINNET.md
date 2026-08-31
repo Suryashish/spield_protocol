@@ -301,18 +301,41 @@ The script is **checkpointed and safe to re-run**:
 ## 6. After deploy — hardening (recommended; none are required to operate)
 
 1. **Rotate every admin to a multisig** — *recommended for real TVL, optional otherwise* (see "Can
-   `spield_deployer` just stay the admin?" above). Two-step; the new key must accept. Repeat for **all
-   four** contracts — wrapper, strategy, vault, market:
+   `spield_deployer` just stay the admin?" above). **Use the script; do not do this by hand:**
+
    ```bash
-   # current admin (spield_deployer) proposes:
-   stellar contract invoke --id <CONTRACT> --source-account spield_deployer \
-     --network-passphrase "Public Global Stellar Network ; September 2015" --rpc-url https://mainnet.sorobanrpc.com \
-     -- propose_admin --new_admin <MULTISIG_ADDR>
-   # the NEW admin (multisig) signs accept_admin:
-   stellar contract invoke --id <CONTRACT> --source-account <MULTISIG_SIGNER> \
-     --network-passphrase "Public Global Stellar Network ; September 2015" --rpc-url https://mainnet.sorobanrpc.com \
-     -- accept_admin
+   NETWORK=mainnet MODE=verify ./scripts/rotate_admins.sh        # read the current state, change nothing
+   NETWORK=mainnet MODE=rotate TO=<MULTISIG_G_ADDR> TO_SIGNERS=<csv> ./scripts/rotate_admins.sh
    ```
+
+   > **Corrected 2026-08-31.** This section previously said "all **four** contracts — wrapper,
+   > strategy, vault, market". That is the retired **v1** stack. The v2 stack has **six**: `sr`,
+   > `strategy`, `yield`, `srmarket`, `srvault`, `srrouter`. Rotating four of six leaves two
+   > contracts under the old key.
+   >
+   > It also showed `accept_admin` invoked with `--source-account <MULTISIG_SIGNER>`. **That does not
+   > work.** `accept_admin` requires auth from the *pending admin address* — the multisig account
+   > itself, not one of its signers. A signer as source authorizes the signer's own address, and the
+   > call fails. A multisig must build the transaction with the **multisig account** as source, then
+   > collect signatures onto that envelope:
+   >
+   > ```bash
+   > stellar contract invoke --id <CONTRACT> --source-account <MULTISIG_G_ADDR> --build-only \
+   >   --network-passphrase "Public Global Stellar Network ; September 2015" \
+   >   --rpc-url https://mainnet.sorobanrpc.com -- accept_admin \
+   >  | stellar tx simulate --source-account <MULTISIG_G_ADDR> --network mainnet \
+   >  | stellar tx sign --sign-with-key <signer1> --network mainnet \
+   >  | stellar tx sign --sign-with-key <signer2> --network mainnet \
+   >  | stellar tx send --network mainnet
+   > ```
+   >
+   > `stellar tx simulate` is **not optional** — `--build-only` emits a transaction with fee 100 and
+   > no Soroban resources, which the network rejects. `rotate_admins.sh` does all of this, plus the
+   > verification, and refuses to leave a half-finished rotation. Verified on testnet 2026-08-31.
+
+   **Also check `strategy.emissions_to` afterwards.** It is `unwrap_or_else(current_admin)`, so if it
+   was never set explicitly it follows the admin. `MODE=payouts` moves the two treasuries and the
+   emissions destination deliberately, rather than by accident.
 2. **Verify the live code hashes** match what you built (compare to `stellar contract install --wasm <f>`):
    ```bash
    stellar contract invoke --id <each> ... -- code_hash
