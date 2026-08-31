@@ -348,7 +348,52 @@ is comfortable.
 
 ---
 
-## 7. Immediately after the deploy
+## 7. Deployed contracts — fill this in on the day
+
+**Empty until the deploy runs.** This is the table anyone else will look for first, and the one
+Deliverable 1 needs as explorer links, so it lives here rather than only in a state file.
+
+| Contract | What it is | Mainnet address |
+|---|---|---|
+| `SR` | Standardized Return — the share token over the Blend strategy. **The only mint path, so the deposit cap lives here** | *not deployed* |
+| `STRATEGY` | Blend adapter. Holds the actual USDC position | *not deployed* |
+| `YIELD` | PT/YT engine — **and the YT token itself**, because YT needs a transfer hook a SAC cannot provide | *not deployed* |
+| `SRMARKET` | The PT/SR time-decay AMM | *not deployed* |
+| `SRVAULT` | The Fixed-Rate Vault — the flagship | *not deployed* |
+| `SRROUTER` | Single-signature USDC flows. **No privileges, no balances, by construction** | *not deployed* |
+| `PT_SAC` | PT as a Stellar Asset Contract | *not deployed* |
+| `PT_ASSET_ID` | The classic asset, `CODE:ISSUER` | *not deployed* |
+| Blend pool | FixedV2 — an external dependency, not ours | `CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD` |
+| USDC | Circle's mainnet USDC SAC — external | `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75` |
+
+**Do not transcribe these by hand.** The deploy writes every address to
+`scripts/deploy_mainnet_v2.state`; this prints the rows ready to paste, so a typo cannot creep in
+between the ledger and the doc:
+
+```bash
+source scripts/deploy_mainnet_v2.state
+for c in SR STRATEGY YIELD SRMARKET SRVAULT SRROUTER PT_SAC; do
+  printf '| `%s` | | `%s` |\n' "$c" "${!c}"
+done
+printf '| `PT_ASSET_ID` | | `%s` |\n' "$PT_ASSET_ID"
+```
+
+Explorer links for the evidence pack (Deliverable 1 asks for these as openable links):
+
+```bash
+source scripts/deploy_mainnet_v2.state
+for c in SR STRATEGY YIELD SRMARKET SRVAULT SRROUTER PT_SAC; do
+  echo "$c  https://stellar.expert/explorer/public/contract/${!c}"
+done
+```
+
+The same addresses must also land in **`frontend/src/lib/config.ts`** (the `mainnet.sr` block, `null`
+today) and **`MAINNETCONTRACTADDRESSES.md`** (still listing the retired v1 stack). Three places, one
+source — copy from the state file to all three in one sitting rather than from memory later.
+
+---
+
+## 8. Immediately after the deploy
 
 ```bash
 NETWORK=mainnet MODE=verify ./scripts/rotate_admins.sh   # reads only, changes nothing
@@ -366,7 +411,7 @@ Then:
 
 ---
 
-## 8. The irreversible list
+## 9. The irreversible list
 
 Read this once before typing `deploy`.
 
@@ -381,7 +426,7 @@ Everything else is recoverable: the cap is one `set_deposit_cap` call, the rate 
 
 ---
 
-## 9. The honest status
+## 10. The honest status
 
 * The contracts are **not audited**. The deposit cap is what makes that survivable, and the UI says so
   in plain words on the risk panel.
