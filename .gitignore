@@ -33,3 +33,10 @@ sdk plan.md
 tofix.md
 x-agent.md
 SMART_CONTRACT_STRUCTURE.md
+
+# ---- SECRETS. Never commit. -------------------------------------------------
+# wallets.md holds the MAINNET secret keys for spield_deployer, spield_pt_issuer
+# and spield_admin_multisig in plaintext. Anyone with that file controls the
+# protocol's admin and can spend its funds.
+wallets.md
+**/wallets.md

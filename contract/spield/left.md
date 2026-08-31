@@ -30,7 +30,8 @@ script now refuses to run rather than generating an unfunded key that fails half
 
 The issuer is locked irreversibly during the deploy (`LOCK_ISSUER=0` skips it, but don't).
 
-**Budget:** see `MAINNET.md` §4. Its XLM figures are stack-agnostic and still accurate.
+**Budget:** see **`MAINNET_LAUNCH.md`** — measured, not estimated. `MAINNET.md` §4's XLM figures
+predate the measurement and are ~36x too high.
 
 ---
 
@@ -132,9 +133,18 @@ is a contract, not a SAC.
 | `spield_pt_issuer` | **≈ 10 XLM** | ~3 XLM | Account reserve, 1 classic-asset issuance + SAC deploy, `set_admin`, the issuer lockdown |
 | **Total** | **≈ 190 XLM** | ~50 XLM | |
 
-Fund the comfortable figure. Most of it is **not spent** — account and trustline reserves are
-*locked* and come back if you ever merge the account, and unused XLM just sits there. The headroom
-exists so a fee spike or a mid-deploy re-run never strands you.
+> ⚠️ **Superseded 2026-08-31 — these figures were never measured, and they are ~36x too high.**
+> Measured on chain: a 14.6 KB WASM install costs **0.198 XLM** (~0.0136/KB), so the six contracts'
+> 251 KB is **≈3.4 XLM one time**; deploy + initialize with the WASM installed is **≈0.5 XLM**; the
+> issuer spends **0.006 XLM**. Real total: **≈5 XLM spent, ≈2.5 XLM locked in reserves.**
+> **`MAINNET_LAUNCH.md` has the current numbers and the receipts.** Funding 190 is harmless (unused
+> XLM just sits there) but is not required — and over-funding the ISSUER is actively bad, because the
+> lockdown makes whatever is left inside it unrecoverable.
+
+Most of it is **not spent** — account and trustline reserves are *locked* and come back if you ever
+merge the account, and unused XLM just sits there. Headroom exists so a fee spike or a mid-deploy
+re-run never strands you. **But fund the ISSUER minimally** (~6 XLM): the lockdown sets its master
+weight to 0, after which anything left inside it can never be moved.
 
 Costs come from three places: base reserves (0.5 XLM per ledger entry), the per-transaction base fee
 (negligible), and **Soroban resource + rent fees** for installs/deploys/invokes — which is the real
@@ -352,7 +362,7 @@ mainnet deploy will not have this problem**: the market now opens at the vault's
 | Maturity | **30 days** | ✅ set in both v2 scripts |
 | Deposit cap | **50 USDC** (`500000000`) | ✅ set in both v2 scripts; counts your seeding too (§C) |
 | `ir_mod` break-even | **0.705** | alarm below this |
-| XLM to fund | **≈ 190 total** | 180 deployer + 10 issuer, comfortable |
+| XLM to fund | **60 + 6** | measured need is ~5 spent; see `MAINNET_LAUNCH.md`. The old ≈190 figure is superseded |
 | USDC to deploy | **0** | seeds are opt-in |
 | Worst-case subsidy | **0.212% of deposits** | per 30-day series |
 | Blend pool | FixedV2 `CAJJZSGMMM…` | not YieldBloxV2 |

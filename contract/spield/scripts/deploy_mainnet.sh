@@ -161,8 +161,18 @@ SEED_PER_SIDE="${SEED_PER_SIDE:-50000000}"                     # 5 USDC per side
 
 # ─── Fixed-Rate Vault ────────────────────────────────────────────────────────────────────────────
 # USDC of PT coupon capacity to seed. The vault can only promise coupons out of SPARE inventory,
-# so an unseeded vault quotes a rate but refuses every deposit.
-VAULT_SEED_AMOUNT="${VAULT_SEED_AMOUNT:-0}"
+# so an unseeded vault quotes a rate but refuses every deposit — which is why this no longer
+# defaults to 0.
+#
+# 2 USDC, sized against the 50 USDC cap. The seed backs COUPONS ONLY: a depositor brings their own
+# principal, measured on chain — seeding 5 USDC gave pt_inventory 5.0, then a 1 USDC deposit RAISED
+# inventory to 6.0 and consumed 86 stroops of coupon_capacity (a 19-stroop coupon plus the 66-stroop
+# per-receipt reserve).
+#
+# At 300 bps over 30 days a coupon is 0.247% of the deposit. Seeding 2 leaves 48 USDC of cap for
+# users, whose coupons could total 0.118 USDC — a 17x margin. It also costs 3 USDC less of the cap
+# than a 5 USDC seed, and the cap, not the seed, is what binds here.
+VAULT_SEED_AMOUNT="${VAULT_SEED_AMOUNT:-20000000}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # A NEW file: `deploy_mainnet.state` belongs to the retired v1 run and still holds live v1 contract
@@ -308,10 +318,20 @@ done
 #
 # WARN below the comfortable number, REFUSE below the bare minimum. Set SKIP_FUNDING_CHECK=1 to
 # bypass (CI, or a deliberate re-run where you know the remaining steps are cheap).
-MIN_DEPLOYER_XLM="${MIN_DEPLOYER_XLM:-45}"        # bare minimum; ~180 is the comfortable figure
-MIN_ISSUER_XLM="${MIN_ISSUER_XLM:-3}"             # bare minimum; ~10 is the comfortable figure
-WANT_DEPLOYER_XLM="${WANT_DEPLOYER_XLM:-180}"
-WANT_ISSUER_XLM="${WANT_ISSUER_XLM:-10}"
+# MEASURED 2026-08-31, not estimated. A 14.6 KB WASM install on testnet cost
+# 0.198 XLM (tx af3da78d…), i.e. ~0.0136 XLM/KB, so the six contracts' 251 KB of
+# WASM is ~3.4 XLM ONE TIME. A full six-contract deploy + init with the WASM
+# already installed measured ~0.5 XLM. Reserves are ~1 XLM per account plus
+# 0.5 XLM for the deployer's PT trustline, and those are LOCKED, not spent.
+# Real need is therefore ~5 XLM of spend and ~2.5 XLM locked.
+#
+# The thresholds below are deliberately several times that. MAINNET.md's old
+# ~180 XLM figure predates the measurement and is ~36x the real cost; it is not
+# wrong to fund it, but it is not required either.
+MIN_DEPLOYER_XLM="${MIN_DEPLOYER_XLM:-20}"        # ~4x measured need
+MIN_ISSUER_XLM="${MIN_ISSUER_XLM:-3}"             # ~3x (mostly the 1 XLM reserve)
+WANT_DEPLOYER_XLM="${WANT_DEPLOYER_XLM:-60}"      # ~12x — fee spikes, a re-run, headroom
+WANT_ISSUER_XLM="${WANT_ISSUER_XLM:-6}"
 
 # Prints the account's native XLM balance, or "MISSING" when the account does not exist, or
 # "UNREADABLE" when Horizon could not be reached. Never prints an empty string — an empty balance
