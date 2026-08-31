@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import Sidebar from '@/components/dashboard/layout/Sidebar';
+import BottomNav from '@/components/dashboard/layout/BottomNav';
 import Header from '@/components/dashboard/layout/Header';
 import StatsGrid from '@/components/dashboard/sections/StatsGrid';
 import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
@@ -470,6 +471,7 @@ const DashboardPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { refresh, refreshing, stale } = useProtocol();
 
   // Derive the active section from the URL path segment (e.g. /vault -> vault)
@@ -486,6 +488,20 @@ const DashboardPage = () => {
       navigate(`/${sectionParam}`, { replace: true });
     }
   }, [searchParams, navigate]);
+
+  // A route change from anywhere — the sheet, a deep link, the back gesture —
+  // must leave the sheet closed. Without this, going back after tapping a sheet
+  // item returns you to the previous section with the sheet still up.
+  //
+  // Adjusted during render rather than in an effect: this is state derived from
+  // a change in another value, which React handles in-render without the extra
+  // commit-then-rerender an effect would cost.
+  // https://react.dev/learn/you-might-not-need-an-effect
+  const [lastPath, setLastPath] = useState(location.pathname);
+  if (lastPath !== location.pathname) {
+    setLastPath(location.pathname);
+    setMoreOpen(false);
+  }
 
   const nav = navById(activeNav);
 
@@ -527,7 +543,7 @@ const DashboardPage = () => {
 
           {/* The gutter steps 16 → 24 → 32 with the viewport rather than
               jumping straight from a phone's margin to a desktop's. */}
-          <div className="grow overflow-y-auto px-4 pt-6 pb-16 sm:px-6 lg:px-8 lg:pt-8">
+          <div className="grow overflow-y-auto px-4 pt-6 pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8 lg:pt-8 lg:pb-16">
             <div className="mx-auto max-w-7xl space-y-6">
               {/* Page title. Satoshi at display size with the subtitle set on
                   a real measure under it — the section states what it is once,
@@ -573,6 +589,15 @@ const DashboardPage = () => {
             </div>
           </div>
         </main>
+
+        {/* Phones navigate from the bottom. Rendered as a sibling of <main> so
+            it spans the viewport, not the content column. */}
+        <BottomNav
+          activeNav={activeNav}
+          onNavChange={navValue.navigate}
+          moreOpen={moreOpen}
+          onMoreOpenChange={setMoreOpen}
+        />
       </div>
     </NavProvider>
   );

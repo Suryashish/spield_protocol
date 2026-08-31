@@ -280,6 +280,123 @@ body {
 .site-nav {
   transition: opacity 0.9s var(--ease-v), transform 0.9s var(--ease-v);
 }
+
+/* The header is fixed and had NO background, so every section scrolled under
+   the wordmark and the buttons and collided with them. On a phone that made
+   real content unreadable — the vault card's "YOU DEPOSIT 10,000 USDC" sat
+   directly behind the logo, and the footer's own wordmark doubled with it.
+   A permanent bar would cut across the hero, which is the one screen meant to
+   be uninterrupted, so the backdrop arrives only once you have left the top. */
+.site-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--canvas) 90%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid transparent;
+  opacity: 0;
+  transition: opacity 0.28s var(--ease-v), border-color 0.28s var(--ease-v);
+  pointer-events: none;
+}
+.site-nav[data-scrolled]::before {
+  opacity: 1;
+  border-bottom-color: var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-nav::before { transition: none; }
+}
+
+/* ---- mobile menu ----------------------------------------------------------
+   No animation library on this site, so the open/close is CSS. Three rules
+   matter for it feeling built rather than bolted on:
+
+   1. The icon animates TRANSFORM only. The first version moved `top`, which is
+      not a transitionable jump on a positioned element, so the bars snapped to
+      their new offset and then rotated — the "rough" part.
+   2. The panel stays mounted and transitions `visibility` on a zero-length
+      delay, so it fades OUT as well as in. `hidden` cut it dead both ways.
+   3. It wears the header's own frosted surface, so it reads as the bar
+      extending downward rather than a card dropped on top of the page. */
+
+.menu-icon {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 10px;
+}
+.menu-icon > span {
+  position: absolute;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform 0.4s var(--ease-v);
+}
+.menu-icon > span:nth-child(1) { top: 0; }
+.menu-icon > span:nth-child(2) { top: 8px; }
+.menu-icon[data-open] > span:nth-child(1) { transform: translateY(4px) rotate(45deg); }
+.menu-icon[data-open] > span:nth-child(2) { transform: translateY(-4px) rotate(-45deg); }
+
+.site-menu {
+  transform-origin: top center;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.98);
+  background: var(--surface);
+  transition: opacity 0.34s var(--ease-v), transform 0.34s var(--ease-v),
+    visibility 0s linear 0.34s;
+}
+.site-menu[data-open] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 0.34s var(--ease-v), transform 0.34s var(--ease-v),
+    visibility 0s linear 0s;
+}
+/* The rows arrive just behind the panel, which is what stops the whole thing
+   reading as one flat rectangle appearing. */
+.site-menu > a {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.001s, transform 0.001s, background-color 0.2s var(--ease-v);
+}
+.site-menu[data-open] > a {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.32s var(--ease-v), transform 0.32s var(--ease-v),
+    background-color 0.2s var(--ease-v);
+}
+.site-menu[data-open] > a:nth-child(1) { transition-delay: 0.05s, 0.05s, 0s; }
+.site-menu[data-open] > a:nth-child(2) { transition-delay: 0.09s, 0.09s, 0s; }
+.site-menu[data-open] > a:nth-child(3) { transition-delay: 0.13s, 0.13s, 0s; }
+.site-menu[data-open] > a:nth-child(4) { transition-delay: 0.17s, 0.17s, 0s; }
+.site-menu[data-open] > a:nth-child(5) { transition-delay: 0.21s, 0.21s, 0s; }
+
+.site-menu-scrim {
+  opacity: 0;
+  visibility: hidden;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  transition: opacity 0.34s var(--ease-v), visibility 0s linear 0.34s;
+}
+.site-menu-scrim[data-open] {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.34s var(--ease-v), visibility 0s linear 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-icon > span,
+  .site-menu,
+  .site-menu > a,
+  .site-menu-scrim {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+}
 /* scoped like the black above — the nav waits for the dial only on the
    page that has one */
 .js body:has(.stage):not(.loaded) .site-nav {
@@ -2809,6 +2926,14 @@ body {
   transition: transform 0.2s var(--ease-v), border-color 0.2s var(--ease-v),
     background-color 0.2s var(--ease-v), color 0.2s var(--ease-v);
 }
+/* 7px of vertical padding gives a 33px chip: fine for a cursor, under the 44px
+   everyone targets for a thumb. Raised on touch devices only, so the desktop
+   composition is unchanged. */
+@media (pointer: coarse) {
+  .vault-chip {
+    padding: 11px 16px;
+  }
+}
 .vault-chip:hover {
   transform: translateY(-1px);
   border-color: var(--muted);
@@ -3093,16 +3218,69 @@ body {
     margin-top: clamp(26px, 4vh, 36px);
     padding-top: clamp(18px, 2.8vh, 26px);
   }
+  /* ---- the capacity readout belongs AFTER the dates on a phone ----
+     `capacity` is a property of the selected term, and the three terms differ
+     by an order of magnitude: 120,000 / 400,000 / 900,000. So tapping a date
+     changes that number — while it sits ABOVE the date you just tapped, out of
+     the field of view the thumb is working in. You get no feedback that your
+     own constraint just moved.
+
+     It also splits the two controls. "Set an amount" and "pick a date" are one
+     gesture, and an aside about the series was sitting between them.
+
+     Moved below the dates, the column reads: amount -> date -> how much room
+     that date has -> the answer. The number now updates directly under the row
+     that determines it, and the two inputs sit together.
+
+     Done with `order` rather than by moving the markup, so DESKTOP — where the
+     column is tall enough that all of it is visible at once and the original
+     order is fine — is untouched. Only `.vault-cap` is ordered; every other
+     child stays at the default `0` and therefore in document order. The element
+     is a non-focusable <p>, so visual order and tab order cannot disagree. */
+  .vault-set {
+    display: flex;
+    flex-direction: column;
+  }
+  .vault-cap {
+    order: 1;
+    margin-top: clamp(24px, 3vh, 30px);
+  }
+
   /* the rule between the two halves turns with the layout */
   .vault-out {
-    margin-top: clamp(24px, 3.2vh, 32px);
-    padding-top: clamp(20px, 2.8vh, 26px);
+    /* Measured at 375px before this was widened: the gap across the divider was
+       26px while `capacity -> MATURITY`, a gap INSIDE the first half, was 28px.
+       The component's main division — what you SET versus what you GET — was
+       therefore spaced less than a division within one half of it, so the eye
+       read one continuous list and the quote stopped looking like an answer.
+       Side by side on desktop the split is carried by the layout itself; once
+       stacked, spacing is the only thing left to carry it.
+
+       First correction over-shot to 41px + 31px = 73px, which is 2.6x the
+       largest internal gap AND sits either side of a visible hairline — paying
+       twice for one separation, and it read as a dead band.
+
+       The second attempt used the same `3.4vh` term as `.vault-label-2`, the
+       largest internal gap — so the two tracked each other exactly and the main
+       division was spaced identically to a division inside one half, at every
+       viewport height. A larger vh term keeps it ahead at any height. The total
+       separation is now margin + rule + padding, about 2x the internal maximum,
+       with the rule carrying the rest instead of more air. */
+    margin-top: clamp(32px, 4.2vh, 44px);
+    padding-top: clamp(22px, 2.8vh, 28px);
     padding-left: 0;
     border-left: 0;
     border-top: 1px solid var(--border);
   }
+  /* The quote is lit, not boxed (see `.vault-out::before`) — so the separation
+     has to come from the light as well as the space. Stacked, the desktop
+     spread washes the whole column and lifts nothing in particular; pulled in
+     around the figure, it reads as the number glowing rather than the panel. */
   .vault-out::before {
-    inset: -6% -8% 30% -4%;
+    inset: -4% 2% 44% 2%;
+  }
+  [data-theme="dark"] .vault-out::before {
+    inset: -6% 0% 40% 0%;
   }
   .vault-cta {
     align-self: stretch;
@@ -3414,5 +3592,30 @@ body {
   }
   .close-ring {
     stroke-dashoffset: 0 !important;
+  }
+}
+
+/* ---- the trust section's status line, on a phone -------------------------
+   Four facts and three interpuncts in a `flex-wrap` broke as
+   "NOT AUDITED · STELLAR TESTNET ·" / "NON-CUSTODIAL · NO LIVE FIGURES" —
+   a separator stranded at the end of a line, which reads as a typo rather
+   than as punctuation. A 2x2 grid drops the separators and lets the columns
+   do the separating.
+
+   All four facts stay, "NOT AUDITED" stays first, and it stays the same size
+   as the rest. The section's own note is explicit that this line is not
+   small print: a page that buries an unaudited status is only trusted until
+   somebody checks. Making it *tidier* on a phone is allowed; making it
+   quieter is not. */
+@media (max-width: 560px) {
+  .trust-status {
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+    justify-content: center;
+    gap: 8px 22px;
+    text-align: center;
+  }
+  .trust-status > span[aria-hidden="true"] {
+    display: none;
   }
 }

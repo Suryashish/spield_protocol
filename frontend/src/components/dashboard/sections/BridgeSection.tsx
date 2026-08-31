@@ -901,7 +901,7 @@ const BridgePanel = ({
           </button>
         </fieldset>
 
-        <div className="space-y-2 well rounded-lg p-3">
+        <div className="space-y-2 well rounded-lg p-3.5">
           <div className="flex justify-between gap-4 text-[12.5px]">
             <span className="text-muted-foreground">Circle {activeMode} fee</span>
             <span className="text-right text-foreground">
@@ -1060,7 +1060,7 @@ const RecipientConfirmation = ({
           </div>
           <DialogPrimitive.Close className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X size={16} /></DialogPrimitive.Close>
         </div>
-        <div className="mt-4 well rounded-lg p-3">
+        <div className="mt-4 well rounded-lg p-3.5">
           <Label className="eyebrow">Connected Stellar address</Label>
           <code className="mt-2 block break-all text-xs leading-relaxed">{recipient}</code>
         </div>
@@ -1088,7 +1088,7 @@ const TransferRow = ({ transfer }: { transfer: BridgeTransfer }) => {
   const transferConfig = getCctpConfig(transfer.environment);
   const source = transferConfig.sources.find((item) => item.short === transfer.sourceChainShort);
   return (
-    <div className="flex items-start gap-3 well rounded-lg p-3">
+    <div className="flex items-start gap-3 well rounded-lg p-3.5">
       <div className="mt-0.5 shrink-0">
         {transfer.status === 'complete'
           ? <CheckCircle2 size={16} className="text-brand-text" />

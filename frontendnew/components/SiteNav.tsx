@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SunIcon, MoonIcon } from "@/components/icons";
 import BrandMark from "@/components/BrandMark";
@@ -30,6 +30,31 @@ export default function SiteNav() {
   const navRef = useRef<HTMLElement>(null);
   const gliderRef = useRef<HTMLSpanElement>(null);
   const visibleRef = useRef(false);
+  /* The header is `fixed` with no background, so once the page scrolls, section
+     content passes UNDER the logo and the buttons and collides with them — on a
+     phone the vault section's "YOU DEPOSIT 10,000 USDC" was rendered unreadable
+     by the wordmark sitting on top of it. A backdrop fixes that, but applying it
+     always would put a bar across the hero, which is the one screen designed to
+     be uninterrupted. So: transparent at the top, frosted once you leave it. */
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  /* Escape closes the menu, and the page behind it must not scroll. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [menuOpen]);
 
   /* --- the glider: appears where you enter, glides between links --- */
   const place = (link: HTMLElement) => {
@@ -76,7 +101,10 @@ export default function SiteNav() {
   };
 
   return (
-    <header className="site-nav fixed inset-x-0 top-0 z-30 flex h-20 items-center justify-between px-[clamp(20px,4vw,48px)]">
+    <header
+      data-scrolled={scrolled || menuOpen ? "" : undefined}
+      className="site-nav fixed inset-x-0 top-0 z-30 flex h-20 items-center justify-between px-[clamp(20px,4vw,48px)]"
+    >
       <Link
         className="flex items-center gap-[10px] font-display text-[21px] font-bold tracking-[-0.02em]"
         href="/"
@@ -108,6 +136,22 @@ export default function SiteNav() {
       </nav>
 
       <div className="flex items-center gap-[10px]">
+        {/* Below 901px the links pill above is `hidden`, which left Vault,
+            Market, Learn, Glossary and Compare with no entry point at all on a
+            phone. This is that entry point. */}
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-expanded={menuOpen}
+          aria-controls="site-menu"
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          className="grid size-10 place-items-center rounded-full border border-line bg-surface/90 text-muted shadow-float-sm transition-all duration-200 hover:border-muted hover:text-ink min-[901px]:hidden"
+        >
+          <span className="menu-icon" data-open={menuOpen ? "" : undefined} aria-hidden="true">
+            <span />
+            <span />
+          </span>
+        </button>
         <button
           type="button"
           onClick={toggleTheme}
@@ -126,6 +170,36 @@ export default function SiteNav() {
         >
           Launch App
         </a>
+      </div>
+
+      {/* Menu scrim + panel. Rendered inside the fixed header so it inherits its
+          stacking context and can never end up behind a section. */}
+      <button
+        type="button"
+        tabIndex={menuOpen ? 0 : -1}
+        aria-label="Close menu"
+        aria-hidden={!menuOpen}
+        onClick={() => setMenuOpen(false)}
+        data-open={menuOpen ? "" : undefined}
+        className="site-menu-scrim fixed inset-0 top-20 z-0 cursor-default min-[901px]:hidden"
+      />
+      <div
+        id="site-menu"
+        data-open={menuOpen ? "" : undefined}
+        aria-hidden={!menuOpen}
+        className="site-menu absolute inset-x-[clamp(20px,4vw,48px)] top-[70px] z-10 overflow-hidden rounded-2xl border border-line p-2 shadow-float min-[901px]:hidden"
+      >
+        {LINKS.map(({ label, href }) => (
+          <Link
+            key={label}
+            href={href}
+            tabIndex={menuOpen ? 0 : -1}
+            onClick={() => setMenuOpen(false)}
+            className="flex min-h-[46px] items-center rounded-xl px-4 text-[15px] font-medium text-ink transition-colors duration-200 hover:bg-canvas active:bg-canvas"
+          >
+            {label}
+          </Link>
+        ))}
       </div>
     </header>
   );

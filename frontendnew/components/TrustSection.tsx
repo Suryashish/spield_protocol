@@ -125,7 +125,7 @@ export default function TrustSection() {
 
       {/* ---- where it honestly stands, then the door to the detail ---- */}
       <div className="io mx-auto mt-[clamp(26px,3.5vh,40px)] max-w-[760px] text-center" style={d(120)}>
-        <p className="flex flex-wrap items-center justify-center gap-x-[14px] gap-y-[6px] font-mono text-[11px] tracking-[0.12em] uppercase text-subtle">
+        <p className="trust-status flex flex-wrap items-center justify-center gap-x-[14px] gap-y-[6px] font-mono text-[11px] tracking-[0.12em] uppercase text-subtle">
           <span className="text-ink">Not audited</span>
           <span aria-hidden="true">&middot;</span>
           <span>{F.networkLabel}</span>
@@ -147,7 +147,12 @@ export default function TrustSection() {
             className="group inline-flex items-center gap-[10px] rounded-full border border-line bg-surface px-[22px] py-[13px] text-[14.5px] font-medium text-ink shadow-float-sm transition-all duration-200 hover:-translate-y-px hover:border-muted"
             href="/learn/spield-protocol-facts"
           >
-            All {ADDRESSES} addresses, {F.guarantees.length} guarantees, every metric
+            <span className="max-[560px]:hidden">
+              All {ADDRESSES} addresses, {F.guarantees.length} guarantees, every metric
+            </span>
+            <span className="hidden max-[560px]:inline">
+              All {ADDRESSES} addresses &amp; {F.guarantees.length} guarantees
+            </span>
             <span className="inline-block transition-transform duration-200 group-hover:translate-x-[3px]">
               <ArrowRight size={14} />
             </span>

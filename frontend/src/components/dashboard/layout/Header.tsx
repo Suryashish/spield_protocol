@@ -4,7 +4,9 @@ import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
 import { shortenAddress } from '@/lib/stellar';
+import { SITE_ORIGIN } from '@/lib/site';
 
+import BrandMark from './BrandMark';
 import ThemeToggle from './ThemeToggle';
 
 /**
@@ -58,7 +60,7 @@ const WalletMenu = () => {
   };
 
   const pill =
-    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-[13.5px] font-medium shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-line-strong disabled:pointer-events-none disabled:opacity-60';
+    'inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-card px-3.5 text-[13.5px] font-medium shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-line-strong disabled:pointer-events-none disabled:opacity-60';
 
   if (!isConnected) {
     return (
@@ -69,7 +71,13 @@ const WalletMenu = () => {
           ) : (
             <Wallet size={14} className="text-subtle" />
           )}
-          {connecting ? 'Connecting…' : 'Connect wallet'}
+          {connecting ? (
+            'Connecting…'
+          ) : (
+            <span>
+              Connect<span className="hidden min-[360px]:inline"> wallet</span>
+            </span>
+          )}
         </button>
         {error && (
           <span className="max-w-[16rem] text-right text-xs text-danger-text">{error}</span>
@@ -143,11 +151,21 @@ const Header = ({ section = 'Overview' }: HeaderProps) => {
           with only the leaf in ink. It says where you are without competing
           with the page heading two lines below it. */}
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2">
+        {/* The brand used to live at the top of the mobile left rail. That rail
+            is gone (phones navigate from the bottom now), so it moves here —
+            otherwise a phone shows no mark and no way back to the site. */}
+        <a
+          href={SITE_ORIGIN}
+          title="Go to spield.live"
+          className="mr-1 flex shrink-0 items-center transition-opacity duration-200 active:opacity-70 lg:hidden"
+        >
+          <BrandMark size={22} />
+        </a>
         <span className="eyebrow hidden sm:inline">Dashboard</span>
         <span className="hidden text-subtle sm:inline" aria-hidden="true">
           /
         </span>
-        <span className="truncate font-display text-sm font-medium tracking-[-0.01em]">
+        <span className="hidden truncate font-display text-sm font-medium tracking-[-0.01em] sm:inline">
           {section}
         </span>
       </nav>

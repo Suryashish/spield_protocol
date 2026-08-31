@@ -59,35 +59,6 @@ const SidebarItem = ({ item, active, collapsed, onClick }: SidebarItemProps) => 
   );
 };
 
-/** Compact icon-only nav button used by the always-visible mobile rail. */
-const MobileNavItem = ({
-  item,
-  active,
-  onClick,
-}: {
-  item: NavItem;
-  active: boolean;
-  onClick: () => void;
-}) => {
-  const Icon = item.icon;
-  return (
-    <button
-      onClick={onClick}
-      title={item.label}
-      aria-label={item.label}
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        'group relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-200',
-        active
-          ? 'nav-pill text-brand-text'
-          : 'text-subtle hover:bg-accent hover:text-foreground',
-      )}
-    >
-      <Icon size={16} className="shrink-0" />
-    </button>
-  );
-};
-
 /** The live "connected to Stellar <network>" badge shown in the sidebar footer. */
 const NetworkBadge = ({ collapsed }: { collapsed: boolean }) => (
   <div
@@ -117,6 +88,8 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
   return (
     <>
       {/* ----------------------------------------------------- desktop (lg+) */}
+      {/* Phones get `BottomNav` instead — see that file for why the old 56px
+          left rail was the wrong shape for a phone. */}
       {/* Inline collapsible rail. It sits ON the canvas rather than on a card
           of its own — the page is one sheet with a hairline down it, which is
           the marketing site's grammar and one less box than before. */}
@@ -236,44 +209,6 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
         </div>
       </motion.aside>
 
-      {/* -------------------------------------------------- mobile (< lg) */}
-      {/* Same side rail as desktop, just smaller — always visible, icon-only so
-          it takes minimal horizontal space on a phone. No drawer / hamburger. */}
-      <aside className="flex w-14 shrink-0 flex-col border-r border-border bg-canvas lg:hidden">
-        {/* Brand → the marketing site (cross-origin, as on desktop above) */}
-        <div className="flex h-14 shrink-0 items-center justify-center px-2">
-          <a href={SITE_ORIGIN} title="Go to spield.live" className="transition-opacity duration-200 hover:opacity-70">
-            <BrandMark size={24} />
-          </a>
-        </div>
-
-        {/* Primary nav — the runs become hairlines, which is all the grouping
-            a 56px rail can carry */}
-        <nav className="flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-2 py-1">
-          {NAV_GROUPS.map(({ id: groupId, label }) => {
-            const items = NAV_ITEMS.filter((n) => n.group === groupId);
-            if (!items.length) return null;
-            return (
-              <div key={groupId} className="flex w-full flex-col items-center gap-0.5">
-                {label && <span className="my-2 h-px w-5 bg-border" aria-hidden="true" />}
-                {items.map((item) => (
-                  <MobileNavItem
-                    key={item.id}
-                    item={item}
-                    active={activeNav === item.id}
-                    onClick={() => onNavChange(item.id)}
-                  />
-                ))}
-              </div>
-            );
-          })}
-        </nav>
-
-        {/* Footer: live network badge */}
-        <div className="flex shrink-0 flex-col items-center gap-1 border-t border-border px-2 py-3">
-          <NetworkBadge collapsed />
-        </div>
-      </aside>
     </>
   );
 };

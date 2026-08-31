@@ -84,7 +84,7 @@ const WalletPicker = ({
                     href={w.installUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="flex items-center justify-between well rounded-lg px-3 py-2.5 text-[13.5px] transition-colors duration-200 hover:border-line-strong"
+                    className="flex items-center justify-between well rounded-lg px-3.5 py-3 text-[13.5px] transition-colors duration-200 hover:border-line-strong"
                   >
                     <span className="flex items-center gap-2.5">
                       <Wallet size={16} className="text-subtle" />
@@ -103,7 +103,7 @@ const WalletPicker = ({
                   type="button"
                   disabled={connecting || checking}
                   onClick={() => handlePick(w.id)}
-                  className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5 text-left text-[13.5px] shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-brand/40 disabled:pointer-events-none disabled:opacity-60"
+                  className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3.5 py-3 text-left text-[13.5px] shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-brand/40 disabled:pointer-events-none disabled:opacity-60"
                 >
                   <span className="flex items-center gap-2.5">
                     <Wallet size={16} className={checking ? 'text-subtle' : 'text-brand-text'} />
