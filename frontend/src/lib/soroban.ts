@@ -9,7 +9,7 @@ import {
   rpc,
   xdr,
 } from '@stellar/stellar-sdk';
-import { DECIMALS, NETWORK, RPC_URLS } from './config';
+import { DECIMALS, NETWORK, RPC_URLS, RPC_WRITE_URLS } from './config';
 import { signWithWallet } from './stellar';
 
 /**
@@ -34,10 +34,19 @@ const RPC_TIMEOUT_MS = 15_000;
 /** After this long on a fallback, try the primary again — a blip should not demote it forever. */
 const STICKY_MS = 5 * 60_000;
 
-const pool = RPC_URLS.map((url) => new rpc.Server(url, { allowHttp: false }));
+const readPool = RPC_URLS.map((url) => new rpc.Server(url, { allowHttp: false }));
+
+/**
+ * A separate pool for writes, ordered by {@link RPC_WRITE_URLS} — dedicated endpoint first.
+ * Kept separate (rather than reusing the read pool's sticky index) so a read failing over does not
+ * drag the write path onto a load-balanced endpoint, which is the one thing writes cannot tolerate.
+ */
+const writePool = RPC_WRITE_URLS.map((url) => new rpc.Server(url, { allowHttp: false }));
 
 let activeIdx = 0;
 let activeSince = 0;
+let writeIdx = 0;
+let writeSince = 0;
 
 /**
  * Is this a transport failure (retry elsewhere) or a real answer (do not)?
@@ -89,17 +98,18 @@ const withTimeout = <T>(work: Promise<T>): Promise<T> =>
  * signed envelope, so a resubmission either lands the same transaction or is rejected as a
  * duplicate — it cannot produce two.
  */
-const failover = async <T>(op: (s: rpc.Server) => Promise<T>): Promise<T> => {
-  if (activeIdx !== 0 && Date.now() - activeSince > STICKY_MS) activeIdx = 0;
+const walk = async <T>(
+  servers: rpc.Server[],
+  start: number,
+  onStick: (idx: number) => void,
+  op: (s: rpc.Server) => Promise<T>,
+): Promise<T> => {
   let lastErr: unknown = new Error('No RPC endpoint configured');
-  for (let i = 0; i < pool.length; i++) {
-    const idx = (activeIdx + i) % pool.length;
+  for (let i = 0; i < servers.length; i++) {
+    const idx = (start + i) % servers.length;
     try {
-      const out = await withTimeout(op(pool[idx]));
-      if (idx !== activeIdx) {
-        activeIdx = idx;
-        activeSince = Date.now();
-      }
+      const out = await withTimeout(op(servers[idx]));
+      if (idx !== start) onStick(idx);
       return out;
     } catch (e) {
       if (!isTransportFailure(e)) throw e;
@@ -107,6 +117,23 @@ const failover = async <T>(op: (s: rpc.Server) => Promise<T>): Promise<T> => {
     }
   }
   throw lastErr;
+};
+
+const failover = <T>(op: (s: rpc.Server) => Promise<T>): Promise<T> => {
+  if (activeIdx !== 0 && Date.now() - activeSince > STICKY_MS) activeIdx = 0;
+  return walk(readPool, activeIdx, (i) => {
+    activeIdx = i;
+    activeSince = Date.now();
+  }, op);
+};
+
+/** Same, over the write pool. Used by {@link writeContract} for every call in a transaction flow. */
+const failoverWrite = <T>(op: (s: rpc.Server) => Promise<T>): Promise<T> => {
+  if (writeIdx !== 0 && Date.now() - writeSince > STICKY_MS) writeIdx = 0;
+  return walk(writePool, writeIdx, (i) => {
+    writeIdx = i;
+    writeSince = Date.now();
+  }, op);
 };
 
 /**
@@ -268,6 +295,77 @@ export const simulateCall = async (
   }
 };
 
+/**
+ * The **inclusion fee** to bid, in stroops — what buys a slot in the ledger.
+ *
+ * A Soroban transaction's fee has two parts: the resource fee (computed by simulation, non-negotiable)
+ * and the inclusion fee (a surge-priced auction). `assembleTransaction` fills in the first and leaves
+ * the second at whatever the builder was given.
+ *
+ * That used to be `BASE_FEE` — **100 stroops**. Measured against live mainnet, the Soroban inclusion
+ * fee over the last 50 ledgers ran `min 100, p50 200, p90 200, max 200`: every percentile above the
+ * bid. Underbid transactions are simply not included; they sit until the transaction expires and the
+ * app reports a timeout it cannot explain. That is the "deposit / liquidity / vault all time out on
+ * mainnet, but other apps are fast" report — other apps bid the market rate.
+ *
+ * Testnet never showed it because there is nothing to outbid there.
+ *
+ * The floor is deliberately ~50x the observed market rate. At 0.001 XLM it is roughly 6% on top of a
+ * typical resource fee, which is nothing next to a failed deposit, and Stellar's surge pricing
+ * charges the clearing rate rather than the full bid.
+ */
+const INCLUSION_FEE_FLOOR = 10_000n;
+/** Ceiling, so a bad stats response can never turn into a wildly overpriced transaction. */
+const INCLUSION_FEE_CAP = 200_000n;
+
+let feeCache: { at: number; fee: string } | null = null;
+
+const inclusionFee = async (): Promise<string> => {
+  if (feeCache && Date.now() - feeCache.at < 30_000) return feeCache.fee;
+  let bid = INCLUSION_FEE_FLOOR;
+  try {
+    const stats = await failoverWrite((srv) => srv.getFeeStats());
+    const p90 = BigInt(stats.sorobanInclusionFee?.p90 ?? '0');
+    const surge = p90 * 5n;
+    if (surge > bid) bid = surge;
+  } catch {
+    // Fee stats are an optimisation, not a dependency — the floor already clears the market.
+  }
+  if (bid > INCLUSION_FEE_CAP) bid = INCLUSION_FEE_CAP;
+  const fee = bid.toString();
+  feeCache = { at: Date.now(), fee };
+  return fee;
+};
+
+/**
+ * The account sequence each address last built a transaction on.
+ *
+ * Multi-step flows (`buildMintSteps`, `buildAddLiquiditySteps`) submit two transactions back to
+ * back. Step 2 must not build until the ledger reflects step 1, or it reuses the same sequence and
+ * is rejected — which is precisely the "first attempt fails, retrying works" report from the Deposit
+ * and Liquidity pages, the only two panels that run more than one transaction.
+ */
+const lastUsedSeq = new Map<string, bigint>();
+
+/**
+ * Load the account, waiting until its sequence has actually moved past the last one we consumed.
+ *
+ * Confirming a transaction is not the same as the account reflecting it: `getTransaction` and
+ * `getAccount` can be answered by different nodes behind one URL, and even a single node updates
+ * its indexes a moment apart. Polling here is far better than letting the user sign a transaction
+ * that is already invalid.
+ */
+const freshAccount = async (address: string): Promise<Account> => {
+  const prev = lastUsedSeq.get(address);
+  let acc = await failoverWrite((srv) => srv.getAccount(address));
+  if (prev == null) return acc;
+  for (let i = 0; i < 12 && BigInt(acc.sequenceNumber()) <= prev; i++) {
+    await sleep(500);
+    acc = await failoverWrite((srv) => srv.getAccount(address));
+  }
+  return acc;
+};
+
 export const writeContract = async (
   walletAddress: string,
   contractId: string,
@@ -275,19 +373,27 @@ export const writeContract = async (
   args: xdr.ScVal[] = [],
 ): Promise<WriteResult> => {
   const contract = new Contract(contractId);
-  const sourceAccount = await server.getAccount(walletAddress);
+  const [sourceAccount, fee] = await Promise.all([freshAccount(walletAddress), inclusionFee()]);
 
   const built = new TransactionBuilder(sourceAccount, {
-    fee: BASE_FEE,
+    fee,
     networkPassphrase: NETWORK.passphrase,
   })
     .addOperation(contract.call(method, ...args))
-    .setTimeout(60)
+    // 180s, not 60. This is the window the SIGNED transaction stays valid, and the clock starts
+    // before the wallet prompt opens. A first-time user reading a Freighter dialog can easily burn
+    // 60s, after which the transaction expires and the submission fails for a reason that looks
+    // nothing like "you took too long".
+    .setTimeout(180)
     .build();
+
+  // Remember the sequence this flow consumed, so the NEXT write waits for the ledger to reflect it
+  // rather than racing ahead on a stale read. See `freshAccount`.
+  lastUsedSeq.set(walletAddress, BigInt(sourceAccount.sequenceNumber()));
 
   // Simulate to obtain the Soroban resource footprint + required auth, then bake
   // them into the transaction.
-  const sim = await server.simulateTransaction(built);
+  const sim = await failoverWrite((srv) => srv.simulateTransaction(built));
   if (rpc.Api.isSimulationError(sim)) {
     throw new Error(parseContractError(sim.error, method));
   }
@@ -302,7 +408,7 @@ export const writeContract = async (
   }
 
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK.passphrase);
-  const sent = await server.sendTransaction(signed);
+  const sent = await failoverWrite((srv) => srv.sendTransaction(signed));
   if (sent.status === 'ERROR') {
     throw new Error(`Submission failed: ${JSON.stringify(sent.errorResult)}`);
   }
@@ -318,7 +424,7 @@ export const writeContract = async (
   const hash = sent.hash;
   for (let i = 0; i < 30; i++) {
     try {
-      const result = await server.getTransaction(hash);
+      const result = await failoverWrite((srv) => srv.getTransaction(hash));
       if (result.status === rpc.Api.GetTransactionStatus.SUCCESS) {
         return { hash };
       }

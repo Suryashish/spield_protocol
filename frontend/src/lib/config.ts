@@ -244,6 +244,25 @@ export const RPC_URLS: readonly string[] = [
 ];
 
 /**
+ * RPC endpoints for **writes**, in preference order — the dedicated endpoint first.
+ *
+ * Reads and writes want different things from an endpoint. A read only needs an answer; a write
+ * needs *read-your-writes* consistency, because a multi-transaction flow (wrap → mint, wrap → add
+ * liquidity) fetches the account sequence for step 2 immediately after step 1 lands.
+ *
+ * A public endpoint like `mainnet.sorobanrpc.com` load-balances across nodes with independent
+ * ingestion, so `getTransaction` can be answered by a node that has applied the transaction while
+ * `getAccount` is answered by one that has not. Step 2 then builds on a stale sequence and is
+ * rejected — the "fails the first time, works if I try again two seconds later" report. A dedicated
+ * endpoint does not fan out that way, so putting it first removes the race at its source.
+ *
+ * Falls back to the same list as reads, so a build with no dedicated endpoint still works.
+ */
+export const RPC_WRITE_URLS: readonly string[] = [
+  ...new Set([...RPC_URLS.slice(1), ...RPC_URLS]),
+];
+
+/**
  * The v2 **SR stack** addresses for the active network, or `null` where it is not deployed.
  * Live on testnet and, since 2026-09-01, on mainnet.
  *

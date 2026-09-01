@@ -327,6 +327,37 @@ export const mint = async (wallet: string, amount: string): Promise<WriteResult>
  *
  * When the wallet already holds enough SR, the wrap step is dropped and this is a single step.
  */
+/**
+ * Slack added to a wrap so the SR that arrives covers what the next step was quoted.
+ *
+ * SR's exchange rate is **monotonically increasing**, so the same USDC always mints *fewer* SR later
+ * than the quote assumed. Between building these steps and the second one executing there is a
+ * simulation, a wallet prompt a human has to read, and a ledger close — easily 30-120 seconds.
+ *
+ * Measured against the live mainnet rate: 30 seconds of drift on a 10 USDC deposit costs ~4.2 SR
+ * stroops, while the old flat `+ 1n` USDC stroop bought only ~0.88 stroops of slack. The wallet
+ * ended up a few stroops short and `mint_py` panicked — the "first step works, the split fails with
+ * a host error" report. 0.001% covers about twenty minutes of drift at any size.
+ */
+const wrapSlack = (usdcUnits: bigint): bigint => usdcUnits / 100_000n + 2n;
+
+/**
+ * How much SR to actually spend: what the wallet holds **right now**, capped at what was quoted.
+ *
+ * The padding above makes a shortfall unlikely; this makes it harmless. Re-reading at execution time
+ * is the only way to be correct, because the quote was computed before the wrap even ran. Capping at
+ * `wanted` means pre-existing SR is never swept in beyond what the user asked for.
+ */
+const srToSpend = async (wallet: string, wanted: bigint): Promise<bigint> => {
+  const { getSrBalance } = await import('./srstack');
+  const live = await getSrBalance(wallet);
+  const spend = live < wanted ? live : wanted;
+  if (spend <= 0n) {
+    throw new Error('The wrap did not produce any SR. Nothing was spent — please try again.');
+  }
+  return spend;
+};
+
 export const buildMintSteps = async (
   wallet: string,
   amount: string,
@@ -342,13 +373,17 @@ export const buildMintSteps = async (
 
   const steps: Array<{ label: string; fn: () => Promise<WriteResult> }> = [];
   if (held < srNeeded) {
-    const shortfall = srToUsdc(srNeeded - held, rate) + 1n;
+    const base = srToUsdc(srNeeded - held, rate);
+    const shortfall = base + wrapSlack(base);
     steps.push({
       label: 'Wrap USDC into SR',
       fn: () => wrapUsdc(wallet, fromBaseUnits(shortfall).toString()),
     });
   }
-  steps.push({ label: 'Split into PT + YT', fn: () => mintPy(wallet, srNeeded) });
+  steps.push({
+    label: 'Split into PT + YT',
+    fn: async () => mintPy(wallet, await srToSpend(wallet, srNeeded)),
+  });
   return steps;
 };
 
@@ -368,7 +403,8 @@ export const buildAddLiquiditySteps = async (
 
   const steps: Array<{ label: string; fn: () => Promise<WriteResult> }> = [];
   if (held < srNeeded) {
-    const shortfall = srToUsdc(srNeeded - held, rate) + 1n;
+    const base = srToUsdc(srNeeded - held, rate);
+    const shortfall = base + wrapSlack(base);
     steps.push({
       label: 'Wrap USDC into SR',
       fn: () => wrapUsdc(wallet, fromBaseUnits(shortfall).toString()),
@@ -376,7 +412,9 @@ export const buildAddLiquiditySteps = async (
   }
   steps.push({
     label: 'Add liquidity',
-    fn: () => srAddLiquidity(wallet, toBaseUnits(ptIn), srNeeded),
+    // A few stroops off the SR leg is ~5e-8 of the amount — far inside the pool's own 0.1%
+    // imbalance band, so trimming to the live balance cannot trip `ImbalancedLiquidity`.
+    fn: async () => srAddLiquidity(wallet, toBaseUnits(ptIn), await srToSpend(wallet, srNeeded)),
   });
   return steps;
 };
@@ -470,13 +508,19 @@ export const buildBuyYtSteps = async (
   const steps: Array<{ label: string; fn: () => Promise<WriteResult> }> = [];
   if (held < srBudget) {
     const rate = await getExchangeRate();
-    const shortfall = srToUsdc(srBudget - held, rate) + 1n;
+    const base = srToUsdc(srBudget - held, rate);
+    const shortfall = base + wrapSlack(base);
     steps.push({
       label: 'Wrap USDC into SR',
       fn: () => wrapUsdc(wallet, fromBaseUnits(shortfall).toString()),
     });
   }
-  steps.push({ label: 'Buy YT', fn: () => buyYtExactOut(wallet, face, srBudget) });
+  steps.push({
+    // `srBudget` is a MAXIMUM the market refunds against, so trimming it to the live balance only
+    // narrows the ceiling — it never underpays. The 3% pad above absorbs the difference.
+    label: 'Buy YT',
+    fn: async () => buyYtExactOut(wallet, face, await srToSpend(wallet, srBudget)),
+  });
   return steps;
 };
 
