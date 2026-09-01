@@ -1,11 +1,75 @@
 # MAINNET_LAUNCH.md — exactly what to fund, and what to run
 
-## Addresses — send funds to these
+# 🟢 LIVE ON MAINNET — deployed 2026-09-01
+
+**All six contracts are deployed, initialized, wired and verified on the Stellar public network.**
+The PT issuer is **locked forever**. The vault is seeded and open. Nothing below is a plan any more —
+these are the live addresses.
+
+## Contract addresses
+
+| Contract | Mainnet address |
+|---|---|
+| **SR** | `CCOZ2JGQAPLUOG5RVU3TLPGSS7WA356BWCOEWFBJU44DKHDRZTQPABBS` |
+| **STRATEGY** | `CAJKHGY3J2XSZHI3TFDFMXJ2GDFFUPUPPTUOP6UOBHSY6FW66J6YYBP7` |
+| **YIELD** | `CDILIYN4IXUL5H7PJ4TW3GLZ2U6LIZYX35SNN4BGYZWPIXFLJZEFMRLP` |
+| **SRMARKET** | `CDRQJ7EYKTJV3W4BE2U4HIAWSVZB675MHTCBDGCXMKVR5VCURMNSEZ7O` |
+| **SRVAULT** | `CDNRQ4YLW4RA4LB4J4M5S3X4SEXXR3Z6TR7336VKOG3FPX3PBFAMVZ6P` |
+| **SRROUTER** | `CB7O72TTK7OISNS53HXTLCZ2EAY2F5KKYBPGI7ADSIX5KMPGVVDXAALN` |
+| **PT_SAC** | `CBGA2TFTSF236VYPI5TVYQ2Z53DKD6LQHIR5DCGKSNIUJ4NAPNBI6VJM` |
+| **PT_ASSET_ID** | `SPLDPT:GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN` |
+| Blend pool *(external)* | `CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD` |
+| USDC SAC *(external)* | `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75` |
+
+Copy-pasteable, straight from the ledger rather than from this file:
+
+```bash
+source scripts/deploy_mainnet_v2.state
+for c in SR STRATEGY YIELD SRMARKET SRVAULT SRROUTER PT_SAC PT_ASSET_ID; do
+  printf '%-12s %s\n' "$c" "${!c}"
+done
+```
+
+## Accounts
+
+| Identity | Address | Role now |
+|---|---|---|
+| `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | **Admin and treasury of all six contracts.** Holds the PT trustline. 92.03 XLM left |
+| `spield_pt_issuer` | `GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN` | **🔒 Locked** — every signer weight is 0. PT can only be minted by `YIELD` |
+| `spield_admin_multisig` | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | Funded, **not yet the admin.** Rotation is a separate day — see [§6](#6-the-multisig-is-a-separate-day) |
+| `spield_sig_1` | `GA7BTFN2P4EXZS4MM4QNGLQBAWUZYLCYNACWDCRW74P3QJT4FUB7TF7Z` | Future 2-of-3 signer. Needs no account and no funding |
+| `spield_sig_2` | `GAQ3DLLNUE5HPRKYL5JOCSLCD7RHKE3IRCOEHH7DULGXHZZB3V3SAYWP` | Future 2-of-3 signer |
+| `spield_sig_3` | `GA3ODKNDDTVKGDONUFBRSO4REMGX6JDJTGZ4X5FTRQU3IOFGKTYFU3KP` | Future 2-of-3 signer |
+
+## Live parameters, read back off chain
+
+| Parameter | Value |
+|---|---|
+| Series expiry | `1790809749` → **2026-09-30 23:09 UTC** (30 days) |
+| Vault fixed rate | **300 bps (3.00%)**, ceiling 2000 bps |
+| Vault coupon capacity | **2 USDC** seeded — `pt_inventory` / `yt_inventory` both `19999999` |
+| SR deposit cap | `500000000` = **50 USDC** TVL ceiling; headroom `480000000` |
+| SR total assets | `20000034` (the vault seed, already earning) |
+| Paused? | **No** — `sr.is_paused == false` |
+| Emissions destination | `spield_deployer` (treasury) |
+
+**Verified after deploy:** 24/24 wiring assertions green, issuer lock confirmed against Horizon
+(*"no signer with weight > 0"*), vault rate calibration passed. Total spend ≈ 188 XLM of the
+280 funded.
+
+**Still to do, both deliberately manual:** seed the AMM from the dashboard Liquidity page
+([§5](#5-the-run)), and rotate admin to the multisig ([§6](#6-the-multisig-is-a-separate-day)).
+
+---
+
+## Original funding sheet — send funds to these
+
+> Kept for the record. These are the numbers that were funded on launch day; the deploy is done.
 
 ```
-spield_deployer         GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF     60 XLM + 2 USDC
+spield_deployer         GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF    280 XLM + 2 USDC
 spield_pt_issuer        GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN      6 XLM   (no more — it gets locked)
-spield_admin_multisig   GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL     10 XLM   (only needed at rotation)
+spield_admin_multisig   GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL      4 XLM   (only needed at rotation)
 ```
 
 Created 2026-09-01. Secrets are in `wallets.md` — gitignored, mode 600, **back it up offline before
@@ -24,15 +88,16 @@ Written 2026-08-31. Every XLM figure here was **measured**, not estimated — se
 
 ## 1. The answer in one table
 
-**Two accounts to launch, three in the plan. 76 XLM + 2 USDC** (plus whatever you later add as an
-LP — 10 USDC suggested). Of the XLM, **~3.6 is actually
+**Two accounts to launch, three in the plan. ~290 XLM + 2 USDC** (plus whatever you later add as an
+LP — 10 USDC suggested). Almost all of it is the deployer's, and almost all of that is the one-time
+WASM upload. Of the XLM, **~3.6 is actually
 spent** — the rest is headroom and refundable reserves.
 
 | # | Account | **Address — send funds here** | Fund it with | What it is for | What happens to it |
 |---|---|---|---|---|---|
-| 1 | `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | **60 XLM** + **2 USDC** (+ LP money later) | Deploys all 6 contracts, becomes admin of each, holds the PT trustline, pays every fee, does the seeding | Keep it. Its admin rights move to the multisig later |
+| 1 | `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | **280 XLM** + **2 USDC** (+ LP money later) | Deploys all 6 contracts, becomes admin of each, holds the PT trustline, pays every fee, does the seeding | Keep it. Its admin rights move to the multisig later |
 | 2 | `spield_pt_issuer` | `GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN` | **6 XLM** | Issues the PT classic asset, hands PT minting to the yield contract | **Locked forever** at deploy step 6b. Anything left inside is unrecoverable |
-| 3 | **`spield_admin_multisig`** | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | **10 XLM** | Becomes admin of all six contracts once you rotate | Permanent. Created and funded now, **rotated to after launch** — see [§6](#6-the-multisig-is-a-separate-day) |
+| 3 | **`spield_admin_multisig`** | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | **4 XLM** | Becomes admin of all six contracts once you rotate | Permanent. Created and funded now, **rotated to after launch** — see [§6](#6-the-multisig-is-a-separate-day) |
 
 > **Created 2026-09-01.** All three exist locally as `stellar keys` identities and hold **no XLM yet** —
 > they are not on chain until you fund them. Secrets are in `wallets.md`, which is gitignored and
@@ -61,35 +126,65 @@ starting size**. See [§3](#3-usdc--how-much-and-where-it-goes).
 
 ## 2. What it really costs
 
-Measured on 2026-08-31, on chain, not taken from the old budget:
+**Quoted by mainnet itself on 2026-09-01** — each upload built and simulated against
+`mainnet.sorobanrpc.com`, nothing submitted. These are the network's own numbers, not an extrapolation.
 
-| Item | Measured | How |
+| Contract | Size | Upload fee |
 |---|---|---|
-| **WASM install, one time** | **≈ 3.4 XLM** | A 14.6 KB WASM uploaded for **0.198 XLM** (`0.0136 XLM/KB`); the six contracts total **251 KB** |
-| **Deploy + initialize all 6** | **≈ 0.15 XLM** | One contract deploy + one invoke measured at **0.0274 XLM**; the run is 6 deploys and ~14 invokes |
-| Deployer account reserve | 1.0 XLM | `(2 + 0 subentries) × 0.5` |
-| Deployer PT trustline | 0.5 XLM | one subentry |
-| Issuer account reserve | 1.0 XLM | |
-| Issuer's own transactions | 0.006 XLM | SAC deploy + `set_admin` + the lockdown |
-| Classic-asset work (issuance, SAC deploy, `set_admin`, lockdown) | 0.006 XLM | measured on the issuer |
-| **Total actually spent** | **≈ 3.6 XLM** | dominated entirely by the one-time WASM install |
-| **Total locked in reserves** | **≈ 2.5 XLM** | Comes back if an account is ever merged — except the issuer's, which is locked |
+| `sr` | 43,005 B | 33.60 XLM |
+| `strategy` | 35,474 B | 26.23 XLM |
+| `yield` | 45,880 B | 37.89 XLM |
+| `srmarket` | 52,996 B | 54.55 XLM |
+| `srvault` | 44,111 B | 36.95 XLM |
+| `srrouter` | 35,680 B | 28.01 XLM |
+| **Six uploads** | **251 KB** | **217.23 XLM** |
 
-**So why fund 60?** Because a stranded half-deploy on mainnet is expensive to unpick and 60 XLM is
-not. That is **~16× the measured spend** — it covers a fee spike, a mid-run retry, a second series,
-and the post-launch admin calls. It is **not** because the deploy needs it.
+| Everything else | |
+|---|---|
+| 6 contract deploys + ~14 init invokes | **~12 XLM** — the one item still estimated |
+| Deployer reserve (2 base + PT + USDC trustlines) | **2.0 XLM** locked |
+| Issuer's whole job | **0.006 XLM** |
+| **Total** | **≈ 231 XLM**, of which ~2 is locked rather than spent |
 
-> **Checked, because it is a big claim:** the only extrapolated number here is the WASM install. A
-> 14.6 KB upload cost 0.198 XLM and Soroban's upload fee scales with entry size and its initial rent,
-> both linear in bytes — so 251 KB across six uploads lands near 3.4 XLM. Everything else in the
-> table was measured directly.
+**Fund 280.** That is the 231 plus ~20% for a fee move or a resumed run. Unused XLM stays yours.
 
-> `MAINNET.md` §4 and `left.md` §B quote **≈180 XLM**. That figure predates this measurement and is
-> roughly **36× the real cost**. It is not dangerous — unused XLM just sits there — but do not read it
-> as a requirement. The deploy script's own preflight now uses the measured figures.
+### Two caveats, stated plainly
 
-**Fees are protocol-determined, so testnet and mainnet resource costs are the same.** The one thing
-that can differ is the *inclusion* fee under network congestion, which is a few stroops.
+* **217.23 is the assembled *max* fee.** Actual charged runs lower — on testnet a quote of 0.2280
+  was charged 0.1981, about 15% less. Expect the real spend nearer **190 XLM**.
+* **The ~12 XLM for deploys is the only unmeasured number here.** A contract instance is a small
+  entry, but a deploy cannot be simulated until its WASM is on chain, so this one is inference.
+
+### Why an earlier version of this file said 60 XLM
+
+It was wrong, and the mistake is worth recording so it is not repeated. An earlier pass measured a
+WASM upload **on testnet** and scaled it. Resource fees are not uniform across networks — checked
+directly, both ways:
+
+```
+read-only invoke   testnet 0.0013 XLM   mainnet 0.0014 XLM   <- effectively identical
+WASM upload / KB   testnet 0.0136 XLM   mainnet 0.865  XLM   <- 64x
+```
+
+Mainnet prices **rent on large persistent entries** far higher; invokes are unaffected. Because
+uploads dominate a deploy, the whole figure collapsed. `MAINNET.md` §4's original ~180 XLM was much
+closer to correct than the "corrected" 60 — a conservative estimate was replaced with a confidently
+derived wrong one, which is the worse failure.
+
+**Re-quote before you fund**, rather than trusting the table above. Fees are network config and can
+change:
+
+```bash
+D=$(stellar keys address spield_deployer)
+MAIN=(--network-passphrase "Public Global Stellar Network ; September 2015" --rpc-url https://mainnet.sorobanrpc.com)
+for c in sr strategy yield srmarket srvault srrouter; do
+  stellar contract upload --wasm target/wasm32v1-none/release/spield_$c.wasm \
+    --source-account "$D" "${MAIN[@]}" --build-only 2>/dev/null \
+  | stellar tx simulate --source-account "$D" "${MAIN[@]}" 2>/dev/null \
+  | stellar tx decode --output json 2>/dev/null \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['tx']['tx'] if 'tx' in d.get('tx',{}) else d['tx'];print('$c',int(t['fee'])/1e7,'XLM')"
+done
+```
 
 ---
 
@@ -220,9 +315,9 @@ refuses outright if Horizon is unreachable rather than deploying blind.
 secrets in `wallets.md`). Nothing to generate — just fund them:
 
 ```
-GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF    60 XLM + 2 USDC
+GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF   280 XLM + 2 USDC
 GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN     6 XLM  — no more, it gets locked
-GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL    10 XLM — only needed when you rotate
+GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL     4 XLM — only needed when you rotate
 ```
 
 Verify they landed before you start:
@@ -296,7 +391,7 @@ you least want surprises.
 
 | Name | Address | Funded? | Role |
 |---|---|---|---|
-| **`spield_admin_multisig`** | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | **yes — 10 XLM** | The account that becomes admin. Its master key gets disabled |
+| **`spield_admin_multisig`** | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | **yes — 4 XLM** | The account that becomes admin. Its master key gets disabled |
 | `spield_sig_1` | `GA7BTFN2P4EXZS4MM4QNGLQBAWUZYLCYNACWDCRW74P3QJT4FUB7TF7Z` | **no** | Signer keypair — never on chain |
 | `spield_sig_2` | `GAQ3DLLNUE5HPRKYL5JOCSLCD7RHKE3IRCOEHH7DULGXHZZB3V3SAYWP` | **no** | Signer keypair — never on chain |
 | `spield_sig_3` | `GA3ODKNDDTVKGDONUFBRSO4REMGX6JDJTGZ4X5FTRQU3IOFGKTYFU3KP` | **no** | Signer keypair — never on chain |
@@ -309,7 +404,7 @@ wearing a costume.
 ### Build it (once, any time)
 
 All four identities already exist (created 2026-09-01, secrets in `wallets.md`). Fund
-`spield_admin_multisig` with 10 XLM — the signers need nothing — then:
+`spield_admin_multisig` with 4 XLM — the signers need nothing — then:
 
 ```bash
 for k in spield_sig_1 spield_sig_2 spield_sig_3; do
@@ -348,21 +443,21 @@ is comfortable.
 
 ---
 
-## 7. Deployed contracts — fill this in on the day
+## 7. Deployed contracts
 
-**Empty until the deploy runs.** This is the table anyone else will look for first, and the one
+**Deployed 2026-09-01.** This is the table anyone else will look for first, and the one
 Deliverable 1 needs as explorer links, so it lives here rather than only in a state file.
 
 | Contract | What it is | Mainnet address |
 |---|---|---|
-| `SR` | Standardized Return — the share token over the Blend strategy. **The only mint path, so the deposit cap lives here** | *not deployed* |
-| `STRATEGY` | Blend adapter. Holds the actual USDC position | *not deployed* |
-| `YIELD` | PT/YT engine — **and the YT token itself**, because YT needs a transfer hook a SAC cannot provide | *not deployed* |
-| `SRMARKET` | The PT/SR time-decay AMM | *not deployed* |
-| `SRVAULT` | The Fixed-Rate Vault — the flagship | *not deployed* |
-| `SRROUTER` | Single-signature USDC flows. **No privileges, no balances, by construction** | *not deployed* |
-| `PT_SAC` | PT as a Stellar Asset Contract | *not deployed* |
-| `PT_ASSET_ID` | The classic asset, `CODE:ISSUER` | *not deployed* |
+| `SR` | Standardized Return — the share token over the Blend strategy. **The only mint path, so the deposit cap lives here** | `CCOZ2JGQAPLUOG5RVU3TLPGSS7WA356BWCOEWFBJU44DKHDRZTQPABBS` |
+| `STRATEGY` | Blend adapter. Holds the actual USDC position | `CAJKHGY3J2XSZHI3TFDFMXJ2GDFFUPUPPTUOP6UOBHSY6FW66J6YYBP7` |
+| `YIELD` | PT/YT engine — **and the YT token itself**, because YT needs a transfer hook a SAC cannot provide | `CDILIYN4IXUL5H7PJ4TW3GLZ2U6LIZYX35SNN4BGYZWPIXFLJZEFMRLP` |
+| `SRMARKET` | The PT/SR time-decay AMM | `CDRQJ7EYKTJV3W4BE2U4HIAWSVZB675MHTCBDGCXMKVR5VCURMNSEZ7O` |
+| `SRVAULT` | The Fixed-Rate Vault — the flagship | `CDNRQ4YLW4RA4LB4J4M5S3X4SEXXR3Z6TR7336VKOG3FPX3PBFAMVZ6P` |
+| `SRROUTER` | Single-signature USDC flows. **No privileges, no balances, by construction** | `CB7O72TTK7OISNS53HXTLCZ2EAY2F5KKYBPGI7ADSIX5KMPGVVDXAALN` |
+| `PT_SAC` | PT as a Stellar Asset Contract | `CBGA2TFTSF236VYPI5TVYQ2Z53DKD6LQHIR5DCGKSNIUJ4NAPNBI6VJM` |
+| `PT_ASSET_ID` | The classic asset, `CODE:ISSUER` | `SPLDPT:GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN` |
 | Blend pool | FixedV2 — an external dependency, not ours | `CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD` |
 | USDC | Circle's mainnet USDC SAC — external | `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75` |
 
@@ -431,7 +526,8 @@ Everything else is recoverable: the cap is one `set_deposit_cap` call, the rate 
 * The contracts are **not audited**. The deposit cap is what makes that survivable, and the UI says so
   in plain words on the risk panel.
 * `deposit` is capped globally; `redeem` never consults the cap, so **nobody can be trapped**.
-* The cap is **not per-user** — with 10 USDC of headroom, one address can take all of it.
+* The cap is **not per-user** — with 48 USDC of live headroom (50 cap, 2 consumed by the vault seed),
+  one address can take all of it.
 * A deep Blend bad-debt event freezes withdrawals until backing recovers, with no bounded recovery
   time. This is disclosed in the app, not only in the tracker.
 

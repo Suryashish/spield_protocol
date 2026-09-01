@@ -167,9 +167,24 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
       yt: 'CDGQLIJVMKRFTYUXOMQAG4YFUN22OKXMOT2K4JA33KDM6P2FCBZTV6CU',
       usdc: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
     },
-    // The SR stack is NOT on mainnet. `SR_DEPLOYED` is false there and every SR entry point
-    // no-ops, so the UI renders an unavailable state rather than throwing.
-    sr: null,
+    // The SR stack went LIVE on mainnet 2026-09-01 — same six contracts as testnet, against the
+    // real Blend FixedV2 pool and Circle USDC. See contract/spield/MAINNET_LAUNCH.md for the
+    // deploy record, and scripts/deploy_mainnet_v2.state for the machine-readable source.
+    //
+    // Launch parameters, live on chain: 30-day series expiring 1790809749 (2026-09-30 23:09 UTC),
+    // vault fixed rate 300bps, SR deposit cap 500000000 (50 USDC) — the cap is the mitigation for
+    // shipping unaudited, so the risk panel must keep saying so.
+    sr: {
+      sr: 'CCOZ2JGQAPLUOG5RVU3TLPGSS7WA356BWCOEWFBJU44DKHDRZTQPABBS',
+      strategy: 'CAJKHGY3J2XSZHI3TFDFMXJ2GDFFUPUPPTUOP6UOBHSY6FW66J6YYBP7',
+      yieldEngine: 'CDILIYN4IXUL5H7PJ4TW3GLZ2U6LIZYX35SNN4BGYZWPIXFLJZEFMRLP',
+      market: 'CDRQJ7EYKTJV3W4BE2U4HIAWSVZB675MHTCBDGCXMKVR5VCURMNSEZ7O',
+      vault: 'CDNRQ4YLW4RA4LB4J4M5S3X4SEXXR3Z6TR7336VKOG3FPX3PBFAMVZ6P',
+      router: 'CB7O72TTK7OISNS53HXTLCZ2EAY2F5KKYBPGI7ADSIX5KMPGVVDXAALN',
+      pt: 'CBGA2TFTSF236VYPI5TVYQ2Z53DKD6LQHIR5DCGKSNIUJ4NAPNBI6VJM',
+      ptAsset: 'SPLDPT:GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN',
+      usdc: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+    },
   },
 };
 
@@ -190,10 +205,12 @@ export const NETWORK = {
 
 /**
  * The v2 **SR stack** addresses for the active network, or `null` where it is not deployed.
+ * Live on testnet and, since 2026-09-01, on mainnet.
  *
- * Guard every use with {@link SR_DEPLOYED}. On mainnet this is `null`, and the SR client
- * (`lib/srstack.ts`) turns every call into a safe no-op so the UI can render an unavailable
- * state instead of throwing.
+ * Guard every use with {@link SR_DEPLOYED}. It is non-null on **both** networks as of the
+ * 2026-09-01 mainnet launch, but keep the guard: a future network, or an env override that blanks
+ * an address, brings the null branch back, and the SR client (`lib/srstack.ts`) turns every call
+ * into a safe no-op so the UI renders an unavailable state instead of throwing.
  */
 export const SR_CONTRACTS = profile.sr
   ? {

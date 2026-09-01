@@ -225,7 +225,22 @@ if [ -f "$STATE_FILE" ]; then
   [ -n "$SAVED_EXPIRY" ] && EXPIRY="$SAVED_EXPIRY"
 fi
 
-save_state() { printf '%s=%q\n' "$1" "$2" >> "$STATE_FILE"; printf -v "$1" '%s' "$2"; }
+# Recording an EMPTY value is always a bug, never a fact. `save_state FOO "$(cmd)"`
+# writes "" when cmd fails, and the empty value then flows into the next step as a
+# real argument. On mainnet 2026-09-01 a timed-out deploy wrote YIELD='' and the
+# following step ran `set_admin --new_admin ''`, which failed with a confusing
+# argument error three steps away from the actual cause.
+#
+# Refuse instead. The step is not done, so the state file must not claim it is —
+# a clean stop here means the next run simply retries it.
+save_state() {
+  if [ -z "${2:-}" ]; then
+    echo "ERROR: refusing to record an empty value for '$1' — the step that produces it failed." >&2
+    echo "       Nothing was written. Re-run to retry that step." >&2
+    exit 1
+  fi
+  printf '%s=%q\n' "$1" "$2" >> "$STATE_FILE"; printf -v "$1" '%s' "$2"
+}
 
 # Submit a state-changing invoke, retrying on the transient footprint failure.
 #
@@ -240,12 +255,15 @@ invoke_retry() {  # invoke_retry <contract-id> <args...>
   local n=0
   until stellar contract invoke --id "$id" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- "$@" >/dev/null 2>&1; do
     n=$((n+1))
-    if [ "$n" -ge 4 ]; then
+    if [ "$n" -ge "${INVOKE_RETRIES:-10}" ]; then
       echo "ERROR: '$*' on $id failed after $n attempts." >&2
       return 1
     fi
-    echo "    (retry $n after a transient footprint failure)" >&2
-    sleep 3
+    # Backoff, not a fixed 3s. On 2026-09-01 mainnet RPC returned `transaction
+    # submission timeout` repeatedly — never reaching the ledger, so retrying is
+    # safe — and 4 flat attempts was not enough to ride it out. Grows 3s..15s.
+    echo "    (retry $n — transient RPC/footprint failure)" >&2
+    sleep $(( 3 + n * 2 > 15 ? 15 : 3 + n * 2 ))
   done
   return 0
 }
@@ -318,20 +336,49 @@ done
 #
 # WARN below the comfortable number, REFUSE below the bare minimum. Set SKIP_FUNDING_CHECK=1 to
 # bypass (CI, or a deliberate re-run where you know the remaining steps are cheap).
-# MEASURED 2026-08-31, not estimated. A 14.6 KB WASM install on testnet cost
-# 0.198 XLM (tx af3da78d…), i.e. ~0.0136 XLM/KB, so the six contracts' 251 KB of
-# WASM is ~3.4 XLM ONE TIME. A full six-contract deploy + init with the WASM
-# already installed measured ~0.5 XLM. Reserves are ~1 XLM per account plus
-# 0.5 XLM for the deployer's PT trustline, and those are LOCKED, not spent.
-# Real need is therefore ~5 XLM of spend and ~2.5 XLM locked.
+# QUOTED BY MAINNET 2026-09-01, by simulating each upload against mainnet RPC.
 #
-# The thresholds below are deliberately several times that. MAINNET.md's old
-# ~180 XLM figure predates the measurement and is ~36x the real cost; it is not
-# wrong to fund it, but it is not required either.
-MIN_DEPLOYER_XLM="${MIN_DEPLOYER_XLM:-20}"        # ~4x measured need
-MIN_ISSUER_XLM="${MIN_ISSUER_XLM:-3}"             # ~3x (mostly the 1 XLM reserve)
-WANT_DEPLOYER_XLM="${WANT_DEPLOYER_XLM:-60}"      # ~12x — fee spikes, a re-run, headroom
-WANT_ISSUER_XLM="${WANT_ISSUER_XLM:-6}"
+#   six WASM uploads (251 KB) : 217.23 XLM   <- the dominant cost, and one-time
+#   deploys + ~14 init invokes:  ~12 XLM     (estimated; a deploy cannot be
+#                                             simulated until its WASM is on chain)
+#   reserves (2 base + 2 trustlines): 2.0 XLM locked
+#   -> ~231 XLM total
+#
+# An earlier revision of this block said 20/60, derived by scaling a TESTNET
+# upload. That was wrong by ~36x. Resource fees are not uniform across networks:
+#   read-only invoke   testnet 0.0013 XLM   mainnet 0.0014 XLM  (identical)
+#   WASM upload per KB testnet 0.0136 XLM   mainnet 0.865  XLM  (64x)
+# Mainnet prices rent on large persistent entries far higher. Because uploads
+# dominate a deploy, the whole estimate collapsed — and the old preflight would
+# have ALLOWED the run to start and then died partway through the uploads.
+# RESUME-AWARE. A flat 240 floor is right for a FRESH run and wrong for a resumed
+# one: uploads already paid for are not owed again, and on 2026-09-01 this check
+# refused a legitimate resume that had 229 XLM and ~140 XLM of work left.
+#
+# So the requirement is built from the contracts still MISSING from the state
+# file, using the per-contract mainnet quotes below. Each is the assembled max
+# fee; actual charged runs ~87% of it (measured: srrouter quoted 26.23, charged
+# 22.81), so the sum is conservative by design.
+q_upload() {  # q_upload <contract> -> XLM, the mainnet-quoted max upload fee
+  case "$1" in
+    sr)       echo 34 ;; strategy) echo 27 ;; yield)    echo 38 ;;
+    srmarket) echo 55 ;; srvault)  echo 37 ;; srrouter) echo 29 ;;
+    *)        echo 55 ;;   # unknown: assume the largest
+  esac
+}
+# Sum what is still owed. A contract already in the state file is already paid for.
+_remaining=0
+for _c in sr:SR strategy:STRATEGY yield:YIELD srmarket:SRMARKET srvault:SRVAULT srrouter:SRROUTER; do
+  _name="${_c%%:*}"; _var="${_c##*:}"
+  [ -z "${!_var:-}" ] && _remaining=$(( _remaining + $(q_upload "$_name") ))
+done
+# + deploys, inits, the PT SAC and classic ops (measured: a deploy is 0.038 XLM,
+# an invoke 0.002), + 2 XLM of reserves, + margin.
+_needed=$(( _remaining + 8 ))
+MIN_DEPLOYER_XLM="${MIN_DEPLOYER_XLM:-$_needed}"
+WANT_DEPLOYER_XLM="${WANT_DEPLOYER_XLM:-$(( _needed + 40 ))}"
+MIN_ISSUER_XLM="${MIN_ISSUER_XLM:-3}"             # its whole job costs 0.006 XLM + 1 XLM reserve
+WANT_ISSUER_XLM="${WANT_ISSUER_XLM:-4}"
 
 # Prints the account's native XLM balance, or "MISSING" when the account does not exist, or
 # "UNREADABLE" when Horizon could not be reached. Never prints an empty string — an empty balance
@@ -505,7 +552,11 @@ else echo "==> [3/9] Strategy already deployed ($STRATEGY) — skipping."; fi
 
 if [ -z "$STRATEGY_INIT" ]; then
   echo "    initializing strategy (caller=SR, pool=$BLEND_POOL)..."
-  stellar contract invoke --id "$STRATEGY" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- initialize \
+  # invoke_retry, not a bare invoke: mainnet RPC returned `transaction submission
+  # timeout` on this exact call three runs in a row on 2026-09-01, each time
+  # WITHOUT the transaction reaching the ledger (verified on Horizon — no fee
+  # charged). A single attempt makes a flaky endpoint fatal to the whole run.
+  invoke_retry "$STRATEGY" initialize \
     --wrapper "$SR" --pool "$BLEND_POOL" --underlying "$USDC_SAC" --max_apr_bps "$MAX_APR_BPS" >/dev/null
   save_state STRATEGY_INIT 1; echo "    ✓ strategy initialized"
 else echo "    strategy already initialized — skipping."; fi
@@ -672,7 +723,7 @@ else echo "==> [7/9] Market already deployed ($SRMARKET) — skipping."; fi
 
 if [ -z "$SRMARKET_INIT" ]; then
   echo "    initializing market (it DISCOVERS pt/sr/expiry from the yield contract)..."
-  stellar contract invoke --id "$SRMARKET" --source-account "$SOURCE" "${NET_ARGS[@]}" --send=yes -- initialize \
+  invoke_retry "$SRMARKET" initialize \
     --yield_contract "$YIELD" \
     --scalar_root "$MARKET_SCALAR_ROOT" \
     --ln_fee_root "$MARKET_LN_FEE_ROOT" \
