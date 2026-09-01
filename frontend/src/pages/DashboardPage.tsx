@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 
 import Sidebar from '@/components/dashboard/layout/Sidebar';
 import BottomNav from '@/components/dashboard/layout/BottomNav';
+import DemoBanner from '@/components/dashboard/layout/DemoBanner';
 import Header from '@/components/dashboard/layout/Header';
 import StatsGrid from '@/components/dashboard/sections/StatsGrid';
 import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
@@ -540,6 +541,8 @@ const DashboardPage = () => {
 
         <main className="flex min-w-0 grow flex-col">
           <Header section={nav.label} />
+          {/* Renders nothing unless VITE_MAINNET_DEMO is on. */}
+          <DemoBanner />
 
           {/* The gutter steps 16 → 24 → 32 with the viewport rather than
               jumping straight from a phone's margin to a desktop's. */}

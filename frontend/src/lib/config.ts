@@ -207,7 +207,59 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
 export const NETWORK_KEY: NetworkKey =
   env('VITE_NETWORK', 'testnet').toLowerCase() === 'mainnet' ? 'mainnet' : 'testnet';
 
-const profile = PROFILES[NETWORK_KEY];
+/**
+ * The **90-minute demo series** — a second, throwaway mainnet deployment.
+ *
+ * Deployed 2026-09-01 purely to walk a full deposit -> maturity -> redeem cycle inside 90 minutes,
+ * because the live series cannot be redeemed until 2026-09-30. Same code, separate contract
+ * instances, its own PT asset (`SPLDPTD`) under its own issuer, and its own state file
+ * (`scripts/deploy_mainnet_demo.state`). See `contract/spield/90MINUTEMARKET.md`.
+ *
+ * **This is deliberately a flag rather than a third `NetworkKey`.** `NETWORK_KEY` stays `'mainnet'`,
+ * so every `NETWORK_KEY === 'mainnet'` branch elsewhere keeps behaving correctly — Solana chain
+ * selection, the EVM chain list, the event indexer network, the bridge's default source. A third
+ * enum value would have silently sent all four down their *testnet* paths while the app still spoke
+ * to mainnet contracts.
+ *
+ * Deployed 2026-09-01 04:44:32 UTC expiry (`1788237872`), vault 300bps, cap 20 USDC,
+ * vault seed 0.1 USDC, AMM 0.25/side. Set `VITE_MAINNET_DEMO=true` to point a build at it.
+ */
+const MAINNET_DEMO_SR: SrContractSet | null = {
+  sr: 'CAC5KUVAJENSRWLXH56JYKATIPLQPBYPABRGQERYQWZD4LNAHJZCRFQA',
+  strategy: 'CDWLAKWQ3OEIBRHNUN3KHS2WS7SCJF7RY372ZLUQFKJKU4H7XTJKKWTI',
+  yieldEngine: 'CDAQBKP2AAJJPHAHAUDDLNHIWIVTTWAE3VOKPAWLS3LJCIZHHH6D7P7P',
+  market: 'CDBVFJ4JAF7EPA4Y54FZKBOEU2WJV5VRJGSZP7JMZHYDQV7S7IPGBSNQ',
+  vault: 'CBBHJYH4I2IEJINCOAVUE3NRLVLMAXCYKKCCT3APV6D5KG32XJLG37WQ',
+  router: 'CBZSOMWSXLNVGU6NXME6TLQUGGWHIE4SEWP2PMEJH5GVX7YN5U2VAOGZ',
+  pt: 'CBYMGIRO4VTTMWRN7G44GLEFPC2QXRWIVVGLBYOX2QW5WLBD34UMMRUY',
+  // A DIFFERENT issuer from the live series, which also uses the code `SPLDPT`. Compare the full
+  // CODE:ISSUER, never the code alone — that is exactly how v1 and v2 got confused.
+  ptAsset: 'SPLDPTD:GBNXYAM46QXDKPWKHJLONJQFJJMYOAXCHOPL7G344OIKPGSTVD4FPP7P',
+  usdc: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+};
+
+/**
+ * Is this build pointed at the throwaway demo series?
+ *
+ * Only meaningful on mainnet — on testnet the flag is ignored rather than being an error, so a
+ * stray env var cannot silently repoint a testnet build at nothing.
+ */
+export const IS_MAINNET_DEMO: boolean =
+  NETWORK_KEY === 'mainnet' &&
+  env('VITE_MAINNET_DEMO', '').toLowerCase() === 'true' &&
+  MAINNET_DEMO_SR !== null;
+
+const baseProfile = PROFILES[NETWORK_KEY];
+
+/**
+ * The active profile, with the demo SR addresses swapped in when the flag is set.
+ *
+ * Only `sr` changes. Passphrase, RPC, explorer and the v1 `contracts` set are all still real
+ * mainnet, because the demo series *is* on real mainnet — it is a different set of contracts, not a
+ * different network.
+ */
+const profile: NetworkProfile =
+  IS_MAINNET_DEMO && MAINNET_DEMO_SR ? { ...baseProfile, sr: MAINNET_DEMO_SR } : baseProfile;
 
 /** Active network metadata (passphrase, RPC, Horizon, explorer, wallet name). */
 export const NETWORK = {

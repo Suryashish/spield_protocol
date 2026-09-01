@@ -536,6 +536,10 @@ Everything else is recoverable: the cap is one `set_deposit_cap` call, the rate 
 
 ## 11. The 90-minute demo series
 
+> **✅ Deployed 2026-09-01 03:14:32 UTC, matures 04:44:32 UTC.** Addresses, live parameters and the
+> lifecycle to walk are in **[`90MINUTEMARKET.md`](90MINUTEMARKET.md)**. Cost: **1.28 XLM + 0.60
+> USDC**. The section below is the plan it was executed from, kept for the reasoning.
+
 A **second, throwaway mainnet deployment** whose only job is to walk a complete
 deposit → maturity → redeem cycle in 90 minutes, because the live series cannot be redeemed until
 2026-09-30. Same six contracts, same code, separate instances. **Not part of the live protocol.**
