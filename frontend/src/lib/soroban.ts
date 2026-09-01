@@ -59,7 +59,10 @@ const isTransportFailure = (e: unknown): boolean => {
   if (e == null) return false;
   const err = e as { response?: { status?: number }; status?: number; message?: string };
   const status = err.response?.status ?? err.status;
-  if (typeof status === 'number') return status === 429 || status >= 500;
+  // 403 belongs here with 429: proxies in front of these endpoints return it for throttling and
+  // bot-heuristic rejections, not just for genuine authorisation failures. Treating it as a real
+  // answer meant one throttled read surfaced as "Some wallet data failed to load".
+  if (typeof status === 'number') return status === 429 || status === 403 || status >= 500;
   const msg = String(err.message ?? e).toLowerCase();
   return (
     msg.includes('failed to fetch') ||
@@ -98,6 +101,50 @@ const withTimeout = <T>(work: Promise<T>): Promise<T> =>
  * signed envelope, so a resubmission either lands the same transaction or is rejected as a
  * duplicate — it cannot produce two.
  */
+/** Is this specifically a throttle, as opposed to an unreachable endpoint? */
+const isRateLimited = (e: unknown): boolean => {
+  const err = e as { response?: { status?: number }; status?: number; message?: string };
+  const status = err.response?.status ?? err.status;
+  if (status === 429 || status === 403) return true;
+  const msg = String(err.message ?? e).toLowerCase();
+  return msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit');
+};
+
+/**
+ * Maximum RPC requests in flight at once, across the whole app.
+ *
+ * One dashboard refresh fans out to ~30 calls: `getMarketStats` alone is 8, the receipt scan walks
+ * up to 64 ids six at a time, and five wallet reads run in parallel on top of the protocol reads.
+ * Fired all at once that is a burst, and a burst is what gets throttled — measured, QuickNode
+ * returned 429 for **10 of 20** simultaneous requests while the public endpoint absorbed all 20.
+ * Since the app fails over between them, a burst could exhaust both and surface as
+ * "Couldn't reach the network" even though neither endpoint was actually down.
+ *
+ * Six keeps every endpoint inside its limit while barely affecting wall time, because these calls
+ * are latency-bound rather than throughput-bound.
+ */
+const MAX_INFLIGHT = 6;
+let inflight = 0;
+const waiting: Array<() => void> = [];
+
+const acquire = (): Promise<void> => {
+  if (inflight < MAX_INFLIGHT) {
+    inflight += 1;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    waiting.push(() => {
+      inflight += 1;
+      resolve();
+    });
+  });
+};
+
+const release = () => {
+  inflight -= 1;
+  waiting.shift()?.();
+};
+
 const walk = async <T>(
   servers: rpc.Server[],
   start: number,
@@ -107,13 +154,30 @@ const walk = async <T>(
   let lastErr: unknown = new Error('No RPC endpoint configured');
   for (let i = 0; i < servers.length; i++) {
     const idx = (start + i) % servers.length;
-    try {
-      const out = await withTimeout(op(servers[idx]));
-      if (idx !== start) onStick(idx);
-      return out;
-    } catch (e) {
-      if (!isTransportFailure(e)) throw e;
-      lastErr = e;
+    // Retry a THROTTLED endpoint in place before moving on. Failing over on a 429 just relocates
+    // the burst to the next endpoint and throttles that one too; backing off actually resolves it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let throttled: boolean;
+      await acquire();
+      try {
+        const out = await withTimeout(op(servers[idx]));
+        if (idx !== start) onStick(idx);
+        return out;
+      } catch (e) {
+        if (!isTransportFailure(e)) throw e;
+        lastErr = e;
+        throttled = isRateLimited(e);
+      } finally {
+        release();
+      }
+      // eslint knows the try either returns or throws, so `throttled` is always assigned here.
+      // Back off OUTSIDE the semaphore. Sleeping while holding a slot would starve the queue and
+      // turn one throttled call into a stall for every read behind it.
+      if (throttled && attempt < 2) {
+        await sleep(250 * 2 ** attempt);
+        continue;
+      }
+      break;
     }
   }
   throw lastErr;
