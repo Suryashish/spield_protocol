@@ -44,6 +44,17 @@ type NetworkMeta = {
   horizonUrl: string;
   /** Block explorer base for linking out to txs / contracts. */
   explorer: string;
+  /**
+   * Extra Soroban RPC endpoints, tried in order when the primary is unreachable.
+   *
+   * **Mainnet only.** The public `mainnet.sorobanrpc.com` rate-limits and times out under ordinary
+   * dashboard load, which the UI surfaces as "Couldn't reach the network — showing the last data we
+   * have". A second endpoint turns that from a visible failure into a retry nobody notices.
+   *
+   * Populated from `VITE_RPC_URL_FALLBACK` (comma-separated) rather than hardcoded, because a
+   * provider URL usually carries an API key. See `.env.example`.
+   */
+  fallbackRpcUrls: string[];
 };
 
 type ContractSet = {
@@ -115,6 +126,9 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
     rpcUrl: 'https://soroban-testnet.stellar.org',
     horizonUrl: 'https://horizon-testnet.stellar.org',
     explorer: 'https://stellar.expert/explorer/testnet',
+    // Testnet keeps a single endpoint on purpose — a flaky testnet read is not worth a second
+    // provider, and failover would only mask problems worth seeing during development.
+    fallbackRpcUrls: [],
     // v2 (post-update) PT/YT issuer — fresh assets for the redeployed contracts.
     // Live testnet deployment — REDEPLOYED 2026-06-09 with the updated contracts (optimized WASMs,
     // fresh issuer spield_issuer_v2) vs the real Blend TestnetV2 pool. Seeded: vault 5 USDC capacity,
@@ -156,6 +170,7 @@ const PROFILES: Record<NetworkKey, NetworkProfile> = {
     rpcUrl: 'https://mainnet.sorobanrpc.com',
     horizonUrl: 'https://horizon.stellar.org',
     explorer: 'https://stellar.expert/explorer/public',
+    fallbackRpcUrls: [],
     // Live MAINNET deployment (2026-06-08 vs the real Blend FixedV2 pool + Circle USDC).
     // See contract/spield/MAINNETCONTRACTADDRESSES.md.
     contracts: {
@@ -202,6 +217,31 @@ export const NETWORK = {
   horizonUrl: env('VITE_HORIZON_URL', profile.horizonUrl),
   explorer: env('VITE_EXPLORER_URL', profile.explorer),
 } as const;
+
+/**
+ * Every Soroban RPC endpoint for this network, primary first.
+ *
+ * `lib/soroban.ts` walks this list on transport failures. Fallbacks are **mainnet only** and come
+ * from `VITE_RPC_URL_FALLBACK` (comma-separated), because provider URLs normally embed an API key
+ * and the tracked `.env` deliberately holds only public values — put it in `.env.local`.
+ *
+ * A `VITE_*` value is inlined into the built bundle by Vite, so anyone loading the app can read it.
+ * That is unavoidable for a browser-side RPC; restrict the key by domain at the provider instead of
+ * expecting it to stay secret.
+ */
+export const RPC_URLS: readonly string[] = [
+  ...new Set(
+    [
+      NETWORK.rpcUrl,
+      ...(NETWORK_KEY === 'mainnet'
+        ? env('VITE_RPC_URL_FALLBACK', '')
+            .split(',')
+            .map((u) => u.trim())
+        : []),
+      ...profile.fallbackRpcUrls,
+    ].filter((u) => u.length > 0),
+  ),
+];
 
 /**
  * The v2 **SR stack** addresses for the active network, or `null` where it is not deployed.

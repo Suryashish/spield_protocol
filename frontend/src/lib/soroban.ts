@@ -9,7 +9,7 @@ import {
   rpc,
   xdr,
 } from '@stellar/stellar-sdk';
-import { DECIMALS, NETWORK } from './config';
+import { DECIMALS, NETWORK, RPC_URLS } from './config';
 import { signWithWallet } from './stellar';
 
 /**
@@ -22,7 +22,112 @@ import { signWithWallet } from './stellar';
  * smallest unit (7 decimals).
  */
 
-export const server = new rpc.Server(NETWORK.rpcUrl, { allowHttp: false });
+/**
+ * How long any single RPC call may hang before we give up on that endpoint.
+ *
+ * A timeout, not just an error handler: the failure mode that produced "Couldn't reach the network"
+ * was usually a socket that never answered rather than one that refused. Without a deadline the
+ * request sits open forever and no fallback is ever reached.
+ */
+const RPC_TIMEOUT_MS = 15_000;
+
+/** After this long on a fallback, try the primary again — a blip should not demote it forever. */
+const STICKY_MS = 5 * 60_000;
+
+const pool = RPC_URLS.map((url) => new rpc.Server(url, { allowHttp: false }));
+
+let activeIdx = 0;
+let activeSince = 0;
+
+/**
+ * Is this a transport failure (retry elsewhere) or a real answer (do not)?
+ *
+ * The distinction matters: a simulation that reverts, a malformed transaction, an account that does
+ * not exist — those are *answers*. Asking a second endpoint the same question returns the same
+ * answer, one timeout later. Only unreachability, rate limits and 5xx are worth failing over.
+ */
+const isTransportFailure = (e: unknown): boolean => {
+  if (e == null) return false;
+  const err = e as { response?: { status?: number }; status?: number; message?: string };
+  const status = err.response?.status ?? err.status;
+  if (typeof status === 'number') return status === 429 || status >= 500;
+  const msg = String(err.message ?? e).toLowerCase();
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('fetch failed') ||
+    msg.includes('load failed') ||
+    msg.includes('networkerror') ||
+    msg.includes('network error') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('aborted') ||
+    msg.includes('econnrefused') ||
+    msg.includes('enotfound')
+  );
+};
+
+const withTimeout = <T>(work: Promise<T>): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('RPC timed out')), RPC_TIMEOUT_MS);
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+
+/**
+ * Run `op` against the healthiest endpoint, walking the pool on transport failures.
+ *
+ * Whichever endpoint answers becomes sticky, so a degraded primary costs one timeout rather than one
+ * per call. Failing over a `sendTransaction` is safe on Stellar: the hash is deterministic from the
+ * signed envelope, so a resubmission either lands the same transaction or is rejected as a
+ * duplicate — it cannot produce two.
+ */
+const failover = async <T>(op: (s: rpc.Server) => Promise<T>): Promise<T> => {
+  if (activeIdx !== 0 && Date.now() - activeSince > STICKY_MS) activeIdx = 0;
+  let lastErr: unknown = new Error('No RPC endpoint configured');
+  for (let i = 0; i < pool.length; i++) {
+    const idx = (activeIdx + i) % pool.length;
+    try {
+      const out = await withTimeout(op(pool[idx]));
+      if (idx !== activeIdx) {
+        activeIdx = idx;
+        activeSince = Date.now();
+      }
+      return out;
+    } catch (e) {
+      if (!isTransportFailure(e)) throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+};
+
+/**
+ * The Soroban RPC client, with automatic failover across {@link RPC_URLS}.
+ *
+ * Exposes exactly the methods the app uses. It is a plain object rather than an `rpc.Server`
+ * subclass because nothing passes `server` around as a value — only its methods are called.
+ */
+export const server = {
+  getAccount: (...a: Parameters<rpc.Server['getAccount']>) => failover((s) => s.getAccount(...a)),
+  getEvents: (...a: Parameters<rpc.Server['getEvents']>) => failover((s) => s.getEvents(...a)),
+  getFeeStats: (...a: Parameters<rpc.Server['getFeeStats']>) => failover((s) => s.getFeeStats(...a)),
+  getLatestLedger: (...a: Parameters<rpc.Server['getLatestLedger']>) =>
+    failover((s) => s.getLatestLedger(...a)),
+  getTransaction: (...a: Parameters<rpc.Server['getTransaction']>) =>
+    failover((s) => s.getTransaction(...a)),
+  sendTransaction: (...a: Parameters<rpc.Server['sendTransaction']>) =>
+    failover((s) => s.sendTransaction(...a)),
+  simulateTransaction: (...a: Parameters<rpc.Server['simulateTransaction']>) =>
+    failover((s) => s.simulateTransaction(...a)),
+};
 
 const SCALE = 10n ** BigInt(DECIMALS);
 
