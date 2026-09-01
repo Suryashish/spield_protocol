@@ -1,6 +1,6 @@
 import { scValToNative } from '@stellar/stellar-sdk';
 
-import { CONTRACTS, SR_CONTRACTS } from './config';
+import { CONTRACTS, NETWORK_KEY, SR_CONTRACTS } from './config';
 
 /**
  * The contract whose rate history drives the yield chart.
@@ -41,7 +41,18 @@ import { getCurrentRate } from './spield';
 
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
-const LS_KEY = 'spield.rateHistory.v2';
+/**
+ * Storage key — namespaced by **network and contract**, which v2 was not.
+ *
+ * v2 used one global bucket, so a browser that had opened both testnet and mainnet merged two
+ * unrelated rate series into a single array. The two chains have different `b_rate` bases, so the
+ * seam between them looks like an enormous instantaneous jump, and every statistic taken across it
+ * is nonsense. That is the main reason the same dashboard showed a different realized APY on every
+ * machine: the number was a function of which networks that particular browser had visited.
+ *
+ * The `v3` bump abandons every poisoned v2 bucket rather than trying to repair it.
+ */
+const LS_KEY = `spield.rateHistory.v3.${NETWORK_KEY}.${YIELD_HISTORY_CONTRACT}`;
 
 /** Same lookback tiers as the activity feed — testnet RPC retains a bounded window. */
 const LOOKBACK_TIERS = [9000, 4000, 1000];
@@ -79,6 +90,20 @@ export type YieldHistory = {
  * Below it we show cumulative yield + "collecting data" instead of a fake APY.
  */
 const MIN_APY_WINDOW_SECS = 24 * 60 * 60;
+
+/** A regression needs points, not just a span. Two samples is a line through noise. */
+const MIN_FIT_SAMPLES = 4;
+
+/**
+ * Plausibility band for a realized Blend USDC supply APY, as a fraction.
+ *
+ * Blend's USDC supply rate has lived in the low single digits to ~30%. A fitted value outside this
+ * band is not a yield, it is an artefact — a stale sample, a chunked interest credit, a clock skew —
+ * and showing it does more harm than showing nothing. Everything the dashboard reported wrongly
+ * (543%, 7,583%, 713,000%) sits far outside it.
+ */
+const APY_BAND_MIN = 0;
+const APY_BAND_MAX = 1.0;
 
 // ---------------------------------------------------------------- persistence
 
@@ -198,7 +223,69 @@ const growthRatio = (first: bigint, last: bigint): number => {
   return Number(scaled) / 1e15;
 };
 
-/** Growth stats from the first to the last sample. */
+/**
+ * Drop any leading samples that break monotonicity.
+ *
+ * `b_rate` is non-decreasing by construction, so a sample that sits *earlier* in time with a
+ * *higher* rate did not come from this series — a leftover bucket from another network, a
+ * hand-edited localStorage entry, a clock-skewed observation. One of those at the head of the array
+ * is enough to poison every statistic derived from it, because the baseline is `samples[0]`.
+ * Keep the longest non-decreasing run ending at the newest sample.
+ */
+const sanitize = (samples: RateSample[]): RateSample[] => {
+  const kept: RateSample[] = [];
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const s = samples[i];
+    if (kept.length > 0 && s.rate > kept[kept.length - 1].rate) break;
+    kept.push(s);
+  }
+  return kept.reverse();
+};
+
+/**
+ * Annualized rate from a least-squares fit of `ln(rate)` against time.
+ *
+ * `b_rate` compounds, so `ln(rate)` is near-linear in `t` and the slope is the continuous annual
+ * rate. This replaces an endpoint ratio — `(last / first) ** (YEAR / dt)` — which made the headline
+ * hostage to two samples out of hundreds. Blend credits interest in discrete chunks whenever the
+ * pool is touched, so a window that happens to straddle one chunk reads as a huge move; raised to
+ * the power of `YEAR / dt` that becomes astronomical. Over a 24h window the exponent is 365, and a
+ * 2.5% apparent move annualizes to ~713,000% — which is exactly what the dashboard was showing.
+ *
+ * A regression over every sample cannot be dragged that far by one point, and it uses the data that
+ * was already being collected and thrown away.
+ */
+const fitApy = (samples: RateSample[]): number | null => {
+  if (samples.length < MIN_FIT_SAMPLES) return null;
+  const t0 = samples[0].t;
+  const base = samples[0].rate;
+  let n = 0;
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let sxy = 0;
+  for (const s of samples) {
+    const x = s.t - t0;
+    // `growthRatio` keeps the integer precision; the delta lives in the 9th-11th decimal.
+    const y = Math.log(growthRatio(base, s.rate));
+    if (!Number.isFinite(y)) continue;
+    n += 1;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
+  }
+  if (n < MIN_FIT_SAMPLES) return null;
+  const denom = n * sxx - sx * sx;
+  // Every sample landed in the same instant — no time base to fit against.
+  if (!Number.isFinite(denom) || Math.abs(denom) < 1e-9) return null;
+  const slopePerSec = (n * sxy - sx * sy) / denom;
+  if (!Number.isFinite(slopePerSec)) return null;
+  const apy = Math.expm1(slopePerSec * SECONDS_PER_YEAR);
+  return Number.isFinite(apy) ? apy : null;
+};
+
+/** Growth stats across the observed window. */
 const computeStats = (
   samples: RateSample[],
 ): {
@@ -216,13 +303,15 @@ const computeStats = (
   if (dt <= 0 || first.rate <= 0n) {
     return { cumulativeYield: null, apy: null, windowSecs: Math.max(0, dt), apyReliable: false };
   }
-  const ratio = growthRatio(first.rate, last.rate);
-  const cumulativeYield = ratio - 1;
-  const apyReliable = dt >= MIN_APY_WINDOW_SECS;
-  // Only annualize once the window is long enough to be meaningful.
-  const apyRaw = Math.pow(ratio, SECONDS_PER_YEAR / dt) - 1;
-  const apy = apyReliable && Number.isFinite(apyRaw) ? apyRaw : null;
-  return { cumulativeYield, apy, windowSecs: dt, apyReliable };
+  const cumulativeYield = growthRatio(first.rate, last.rate) - 1;
+
+  // Three independent gates, because each one alone has been observed to pass junk:
+  // a long enough window, enough points to fit, and a result inside the plausible band.
+  const fitted = dt >= MIN_APY_WINDOW_SECS ? fitApy(samples) : null;
+  const inBand = fitted != null && fitted >= APY_BAND_MIN && fitted <= APY_BAND_MAX;
+  const apy = inBand ? fitted : null;
+
+  return { cumulativeYield, apy, windowSecs: dt, apyReliable: apy != null };
 };
 
 /**
@@ -244,7 +333,9 @@ export const getYieldHistory = async (nowSecs: number): Promise<YieldHistory> =>
     fresh.push({ t: nowSecs, rate: liveRate });
   }
 
-  const samples = merge(loadStored(), fresh);
+  // `sanitize` before persisting, not just before computing: otherwise a bad sample is written back
+  // every refresh and the bucket never heals.
+  const samples = sanitize(merge(loadStored(), fresh));
   saveStored(samples);
 
   const { cumulativeYield, apy, windowSecs, apyReliable } = computeStats(samples);

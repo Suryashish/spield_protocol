@@ -115,8 +115,23 @@ const YieldChart = () => {
 
   // Headline: a trustworthy annualized APY once the window is long enough; until
   // then, the honest cumulative figure rather than a noisy extrapolation.
-  const realizedLabel = apyReliable ? 'Realized APY' : 'Yield so far';
-  const realizedValue = apyReliable ? fmtPct(apy) : fmtAdaptivePct(cumulative);
+  //
+  // The label is deliberately CONSTANT. It used to flip to "Yield so far" whenever this browser's
+  // own sample window was under a day — and since the window is built from localStorage, that made
+  // the field's identity a property of the viewer's machine rather than of the protocol. Two people
+  // opening the same dashboard saw two differently-named numbers, which reads as a broken app
+  // rather than as the honest caveat it was meant to be.
+  //
+  // The headline now always means one thing. When there is not yet enough history to annualize
+  // honestly it shows an em dash, and the caveat — plus the cumulative figure, which is always
+  // truthful — moves to the line underneath.
+  const realizedLabel = 'Realized APY';
+  const realizedValue = apyReliable ? fmtPct(apy) : '—';
+  const realizedNote = apyReliable
+    ? 'realized'
+    : cumulative != null
+      ? `${fmtAdaptivePct(cumulative)} so far · collecting`
+      : 'collecting data';
 
   // The market's forward-looking number (from the AMM curve), shown beside the backward-looking
   // realized figure so the two views sit together: what it earned vs what the market prices in.
@@ -147,7 +162,7 @@ const YieldChart = () => {
             >
               {realizedValue}
             </div>
-            <div className="eyebrow">realized</div>
+            <div className="eyebrow">{realizedNote}</div>
           </div>
           {showImplied && (
             <>
