@@ -40,6 +40,7 @@ done
 | `spield_sig_1` | `GA7BTFN2P4EXZS4MM4QNGLQBAWUZYLCYNACWDCRW74P3QJT4FUB7TF7Z` | Future 2-of-3 signer. Needs no account and no funding |
 | `spield_sig_2` | `GAQ3DLLNUE5HPRKYL5JOCSLCD7RHKE3IRCOEHH7DULGXHZZB3V3SAYWP` | Future 2-of-3 signer |
 | `spield_sig_3` | `GA3ODKNDDTVKGDONUFBRSO4REMGX6JDJTGZ4X5FTRQU3IOFGKTYFU3KP` | Future 2-of-3 signer |
+| `spield_pt_issuer_demo` | `GBNXYAM46QXDKPWKHJLONJQFJJMYOAXCHOPL7G344OIKPGSTVD4FPP7P` | *(lifecycle test only)* Issues `SPLDPTD` for the 90-minute demo series, then locks. **Not part of the live protocol** — see [§11](#11-the-90-minute-demo-series) |
 
 ## Live parameters, read back off chain
 
@@ -530,6 +531,91 @@ Everything else is recoverable: the cap is one `set_deposit_cap` call, the rate 
   one address can take all of it.
 * A deep Blend bad-debt event freezes withdrawals until backing recovers, with no bounded recovery
   time. This is disclosed in the app, not only in the tracker.
+
+---
+
+## 11. The 90-minute demo series
+
+A **second, throwaway mainnet deployment** whose only job is to walk a complete
+deposit → maturity → redeem cycle in 90 minutes, because the live series cannot be redeemed until
+2026-09-30. Same six contracts, same code, separate instances. **Not part of the live protocol.**
+
+**No new script.** `deploy_mainnet.sh` is fully parameterized; the demo is the same script with
+different env:
+
+```bash
+STATE_FILE=scripts/deploy_mainnet_demo.state \
+EXPIRY=$(( $(date +%s) + 5400 )) \
+ISSUER=spield_pt_issuer_demo PT_CODE=SPLDPTD \
+SR_DEPOSIT_CAP=200000000 \
+VAULT_SEED_AMOUNT=5000000 SEED=1 SEED_PER_SIDE=2500000 \
+MIN_DEPLOYER_XLM=5 WANT_DEPLOYER_XLM=6 MIN_ISSUER_XLM=2 WANT_ISSUER_XLM=2 \
+CONFIRM=1 bash ./scripts/deploy_mainnet.sh
+```
+
+Five of those are load-bearing:
+
+| Variable | Why it is not optional |
+|---|---|
+| `EXPIRY` | The script derives expiry from `MATURITY_DAYS*86400`, which cannot express 90 minutes. `EXPIRY` overrides it outright |
+| `STATE_FILE` | Without it the script reads `deploy_mainnet_v2.state`, finds `DEPLOY_COMPLETE=1`, and skips the entire run |
+| `ISSUER` | `spield_pt_issuer` is **locked forever** and can never issue another asset. Only the issuer must be new — `spield_deployer` is reused, it is just a fee payer and admin holder |
+| `PT_CODE` | v1 and v2 already share `SPLDPT` under different issuers. A third collision is not worth the confusion |
+| `MIN_DEPLOYER_XLM` | The preflight sums `q_upload()` per undeployed contract and would demand **~220 XLM** for uploads that are now free. It must be told otherwise |
+
+### It costs ~1.3 XLM, not 280
+
+The 217 XLM of the first launch was **WASM uploads**. Those code entries now exist on mainnet and a
+second deployment reuses them — you pay to notice they are there, not to store them again. Measured
+by simulation against `mainnet.sorobanrpc.com` on 2026-09-01:
+
+| | First deploy | Demo deploy |
+|---|---|---|
+| Six WASM uploads | 217.23 XLM | **0.146 XLM** |
+| Six contract instances | (included above) | **0.321 XLM** |
+| ~22 config/init writes @ 0.0165 | — | ~0.36 XLM |
+| PT SAC, trustline, issuer lock, seeds | — | ~0.6 XLM |
+| **Total** | ~190 XLM | **~1.3 XLM** |
+
+Fund **6 XLM** to the deployer (it holds 3.03, and the new `SPLDPTD` trustline raises its locked
+reserve to 2.5) and **2 XLM** to the demo issuer, of which 1 XLM is account reserve that locks with
+it and ~0.99 is simply lost. Plus **1.5 USDC** to the deployer: 0.5 vault seed, 0.5 AMM seed
+(0.25/side), 0.5 to deposit as a test user.
+
+### 90 minutes is tradeable — verified, not assumed
+
+The concern was `rate_scalar = scalar_root / years_to_expiry`, which "steepens without bound as
+expiry nears": at 90 minutes that divisor is ~250,000x smaller than at 30 days. Probed locally
+against the srmarket suite:
+
+```
+30 days     implied APY   3.0000%  PT price 0.99757346
+            swap 5000000 SR -> 5005860 PT   (rate after 1.6895%)
+90 minutes  implied APY   3.0000%  PT price 0.99999494
+            swap 5000000 SR -> 5000011 PT   (rate after 3.0000%, round-trip loss 29 stroops)
+```
+
+No overflow, opens at exactly the configured rate, swaps round-trip cleanly. The curve simply goes
+flat, which is correct — PT is 90 minutes from par.
+
+### The yield will read as zero, and that is not a bug
+
+90 minutes is 0.017% of a year. At 300 bps a 10 USDC deposit earns **0.000051 USDC** — it renders as
+`0.0000` everywhere in the UI. Seeing a number move would need roughly **5,800 bps**, which the
+calibration gate refuses without `VAULT_RATE_OVERRIDE=1` and a raised `VAULT_MAX_RATE_BPS`. Do not
+bother: what this series proves is that deposit → receipt → maturity → redeem works on mainnet, and
+an invented rate does not help prove it.
+
+**The clock starts at deploy.** `ensure_can_trade` panics with `SeriesExpired` once
+`timestamp >= expiry`, so trading and minting stop after 90 minutes and the stack becomes
+redeem-only — which is the half being tested.
+
+### Frontend
+
+A boolean, not a third network. `VITE_MAINNET_DEMO=true` swaps the contract addresses while
+`NETWORK_KEY` stays `'mainnet'`, so every `NETWORK_KEY === 'mainnet'` branch — Solana chain
+selection, EVM chain list, the event indexer, the bridge default — keeps behaving correctly. A third
+`NetworkKey` value would have silently sent all four down their testnet paths.
 
 **Related:** `MAINNET.md` (full reference) · `left.md` (what is left and why) · `DRILLS.md` (the
 rehearsed emergency procedures and their timings) · `notcovered.md` (deliverable-by-deliverable status).
