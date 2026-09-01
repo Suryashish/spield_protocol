@@ -79,41 +79,85 @@ app.get('/waitlist', async (req, res) => {
  * it directly. We proxy it here — server-to-server has no CORS constraint — and
  * hand the browser the raw event records (which it already knows how to decode).
  *
- *   GET /activity?contract=<C...>&network=testnet|public&limit=100
+ * `contract` accepts one id or a comma-separated list. Each explorer endpoint is
+ * queried independently because stellar.expert only accepts one contract per
+ * request; the results are then merged into one newest-first feed.
+ *
+ *   GET /activity?contract=<C...>[,<C...>]&network=testnet|public&limit=100
  */
-app.get('/activity', async (req, res) => {
+async function activityHandler(req, res) {
   const { contract } = req.query;
   const network = req.query.network === 'public' ? 'public' : 'testnet';
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
 
-  // Only proxy well-formed Soroban contract ids (C… + base32), so this can't be
-  // turned into an open relay to arbitrary explorer paths.
-  if (typeof contract !== 'string' || !/^C[A-Z2-7]{55}$/.test(contract)) {
-    return res.status(400).json({ error: 'A valid contract id (C…) is required' });
+  // Only proxy a small, bounded set of well-formed Soroban contract ids (C… +
+  // base32), so this cannot become an open relay or an unbounded fan-out request.
+  const contracts =
+    typeof contract === 'string'
+      ? [...new Set(contract.split(',').map((id) => id.trim()).filter(Boolean))]
+      : [];
+  if (
+    contracts.length === 0 ||
+    contracts.length > 10 ||
+    contracts.some((id) => !/^C[A-Z2-7]{55}$/.test(id))
+  ) {
+    return res.status(400).json({
+      error: 'One to ten valid contract ids (C…), separated by commas, are required',
+    });
   }
 
-  const url =
-    `https://api.stellar.expert/explorer/${network}/contract/${contract}` +
-    `/events?order=desc&limit=${limit}`;
-
   try {
-    const upstream = await fetch(url, { headers: { accept: 'application/json' } });
-    if (!upstream.ok) {
-      return res
-        .status(502)
-        .json({ error: `Explorer returned ${upstream.status}`, records: [] });
-    }
-    const json = await upstream.json();
-    const records = (json && json._embedded && json._embedded.records) || [];
+    const responses = await Promise.all(
+      contracts.map(async (contractId) => {
+        const url =
+          `https://api.stellar.expert/explorer/${network}/contract/${contractId}` +
+          `/events?order=desc&limit=${limit}`;
+        const upstream = await fetch(url, { headers: { accept: 'application/json' } });
+        if (!upstream.ok) {
+          const error = new Error(`Explorer returned ${upstream.status}`);
+          error.upstreamStatus = upstream.status;
+          throw error;
+        }
+        const json = await upstream.json();
+        return (json && json._embedded && json._embedded.records) || [];
+      }),
+    );
+
+    // A transaction can emit events from several watched contracts. Event ids are
+    // globally ordered paging tokens, but include the contract in the key as a
+    // defensive fallback for explorer responses that omit or reuse an id.
+    const seen = new Set();
+    const records = responses
+      .flat()
+      .sort(
+        (a, b) =>
+          Number(b.ts || 0) - Number(a.ts || 0) ||
+          String(b.id).localeCompare(String(a.id)),
+      )
+      .filter((record) => {
+        const key = `${record.contract || ''}:${record.id || ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, limit);
+
     // Cache briefly at the edge — event history is append-only and the feed
     // polls on refresh, so a short TTL cuts upstream load without going stale.
     res.set('Cache-Control', 'public, max-age=15');
     res.json({ records });
   } catch (error) {
+    if (error && error.upstreamStatus) {
+      return res
+        .status(502)
+        .json({ error: `Explorer returned ${error.upstreamStatus}`, records: [] });
+    }
     console.error('Error proxying activity:', error);
     res.status(502).json({ error: 'Failed to reach explorer', records: [] });
   }
-});
+}
+
+app.get('/activity', activityHandler);
 
 // Only start a long-running HTTP server when run directly (local dev).
 // On Vercel the app is imported as a serverless handler, so app.listen()
@@ -125,3 +169,5 @@ if (require.main === module) {
 }
 
 module.exports = app;
+// Exposed on the Express handler for focused unit tests without opening a port.
+module.exports.activityHandler = activityHandler;
