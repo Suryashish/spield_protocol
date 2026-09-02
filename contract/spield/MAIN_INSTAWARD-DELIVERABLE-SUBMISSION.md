@@ -1,4 +1,4 @@
-# Instaward — Deliverable Submission (draft content)
+# Instaward Deliverable Submission (draft content)
 
 Draft text for each field of the deliverable completion form, written against what is
 actually live today, and calibrated against the §4.1 scope we committed to.
@@ -21,7 +21,7 @@ None. Every field below is filled in with live links and on-chain transaction ha
 
 All six v2 contracts are deployed on mainnet against the real Blend FixedV2 pool
 and real Circle USDC. After deploy, 24 of 24 wiring assertions passed, and every live WASM
-was fetched back off-chain and confirmed byte-identical to the binary we built — so the code
+was fetched back off-chain and confirmed byte-identical to the binary we built, so the code
 running on mainnet is provably the code in the repo. Anyone can reproduce that check:
 fetch the live WASM for each contract and compare its sha256 against the built artifact.
 
@@ -44,7 +44,7 @@ Launch state on chain today:
   place until a professional audit clears.
 - **Fixed-Rate Vault seeded** with 2 USDC of coupon capacity, funded from our own treasury,
   so public deposits succeed rather than bouncing on empty capacity.
-- **PT issuer locked permanently** — no signer holds any weight, verified on Horizon. PT can
+- **PT issuer locked permanently.** No signer holds any weight, verified on Horizon. PT can
   only ever be minted by the yield engine.
 - **Public solvency dashboard live** at https://app.spield.live/solvency, reading backing vs.
   principal straight from the contract, no wallet needed.
@@ -52,20 +52,20 @@ Launch state on chain today:
 
 **Full lifecycle proven on mainnet.** The live series has a 30-day maturity that is immutable
 by design, so a redeem transaction on it cannot exist before 30 September. Rather than leave
-the lifecycle unproven, we deployed a second, disposable 90-minute series on mainnet — same
-code, same day, real USDC, cost 1.28 XLM and 0.60 USDC — and walked the complete cycle on it:
+the lifecycle unproven, we deployed a second, disposable 90-minute series on mainnet (same
+code, same day, real USDC, cost 1.28 XLM and 0.60 USDC) and walked the complete cycle on it:
 deposit into the Fixed Vault, redeem after maturity, and claim the yield.
 
-- Deposit into the Fixed Vault — https://stellar.expert/explorer/public/tx/275816022291398656#275816022291398657
-- Redeem from the Fixed Vault — https://stellar.expert/explorer/public/tx/275838884402204672#275838884402204673
-- Claim yield — https://stellar.expert/explorer/public/tx/275838927352209408#275838927352209409
+- Deposit into the Fixed Vault: https://stellar.expert/explorer/public/tx/275816022291398656#275816022291398657
+- Redeem from the Fixed Vault: https://stellar.expert/explorer/public/tx/275838884402204672#275838884402204673
+- Claim yield: https://stellar.expert/explorer/public/tx/275838927352209408#275838927352209409
 
 The live series' own redeem hash follows on 30 September 2026 and we will submit it then.
 
 **Multisig custody is done.** The admin of all six live contracts has been moved off the
 single deployer key and onto a 2-of-3 multisig account. The multisig was built
-first — three signers of weight 1 added, the account's own master key disabled, and low,
-medium and high thresholds all set to 2 — so no single key can act for it. Soroban calls are
+first, with three signers of weight 1 added, the account's own master key disabled, and low,
+medium and high thresholds all set to 2, so no single key can act for it. Soroban calls are
 medium-threshold operations, which is the one that governs admin actions.
 
 The handover is two steps by design: the current admin proposes the new one, and the new one
@@ -77,13 +77,13 @@ Verified on chain after the rotation, not assumed:
 - All six contracts report the multisig as admin, with no proposal left pending.
 - The old deployer key, signing alone, is rejected by the network with `TxBadAuth`. It can no
   longer act as admin of anything.
-- A single multisig signer, acting alone, is also rejected with `TxBadAuth` — the 2-of-3
+- A single multisig signer, acting alone, is also rejected with `TxBadAuth`. The 2-of-3
   threshold genuinely holds.
 - The multisig is functional, not just recorded: all six `accept_admin` calls were
   admin-gated actions authorized by two signatures.
 
-One thing deliberately left where it was: the three addresses that receive money —
-`yield.treasury`, `srmarket.treasury` and `strategy.emissions_to` — still point at the
+One thing deliberately left where it was: the three addresses that receive money
+(`yield.treasury`, `srmarket.treasury` and `strategy.emissions_to`) still point at the
 operating account. Control and income are separate concerns, and a cold multisig is the right
 home for control but an awkward one for a fee stream you spend from. Moving them is a
 one-command step whenever we choose.
@@ -119,54 +119,55 @@ rail appears.
 Validated by a real bridge-in on mainnet, Base → Stellar, visible in the app's transfer
 history:
 
-- USDC burn on Base — https://basescan.org/tx/0xc03074fa4c140eccccce151aa8561a97942957b4ee572c0eab086c91651c2eda
-- USDC mint on Stellar — https://stellar.expert/explorer/public/tx/275407794239995904#275407794239995905
-- Screen recording of the on-ramp flow — https://drive.google.com/file/d/19bB6HPY84GRHNxCg_vJr5cSbO33ItYMj/view?usp=sharing
+- USDC burn on Base: https://basescan.org/tx/0xc03074fa4c140eccccce151aa8561a97942957b4ee572c0eab086c91651c2eda
+- USDC mint on Stellar: https://stellar.expert/explorer/public/tx/275407794239995904#275407794239995905
+- Screen recording of the on-ramp flow: https://drive.google.com/file/d/19bB6HPY84GRHNxCg_vJr5cSbO33ItYMj/view?usp=sharing
 
 ## Deliverable 3 Completed
 
 **Delivered, both halves.**
 
 **UI/UX overhaul.** The deposit → fixed-yield journey was rebuilt: one-click PT trustline
-(YT needs none — it is a contract with a transfer hook, not a standard asset), fixed rate,
-coupon and maturity written in plain language, six wallets supported (Freighter, xBull,
-Rabet, Hana, LOBSTR, Albedo), and pending / success / error feedback on every transaction.
+(YT needs none, because it is a contract with a transfer hook, not a standard asset),
+fixed rate, coupon and maturity written in plain language, six wallets supported
+(Freighter, xBull, Rabet, Hana, LOBSTR, Albedo), and pending / success / error feedback on
+every transaction.
 The risk disclosure shows the live deposit cap next to the risk it bounds, and says plainly
 that the protocol is unaudited. Mobile pass covered all 10 app routes at 320, 375 and 414 px,
 verified in a real browser, plus the marketing site. Before and after screenshots captured.
 
 **Builder SDK.** `@spield/sdk` version 0.4.2 is published on npm and pointed at testnet, as
 the scope specified. Verified rather than assumed: a fresh install into an empty project
-works, and the installed package reads live testnet data — health, exchange rate, total
+works, and the installed package reads live testnet data: health, exchange rate, total
 assets, deposit previews, positions, receipts and solvency. A runnable example ships with it.
 
-- Live app — https://app.spield.live
-- Published SDK — https://www.npmjs.com/package/@spield/sdk
+- Live app: https://app.spield.live
+- Published SDK: https://www.npmjs.com/package/@spield/sdk
 
 ---
 
 # 2. Evidence Collected
 
-## Evidence 1 — Deliverable 1 (mainnet contracts and lifecycle)
+## Evidence 1: Deliverable 1 (mainnet contracts and lifecycle)
 
 The six live mainnet contracts, as explorer links:
 
-- SR — https://stellar.expert/explorer/public/contract/CCOZ2JGQAPLUOG5RVU3TLPGSS7WA356BWCOEWFBJU44DKHDRZTQPABBS
-- Strategy (Blend adapter) — https://stellar.expert/explorer/public/contract/CAJKHGY3J2XSZHI3TFDFMXJ2GDFFUPUPPTUOP6UOBHSY6FW66J6YYBP7
-- Yield engine, which is also the YT token — https://stellar.expert/explorer/public/contract/CDILIYN4IXUL5H7PJ4TW3GLZ2U6LIZYX35SNN4BGYZWPIXFLJZEFMRLP
-- SR Market (PT/SR AMM) — https://stellar.expert/explorer/public/contract/CDRQJ7EYKTJV3W4BE2U4HIAWSVZB675MHTCBDGCXMKVR5VCURMNSEZ7O
-- SR Vault (Fixed-Rate Vault) — https://stellar.expert/explorer/public/contract/CDNRQ4YLW4RA4LB4J4M5S3X4SEXXR3Z6TR7336VKOG3FPX3PBFAMVZ6P
-- SR Router — https://stellar.expert/explorer/public/contract/CB7O72TTK7OISNS53HXTLCZ2EAY2F5KKYBPGI7ADSIX5KMPGVVDXAALN
-- PT token (SPLDPT) — https://stellar.expert/explorer/public/contract/CBGA2TFTSF236VYPI5TVYQ2Z53DKD6LQHIR5DCGKSNIUJ4NAPNBI6VJM
-- PT issuer, locked forever — https://stellar.expert/explorer/public/account/GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN
+- SR: https://stellar.expert/explorer/public/contract/CCOZ2JGQAPLUOG5RVU3TLPGSS7WA356BWCOEWFBJU44DKHDRZTQPABBS
+- Strategy (Blend adapter): https://stellar.expert/explorer/public/contract/CAJKHGY3J2XSZHI3TFDFMXJ2GDFFUPUPPTUOP6UOBHSY6FW66J6YYBP7
+- Yield engine, which is also the YT token: https://stellar.expert/explorer/public/contract/CDILIYN4IXUL5H7PJ4TW3GLZ2U6LIZYX35SNN4BGYZWPIXFLJZEFMRLP
+- SR Market (PT/SR AMM): https://stellar.expert/explorer/public/contract/CDRQJ7EYKTJV3W4BE2U4HIAWSVZB675MHTCBDGCXMKVR5VCURMNSEZ7O
+- SR Vault (Fixed-Rate Vault): https://stellar.expert/explorer/public/contract/CDNRQ4YLW4RA4LB4J4M5S3X4SEXXR3Z6TR7336VKOG3FPX3PBFAMVZ6P
+- SR Router: https://stellar.expert/explorer/public/contract/CB7O72TTK7OISNS53HXTLCZ2EAY2F5KKYBPGI7ADSIX5KMPGVVDXAALN
+- PT token (SPLDPT): https://stellar.expert/explorer/public/contract/CBGA2TFTSF236VYPI5TVYQ2Z53DKD6LQHIR5DCGKSNIUJ4NAPNBI6VJM
+- PT issuer, locked forever: https://stellar.expert/explorer/public/account/GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN
 
 Full lifecycle on mainnet. This 90-minute series exists to show the complete life cycle of
 Spield's fixed income and redeem functions inside the submission window, because the live
 series cannot be redeemed until 30 September. Same code, real USDC.
 
-- Deposit into the Fixed Vault — https://stellar.expert/explorer/public/tx/275816022291398656#275816022291398657
-- Redeem from the Fixed Vault — https://stellar.expert/explorer/public/tx/275838884402204672#275838884402204673
-- Claim yield — https://stellar.expert/explorer/public/tx/275838927352209408#275838927352209409
+- Deposit into the Fixed Vault: https://stellar.expert/explorer/public/tx/275816022291398656#275816022291398657
+- Redeem from the Fixed Vault: https://stellar.expert/explorer/public/tx/275838884402204672#275838884402204673
+- Claim yield: https://stellar.expert/explorer/public/tx/275838927352209408#275838927352209409
 
 Multisig custody. Admin of all six contracts moved to a 2-of-3 account. The account itself,
 showing three signers of weight 1 and its own master key at weight 0:
@@ -179,38 +180,38 @@ The transaction that made it a 2-of-3 (master key disabled, thresholds set to 2)
 
 The six handover transactions, each an `accept_admin` signed by two of the three signers:
 
-- SR — https://stellar.expert/explorer/public/tx/a1ea497c5342071a47bddc2ee95df10dea7fda7e12d8b5e5a0cc97ddf56fa409
-- Strategy — https://stellar.expert/explorer/public/tx/bea64c8ce60d72a45d99f93b8aae6ee3d31dfdb1655c5efb4731bd2f3e4bd874
-- Yield — https://stellar.expert/explorer/public/tx/68e0d0f5badacdc815305a5c4c2befd825e4bb0a6f296b3222e3527d948869bc
-- SR Market — https://stellar.expert/explorer/public/tx/9fcd1487dbaddf949012edb56ca205f22bcc40b2c82f2994fcde3ec1dce32b56
-- SR Vault — https://stellar.expert/explorer/public/tx/5ce278b6806cb9613212b2f5900d533a55a994e60fa7cae3ac860dcab54becd7
-- SR Router — https://stellar.expert/explorer/public/tx/488dad505d88a3b74991543b2340eb035bb335923cd52969ce35a555b1feaeb3
+- SR: https://stellar.expert/explorer/public/tx/a1ea497c5342071a47bddc2ee95df10dea7fda7e12d8b5e5a0cc97ddf56fa409
+- Strategy: https://stellar.expert/explorer/public/tx/bea64c8ce60d72a45d99f93b8aae6ee3d31dfdb1655c5efb4731bd2f3e4bd874
+- Yield: https://stellar.expert/explorer/public/tx/68e0d0f5badacdc815305a5c4c2befd825e4bb0a6f296b3222e3527d948869bc
+- SR Market: https://stellar.expert/explorer/public/tx/9fcd1487dbaddf949012edb56ca205f22bcc40b2c82f2994fcde3ec1dce32b56
+- SR Vault: https://stellar.expert/explorer/public/tx/5ce278b6806cb9613212b2f5900d533a55a994e60fa7cae3ac860dcab54becd7
+- SR Router: https://stellar.expert/explorer/public/tx/488dad505d88a3b74991543b2340eb035bb335923cd52969ce35a555b1feaeb3
 
 Anyone can confirm the result without trusting us: call `admin()` on any of the six contracts
 and compare it to the account above.
 
 Also submitted:
 
-- Public solvency dashboard — https://app.spield.live/solvency
+- Public solvency dashboard: https://app.spield.live/solvency
 - Code verification: each contract's `version()` string and sha256, with the command to fetch
-  the live WASM and diff it against the built artifact — supplied as a one-page attachment.
+  the live WASM and diff it against the built artifact, supplied as a one-page attachment.
 
-## Evidence 2 — Deliverable 2 (cross-chain on-ramp)
+## Evidence 2: Deliverable 2 (cross-chain on-ramp)
 
 A real Base → Stellar USDC transfer on mainnet, end to end:
 
-- USDC burn on Base — https://basescan.org/tx/0xc03074fa4c140eccccce151aa8561a97942957b4ee572c0eab086c91651c2eda
-- USDC mint on Stellar — https://stellar.expert/explorer/public/tx/275407794239995904#275407794239995905
+- USDC burn on Base: https://basescan.org/tx/0xc03074fa4c140eccccce151aa8561a97942957b4ee572c0eab086c91651c2eda
+- USDC mint on Stellar: https://stellar.expert/explorer/public/tx/275407794239995904#275407794239995905
 - Screen recording of the on-ramp flow, showing the transfer landing in the app's transfer
-  history — https://drive.google.com/file/d/19bB6HPY84GRHNxCg_vJr5cSbO33ItYMj/view?usp=sharing
+  history: https://drive.google.com/file/d/19bB6HPY84GRHNxCg_vJr5cSbO33ItYMj/view?usp=sharing
 
-## Evidence 3 — Deliverable 3 (app and SDK)
+## Evidence 3: Deliverable 3 (app and SDK)
 
-- Live app — https://app.spield.live
-- Published SDK — https://www.npmjs.com/package/@spield/sdk (version 0.4.2, testnet)
-- Before and after screenshots of the deposit → fixed-yield journey — https://drive.google.com/drive/folders/1cpiEMAlggtkVrRb36BRZUeSeM9n1033o?usp=sharing
-- Demo video, a non-technical user doing connect → trustline → deposit → see fixed receipt — https://drive.google.com/file/d/1Vrq5jr_CJpVCV47Gf-3hI5qYrxJMkwd2/view?usp=sharing
-- Detailed product walkthrough (extra) — https://drive.google.com/file/d/1fnFtfJVUT1XrPF8QEx_r7vjESrVF6Ur1/view?usp=sharing
+- Live app: https://app.spield.live
+- Published SDK: https://www.npmjs.com/package/@spield/sdk (version 0.4.2, testnet)
+- Before and after screenshots of the deposit → fixed-yield journey: https://drive.google.com/drive/folders/1cpiEMAlggtkVrRb36BRZUeSeM9n1033o?usp=sharing
+- Demo video, a non-technical user doing connect → trustline → deposit → see fixed receipt: https://drive.google.com/file/d/1Vrq5jr_CJpVCV47Gf-3hI5qYrxJMkwd2/view?usp=sharing
+- Detailed product walkthrough (extra): https://drive.google.com/file/d/1fnFtfJVUT1XrPF8QEx_r7vjESrVF6Ur1/view?usp=sharing
 
 ## Supporting Materials *(file upload)*
 
@@ -233,7 +234,7 @@ reviewer. Attach:
 The sprint did what it set out to do: Spield went from a tested testnet build to a live,
 guarded mainnet protocol inside 30 days. Six contracts are on mainnet, the vault is seeded
 and open, the cap is enforced on chain, the app is live, and the SDK is on npm. The complete
-fixed-income cycle — deposit, redeem at maturity, claim yield — has been walked on mainnet
+fixed-income cycle (deposit, redeem at maturity, claim yield) has been walked on mainnet
 with real USDC, and a real Base → Stellar transfer has landed through the on-ramp.
 
 Two things went differently from the plan, both handled rather than absorbed:
@@ -263,12 +264,13 @@ series. Neither is blocked on anyone else.
   move to the asset issuer's own rail rather than another intermediary. CCTP is Circle's, and
   Circle issues the USDC.
 - **Never extrapolate mainnet costs from testnet.** We estimated 3.4 XLM for the six WASM
-  uploads from testnet measurements. Mainnet quoted 217 XLM — 64× — because large persistent
-  entries carry rent. Read-only calls cost the same on both networks, which is what made the
-  first estimate look reasonable. Simulate every write against mainnet before funding.
+  uploads from testnet measurements. Mainnet quoted 217 XLM, 64 times higher, because
+  large persistent entries carry rent. Read-only calls cost the same on both networks,
+  which is what made the first estimate look reasonable. Simulate every write against
+  mainnet before funding.
 - **Immutable parameters need to be decided before deploy, not after.** Maturity is set once,
   in `initialize`, with no roll function. Choosing 30 days meant no redeem hash inside the
-  submission window. The fix — a second, disposable series — cost 1.28 XLM because the code
+  submission window. The fix, a second disposable series, cost 1.28 XLM because the code
   was already uploaded and only the instances were new. Worth knowing: redeploying published
   contracts is nearly free.
 - **Seeding consumes the deposit cap.** Both the vault seed and any AMM liquidity go through
@@ -285,7 +287,7 @@ series. Neither is blocked on anyone else.
 
 # 4. Assessment & Next Steps
 
-*(This section was cut off in the form screenshot — adjust to the actual field labels.)*
+*(This section was cut off in the form screenshot, so adjust to the actual field labels.)*
 
 Done since launch:
 
