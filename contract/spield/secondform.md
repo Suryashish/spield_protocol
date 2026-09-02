@@ -89,52 +89,191 @@ Chapter Lead can see which is which without having to guess.
 
 > **PASTE**
 >
-> Spield sells **certainty on a yield**, not yield itself. Every segment below is defined by
-> already holding or being willing to hold USDC, and by wanting a *known payout on a known
-> date* rather than a floating rate.
+> **What Spield sells.** Certainty on a yield, not yield itself. Every segment below already
+> holds, or is willing to hold, USDC, and every one of them is choosing a *known payout on a
+> known date* over a floating rate. That is the single thread running through all three. They
+> differ in position size, in who signs for the decision, and in whether they want our
+> interface or our code.
 >
-> **Segment 1 — Primary: the Stellar-native USDC holder (retail, $100–$10,000).**
-> Has a Stellar wallet already (Freighter, LOBSTR, xBull, Hana, Rabet or Albedo), holds USDC
-> on Stellar, and today has effectively one option for earning on it: Blend's variable
-> lending rate, or nothing. They are yield-aware but not DeFi-native — they will not read a
-> whitepaper, will not manage a position, and treat a floating APY as a number they cannot
-> plan around. What they want is the shape of a term deposit: *deposit X today, receive
-> exactly Y on exactly this date.* This is the segment the Fixed-Rate Vault is built for and
-> the one the entire UI is written for — plain-language rate, coupon and maturity, one-click
-> trustline, six wallets, no jargon on the deposit path.
+> Spield is initially targeting three closely related customer segments within the Stellar
+> ecosystem.
 >
-> **Segment 2 — Secondary: the cross-chain USDC holder (EVM and Solana).**
-> Holds USDC on Ethereum, Base, Arbitrum, OP Mainnet, Polygon, Avalanche or Solana, is
-> yield-shopping across chains, and has no particular attachment to Stellar. The capital
-> exists; it is simply not on our chain. This segment is the reason the product ships a
-> native Circle **CCTP V2** on-ramp — 1:1 burn-and-mint USDC, no wrapped asset, no third-party
-> bridge risk — rather than treating "get USDC onto Stellar" as the user's problem.
+> ---
 >
-> **Segment 3 — Tertiary, B2B: the Stellar builder.**
-> Wallets, neobank-style fintechs, payment apps and Soroban developers who want to show their
-> own users a fixed yield without writing a yield engine. They do not want our UI; they want
-> a dependency. This segment is served by **`@spield/sdk` v0.4.2 on npm** and is the reason
-> the SDK reads live chain data (health, exchange rate, total assets, deposit previews,
-> positions, receipts, solvency) rather than being a thin wrapper.
+> **3.1.1 DeFi users, traders and yield seekers.** *(Primary segment, live today.)*
 >
-> **Segment 4 — Deliberately out of scope until audited: treasuries and institutions.**
-> DAOs, funds and corporate treasuries are the natural long-term buyer of a dated instrument,
-> and we are explicitly *not* pursuing them yet. A 50 USDC cap on an unaudited protocol is
-> not a product any treasury can use, and pitching one before the audit would waste the
-> relationship. They re-enter the plan once the audit clears and the cap is raised.
+> - Stellar users holding USDC who want a predictable return instead of exposure to variable
+>   DeFi yields.
+> - Existing Blend suppliers who want to lock a fixed rate without continuously monitoring or
+>   actively managing a lending position.
+> - USDC holders on Ethereum, Base, Arbitrum, OP Mainnet, Polygon, Avalanche and Solana who
+>   need a simple route for moving liquidity to Stellar. This is the same persona as the group
+>   above; the only difference is that their capital sits on another chain, which makes it a
+>   distribution problem rather than a separate customer. It is why the product ships a native
+>   Circle CCTP V2 on-ramp: 1:1 burn-and-mint USDC, no wrapped asset, no third-party bridge.
 >
-> **Explicitly not our customer:** yield maximisers chasing the highest floating APY,
-> leverage traders, and anyone who wants exposure to XLM price. Spield's product is a
-> stablecoin-denominated fixed rate; someone optimising for upside is better served
-> elsewhere, and building for them would pull the UI away from the plain-language deposit
-> path that Segment 1 needs.
+> *Where they are today:* holding USDC idle, or supplying it to Blend at a floating rate and
+> checking on it periodically. Neither gives them a number they can plan around.
+>
+> *What they hire Spield for:* the shape of a term deposit. Deposit X today, receive exactly Y
+> on exactly this date, denominated in a stablecoin, with nothing to manage in between.
+>
+> *Why they are first:* they already understand wallets, stablecoins and on-chain yield, so
+> they are the shortest path to a real test of whether fixed-rate demand exists on Stellar. No
+> education about custody is required, only about what certainty is worth to them. Typical
+> position size we are building for is roughly 100 to 10,000 USDC: below that, effort and fees
+> dominate; above it, the depositor asks audit questions we cannot yet answer.
+>
+> *How we reach them:* the app itself, a 62-page Learn corpus written against the questions
+> this segment already searches for, the Stellar and Blend communities, and the Ambassador
+> Chapter.
+>
+> **Within 3.1.1, a distinct sub-segment: yield traders and liquidity providers.**
+>
+> More experienced DeFi users do not want a deposit; they want to take a position on the rate
+> itself. Splitting a deposit into a Principal Token and a Yield Token makes that possible,
+> and the app ships four separate roles for them:
+>
+> - **PT buyers.** Buy the principal claim at a discount on the AMM and hold it to maturity.
+>   The same certainty motive as the vault, reached by a different route: they take a market
+>   price rather than a quoted rate, which can beat the vault's headline when PT trades cheap.
+> - **YT buyers.** Buy the yield stream on its own. A small outlay controls the yield on a much
+>   larger notional, so this is leveraged, stablecoin-denominated exposure to Blend's rate. The
+>   buyer is taking a view that realized yield will exceed the rate the market has implied.
+> - **Sellers and early exits.** Selling PT before maturity is how a depositor whose plans
+>   changed gets out; selling YT is how a holder takes yield off the table after a rate run.
+>   This is what stops a fixed position from behaving like a lock-up, and it is a large part of
+>   why the market exists at all.
+> - **Liquidity providers.** Supply PT and USDC to the pool and earn the swap fee. LPs keep
+>   **80% of every fee**, the inverse of Pendle's split, which is our main argument for
+>   attracting the first liquidity. Verified on chain: the protocol's share is set to 2000 bps.
+>
+> *Where they are today:* mostly not on Stellar. Yield tokenization has no market here, so this
+> group either does not exist on Stellar yet or does this on Ethereum through Pendle. We are
+> partly creating this segment rather than capturing it, and we would rather say that than
+> claim a pipeline we do not have.
+>
+> *What they hire Spield for:* a way to express a view on rates without leaving stablecoins,
+> and a way into and out of a fixed position before its maturity date.
+>
+> *Why they matter well beyond their own volume:* they are the counterparty that makes the
+> fixed rate work. A vault alone can only quote a rate an operator has set; a liquid PT/YT
+> market lets that rate be discovered, and lets a depositor exit early instead of waiting out
+> the term. Without this sub-segment Spield is a term deposit. With it, Spield is a market.
+>
+> *One honest qualification.* All four roles are built and live in the app, but the PT/SR
+> market is not yet seeded, so there is nothing to trade against. Until it fills, this
+> sub-segment is a hypothesis we are testing rather than a customer we are serving, and
+> seeding the AMM is the first item in the next-steps plan.
+>
+> ---
+>
+> **3.1.2 Treasury, payroll and payment businesses.** *(Validated by conversation now, by
+> product after the audit.)*
+>
+> - Startups, DAOs, fintech companies, payment platforms, payroll providers and other
+>   ecosystem businesses that periodically hold idle USDC or similar treasury assets.
+> - Organizations that value predictable returns, capital preservation, liquidity planning and
+>   known maturity dates more than maximizing a speculative APY.
+> - Businesses that would use Spield directly for treasury management, or embed fixed-yield
+>   functionality into their own products through the Spield SDK, which makes this segment
+>   overlap with 3.1.3.
+>
+> *The job to be done:* park money that is already committed to a date. Payroll runs on a
+> schedule, a DAO's next grant tranche has a date, a payment platform knows its settlement
+> cycle. USDC sitting idle between those dates is precisely the shape a dated instrument fits,
+> and a floating rate gives a finance function nothing to forecast with.
+>
+> *What we do not yet know, and this is the segment with the most open questions:* what
+> position sizes they would actually commit; which maturities match real cash-flow cycles,
+> since 30 days may be wrong for payroll; what risk sign-off looks like and who gives it; what
+> reporting and accounting artifacts they need; and how much liquidity they require before
+> maturity, at what cost.
+>
+> *Honest gating.* This segment is not reachable today and we are not pretending otherwise. A
+> 50 USDC guarded cap on an unaudited protocol is not a treasury product, and approaching a
+> finance lead or a DAO treasury before the audit would spend the relationship for nothing.
+> They are in this plan as an interview target during the follow-on period and as a product
+> target after the audit clears.
+>
+> ---
+>
+> **3.1.3 DeFi developers and protocol integrators.** *(Live, published, not yet adopted.)*
+>
+> - Developers building Stellar wallets, payment applications, treasury-management tools,
+>   payroll products, fintech platforms and other DeFi applications.
+> - Protocol teams that want to offer fixed-yield products without developing and maintaining
+>   the underlying yield-tokenization infrastructure themselves.
+> - Integrators that need programmatic access to fixed-rate vaults, PT/YT positions, market
+>   quotations, portfolio data, redemptions and protocol-health information.
+>
+> *What they want:* not our interface, but a dependency. The Spield SDK is intended to make
+> fixed-yield and PT/YT functionality available as a reusable financial primitive across the
+> Stellar ecosystem, so a team can embed fixed income into their own product while Spield
+> manages the underlying protocol interactions.
+>
+> *What exists:* `@spield/sdk` v0.4.2 on npm, validated the way a prospective integrator would
+> validate it rather than the way an author would: a fresh install into an empty project,
+> confirmed reading live chain data, with a runnable example shipped alongside.
+>
+> *Why this segment matters more than its size suggests:* every integrator arrives with their
+> own users, so it is the only segment whose customer acquisition is not ours to fund. It is
+> also what turns Spield from an application into a primitive that other Stellar products are
+> built on, which is a materially different position in the ecosystem.
+>
+> *What we do not yet know:* whether a builder will take on a dependency for a yield primitive
+> rather than integrate Blend directly, and whether the integration surface we guessed at is
+> the one they actually need. No design partner has integrated yet; two are targeted this
+> period.
+>
+> ---
+>
+> **3.1.4 Who we are explicitly not building for.**
+>
+> Stated because the exclusions are what keep the product coherent, and each one has a
+> consequence we accept:
+>
+> - **Yield maximizers chasing the highest floating APY.** A fixed rate will usually sit below
+>   a floating one; someone optimizing for the top number is right to go elsewhere.
+> - **Leverage and directional traders.** Spield is stablecoin-denominated and the yield is
+>   real Blend lending yield, not emissions or incentives.
+> - **Anyone seeking exposure to the XLM price.**
+> - **Institutions and regulated funds, for now.** Deferred deliberately until the audit
+>   clears, not overlooked.
+>
+> Building for the first two would pull the interface toward exposing PT/YT primitives and
+> away from the plain-language deposit path that 3.1.1 depends on. Those two audiences want
+> opposite things from the same screen, and serving both would serve neither.
+>
+> ---
+>
+> **Sequencing, and what gates each step.**
+>
+> | Segment | Status today | What gates the next step |
+> |---|---|---|
+> | 3.1.1 DeFi users and yield seekers | Live and being served | The 50 USDC guarded cap; raising it requires the audit |
+> | 3.1.3 Developers and integrators | SDK published, no integration yet | Recruiting design partners; the SDK points at testnet until the audit |
+> | 3.1.2 Treasury, payroll and payment businesses | Interviews only, deliberately | Audit clearance and a materially raised cap |
 
 **Notes.** If the form gives you a single short box rather than a page, use this compression:
 
-> Retail USDC holders on Stellar ($100–$10k) who want a fixed, dated payout instead of a
-> floating lending rate; cross-chain USDC holders on EVM/Solana reachable via a native CCTP
-> on-ramp; and Stellar builders who want to embed fixed yield through our npm SDK.
-> Institutions are deliberately deferred until the protocol is audited.
+> Stellar USDC holders who want a fixed, dated payout instead of a floating lending rate,
+> including existing Blend users and USDC holders on six EVM chains and Solana who reach us
+> through a native CCTP on-ramp; treasury, payroll and payment businesses holding periodically
+> idle USDC that is already committed to a known date; and Stellar developers who want to
+> embed fixed income as a primitive through our npm SDK rather than build a yield engine.
+> Institutions and yield maximizers are deliberately out of scope, the former until the
+> protocol is audited.
+
+**What changed from your earlier draft, and why.** Kept your three segments and your numbering.
+Added: a one-line statement of what Spield sells, so the segments hang off something; a
+"where they are today" and "what they hire us for" line per segment, which is what a customer
+development reviewer reads for; the open questions per segment, since a plan that lists none
+looks unexamined; an explicit not-our-customer section, which is the strongest single addition
+because exclusions demonstrate focus; and a sequencing table tying each segment to the audit
+gate. Corrected: the chain list is the exact seven, not "and other supported networks", and
+Tron is not available on any rail today. Qualified: PT/YT trading is not yet a live market
+because the AMM is unseeded.
 
 ---
 
@@ -383,25 +522,45 @@ on the page; a row that says "partial, and here is the date it closes" costs not
 ### 7.1 Planned Customer Development Activities
 
 > **PASTE**
+>
+> Every activity below is an activity with a customer: someone we talk to, watch, recruit,
+> survey, or sell to. The ordering is deliberate. The two things this plan is missing are
+> direct conversations and customer-facing demos, so those run in Week 1 and nothing waits
+> behind them.
+>
+> **Target for the period: 10 recorded interviews, 5 customer-facing demos, 1 survey with
+> 20+ responses, 2 signed design partners, and every one of them producing a document or a
+> recording the Chapter Lead can open.**
 
 | Timeline | Planned Activity | Expected Outcome |
 |---|---|---|
-| **Week 1–2** | **Structured customer interviews, 8–10, with Segment 1.** Recruited from the waitlist, the X following, Stellar community channels and the Ambassador Chapter. Recorded with consent, run from a fixed script (appendix A3) built to test **H1** — what a person would give up for a dated, certain payout — and **H5** — whether "unaudited" is the actual blocker or a stated one. | A written interview summary with verbatim quotes, and a validated / invalidated verdict on H1 and H5. This is the single highest-value artefact of the period. |
-| **Week 1–2** | **Three recorded product demos with named prospective customers**, delivered live rather than as a pre-recorded walkthrough, capturing objections in the moment. | Closes the ⚠️ on the first evidence row with genuine customer-facing demos, and produces an objection list ranked by frequency. |
-| **Week 1–2** | **Publish the GA4 + Clarity baseline report.** Fixed reporting window, top pages, source/medium, the site → app cross-domain conversion rate, and the Clarity funnel from landing to deposit panel. | A numeric baseline every later activity is measured against, plus the first quantitative read on **H6**. |
-| **Week 1–2** | **Seed the PT/SR AMM** and begin observing whether a second side appears. | First real data on **H8**, which cannot be tested against reserves of `[0, 0]`. |
-| **Week 3–4** | **Segment-1 survey to the full waitlist** (appendix A4) — 8 questions, under two minutes, testing certainty-versus-upside preference, acceptable minimum deposit, and what would make an unaudited protocol acceptable. | A quantitative check on the qualitative interview findings, at a sample size interviews cannot reach. |
-| **Week 3–4** | **Clarity-driven friction pass.** Watch every recorded session that reached the deposit panel and did not deposit; ship fixes for the top three drop-off points. | Measured change in deposit-panel completion rate — revealed-preference evidence for **H2** and **H3**. |
-| **Week 3–4** | **Recruit two B2B design partners** for `@spield/sdk` from Stellar builders and the Ambassador Chapter, with a scoped integration each. | First real test of **H7**: does a builder embed rather than build? |
-| **Week 3–4** | **Publish the 30 September redeem transaction** for the live series, and interview the depositors who saw a maturity through end to end. | Post-outcome evidence on **H1** — the strongest form of it, because the person has actually received the payout they were promised. |
-| **Beyond current period** | **Professional third-party security audit**, then raise the guarded cap in stages and add per-address limits (the one item from the previous deliverable we left open: the cap is global, not per-address). | Removes the H5 blocker rather than working around it, and unlocks Segment 4 (treasuries and institutions), which is deliberately unaddressed until then. |
-| **Beyond current period** | **Cohort analysis of second-series retention** — do first-series depositors roll into the next maturity? | The retention answer, and the evidence that decides **H9**: whether one maturity is enough or the product needs a ladder. |
-| **Beyond current period** | Point the SDK at mainnet (post-audit); add property and fuzz test layers over the AMM time-decay curve; decide whether the three payout addresses move to the multisig. | Product hardening that the customer-facing commitments above depend on. |
+| **Week 1** | **Recruiting push for the interview programme.** Direct email to the full waitlist, a recruiting post from `@spield_`, a request in the Ambassador Chapter, and outreach in the Stellar and Blend community channels. Waitlist first, since they already raised a hand, then the Chapter, then community channels. Offer is 20 to 30 minutes, no pitch, something real for their time. | A booked calendar of 8 to 10 interviews with Segment 3.1.1, plus a recruiting log showing response rate per channel. Which channel actually produces a conversation is itself a finding about where this customer lives. |
+| **Week 1–2** | **8 to 10 structured customer interviews, recorded with consent.** Run from the fixed 12-question script in appendix A3, which withholds any description of Spield until question 9 so comprehension is tested rather than coached. Questions 7 and 8 put **H1** directly (what would you give up for certainty); question 11 puts **H5** directly (does unaudited and capped change your answer). Recruited from the waitlist, the Chapter, Blend users, and any existing depositor. | An interview summary document: count, recruiting source, segment split, a validated or invalidated verdict on **H1** and **H5**, objections ranked by how many people raised them, and 5 to 8 verbatim quotes, with raw recordings linked. This is the single highest-value artefact of the period and it closes the §6.2 row currently marked partial. |
+| **Week 1–2** | **5 live product demos with named prospective customers**, screen shared and recorded, not a pre-recorded walkthrough sent as a link. Three from Segment 3.1.1 (USDC holders and Blend suppliers), two from Segment 3.1.2 (treasury, payroll and payment businesses) approached through the Chapter and SCF developer channels. The person is asked what they think the product does before we tell them. | Genuine customer-facing demo recordings, which closes the first evidence row in §6.2, plus an objection list ranked by frequency and a direct read on **H2** and **H3** (whether comprehension, not yield, is the constraint). |
+| **Week 1–2** | **Behavioural read of real, unprompted visitors.** Publish a fixed-window GA4 and Clarity baseline across both hosts: top pages, source and medium, the site to app cross-domain conversion rate, and the funnel from landing page to deposit panel. This is customer development by observation, and it covers the visitors who will never answer an email. | A numeric baseline every later activity is measured against, the first quantitative read on **H6** (search is the channel), and a named drop-off point in the deposit journey to fix in Week 3. |
+| **Week 3–4** | **Waitlist survey, 8 questions, under two minutes** (appendix A4). Question 4 forces a choice between 4% floating and 3% fixed, which is **H1** in one line; question 7 asks whether an unaudited protocol is usable at a capped size. One link, mailed to the full waitlist. | A quantitative check on whether the qualitative interview finding holds at a sample size interviews cannot reach: reported count, the split on Q4 and Q7, and the ranking on Q6. |
+| **Week 3–4** | **Friction pass driven by watching real sessions.** Review every Clarity recording of a visitor who reached the deposit panel and did not deposit, ship fixes for the top three drop-off points, then measure the same funnel again. Revealed preference rather than stated preference. | A measured before and after completion rate on the deposit panel, with the three shipped changes named. Evidence for **H2** and **H3** from behaviour rather than opinion. |
+| **Week 3–4** | **Recruit 2 B2B design partners for `@spield/sdk`**, each with a scoped integration written together on a recorded call. Approach Stellar wallets, payment apps and Soroban teams through the Ambassador Chapter and SCF developer channels. A builder integrating the SDK live is simultaneously a design partner and a demo with a potential customer. | Two signed scoped integrations and the recorded integration calls. First real test of **H7**: does a builder embed rather than build? |
+| **Week 3–4** | **Recruit the first PT and YT counterparties by hand.** Rather than waiting for a market to arrive, approach the yield-trading sub-segment directly: talk to prospective LPs about the 80% fee split that favours them, and ask PT and YT buyers what would make them take the other side of a fixed rate. | Conversation notes on why a counterparty would or would not take the trade, plus whatever reserves and volume actually appear. First data on **H8**, which nothing can be learned about while reserves are `[0, 0]`. |
+| **Week 4–5** | **Post-maturity depositor interviews.** After the 30 September redeem settles, return to the people who deposited and ask what the experience was worth to them and whether they are rolling into a second series. | Post-outcome evidence on **H1** in its strongest available form, because the person has now received the payout they were promised, plus a stated roll-forward rate. |
+| **Beyond current period** | **Segment 3.1.2 discovery interviews on treasury terms**, once an audit exists to answer the first question this segment asks. Position sizes, approval process, who signs, and what maturity dates a treasury actually plans around. | A treasury segment interview summary and a maturity requirement list, which is what decides **H9** (whether one 30-day maturity is enough or the product needs a ladder). |
+| **Beyond current period** | **Second-series cohort follow-up.** Do first-series depositors roll into the next maturity, and where they do not, ask each of them why not. | A cohort retention number with a stated reason behind every non-renewal, rather than a churn rate with no explanation attached. |
 
-**Notes.** Week 1–2 is deliberately front-loaded with the two things that are genuinely
-missing — interviews and customer-facing demos — rather than with more building. That
-sequencing is itself the answer to the form's stated purpose: capital going to a project that
-engages users, not one that develops in isolation.
+**Notes.** Every row names a person or a group, how they are reached, and what document or
+recording exists at the end of it. Week 1 opens with recruiting rather than building, which is
+the answer to the form's stated purpose: capital going to a project that engages users, not one
+that develops in isolation.
+
+Kept out of the table on purpose: seeding the PT and SR pool, the third-party audit and staged
+cap increases, pointing the SDK at mainnet, and the fuzz and property test layer. These are
+engineering work, not customer development, and listing them here is what made the earlier
+draft read as a roadmap. Two of them are still dependencies you should track privately. The
+counterparty conversations in Week 3 need the pool seeded first, and the design partners want
+a mainnet SDK.
+
+If the form gives you less room than this, submit the first four rows and the two Beyond rows.
+Interviews, demos, the behavioural baseline and the survey are the ones that close the two
+gaps §6.2 marks as partial.
 
 ---
 
@@ -497,7 +656,7 @@ describe Spield until question 9.
 10. What is the first thing that makes you hesitate?
 11. This is not audited yet and deposits are capped at 50 USDC. Does that change your answer?
     — *the H5 question, asked directly.*
-12. What would have to be true for you to put in $500?
+12. What would have to be true for you to put in 500 USDC?
 
 **Recording and consent.** Ask at the start, on the recording: *"Is it OK if I record this so
 I don't have to take notes?"* Loom, Zoom or Meet are all fine — the form says Loom but means
