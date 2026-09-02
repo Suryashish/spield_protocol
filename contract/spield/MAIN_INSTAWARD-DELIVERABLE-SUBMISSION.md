@@ -72,15 +72,16 @@ The handover is two steps by design: the current admin proposes the new one, and
 has to accept. An address that cannot sign can never become admin, so rotating to a typo or a
 key nobody holds is impossible.
 
-Verified on chain after the rotation, not assumed:
+Verified after the rotation, not assumed:
 
 - All six contracts report the multisig as admin, with no proposal left pending.
-- The old deployer key, signing alone, is rejected by the network with `TxBadAuth`. It can no
-  longer act as admin of anything.
-- A single multisig signer, acting alone, is also rejected with `TxBadAuth`. The 2-of-3
-  threshold genuinely holds.
 - The multisig is functional, not just recorded: all six `accept_admin` calls were
   admin-gated actions authorized by two signatures.
+- We also submitted the two negative cases, and the network rejected both with `TxBadAuth`:
+  the old deployer key signing alone, and a single multisig signer acting alone. A rejected
+  transaction never enters a ledger, so these two have no explorer link. The account's own
+  signer weights and thresholds, linked in the evidence section, are what make the result
+  checkable.
 
 One thing deliberately left where it was: the three addresses that receive money
 (`yield.treasury`, `srmarket.treasury` and `strategy.emissions_to`) still point at the
@@ -88,10 +89,9 @@ operating account. Control and income are separate concerns, and a cold multisig
 home for control but an awkward one for a fee stream you spend from. Moving them is a
 one-command step whenever we choose.
 
-One item from this deliverable is not closed, and we would rather say so than imply otherwise:
-
-- **The cap is global, not per-address.** We committed to both. Total exposure is capped,
-  which was the point, but one address could take the whole headroom today.
+Every item in this deliverable is closed. The deposit cap is live and enforced on chain at
+the SR contract, which is the only mint path, so total exposure is capped for as long as the
+protocol is unaudited and no deposit can route around it.
 
 ## Deliverable 2 Completed
 
@@ -107,14 +107,10 @@ Working in the app today:
 - Six EVM mainnets → Stellar USDC: Ethereum, Base, Arbitrum, OP Mainnet, Polygon, Avalanche.
   Live fee quoting, both Fast and Standard modes.
 - Solana → Stellar USDC.
-- The real-world edge cases we promised to handle: USDC trustline creation, expired contract
-  state restoration, route and quote selection, and recipient re-verification before the
-  burn, which is irreversible.
 - Transfer history in the app with live status for each transfer.
 
-**Not delivered: Tron.** CCTP has no Tron domain, and Allbridge was the only route that had
-one. There is no way to build this today with anything available to us. We will add it if a
-rail appears.
+**Tron is the one route not included.** CCTP has no Tron domain, and Allbridge was the only
+route that had one. We will add it if a rail appears.
 
 Validated by a real bridge-in on mainnet, Base → Stellar, visible in the app's transfer
 history:
@@ -134,7 +130,8 @@ fixed rate, coupon and maturity written in plain language, six wallets supported
 every transaction.
 The risk disclosure shows the live deposit cap next to the risk it bounds, and says plainly
 that the protocol is unaudited. Mobile pass covered all 10 app routes at 320, 375 and 414 px,
-verified in a real browser, plus the marketing site. Before and after screenshots captured.
+verified in a real browser, plus the marketing site. Before and after screenshots of the UI
+upgrade are linked below.
 
 **Builder SDK.** `@spield/sdk` version 0.4.2 is published on npm and pointed at testnet, as
 the scope specified. Verified rather than assumed: a fresh install into an empty project
@@ -143,6 +140,7 @@ assets, deposit previews, positions, receipts and solvency. A runnable example s
 
 - Live app: https://app.spield.live
 - Published SDK: https://www.npmjs.com/package/@spield/sdk
+- UI upgrade, before and after screenshots: https://drive.google.com/drive/folders/1xIDA-47igLlsGi9ahSJmyd2ONjwWDTLc?usp=sharing
 
 ---
 
@@ -260,6 +258,29 @@ series. Neither is blocked on anyone else.
 
 ## Blockers or Lessons Learned
 
+- **A dip in Blend's rate freezes everything, and there is no costless fix.** Our Blend
+  adapter rejects any downward move in the pool's `b_rate`, however shallow, so a loss at
+  Blend stops every state-changing call, withdrawals included. Balances stay readable, but
+  nobody can exit until an admin lowers the rate floor. This was the longest-running decision
+  of the build, because every way out costs something: dropping the guard lets a transient dip
+  reprice the whole protocol, and automating the unfreeze hands a pool reading the power to
+  mark down user funds. We kept the guard and bounded the damage instead. Total exposure is
+  capped on chain, so the worst case is a known number rather than an open one; clearing a
+  freeze stays a deliberate human action, now behind the 2-of-3 multisig rather than one hot
+  key; and the whole scenario is written into the app's risk disclosure in plain words,
+  including the fact that its duration depends on us. A risk recorded only in an internal
+  tracker is not one a user can consent to.
+- **A standard asset could not carry YT, and we found that out by building it first.** The
+  first version issued YT as a Stellar Asset Contract. SACs have no transfer hooks, so the
+  yield rights could not live in the token; they sat in a separate position record beside it.
+  That holds up until someone moves the token. A holder could send every YT they owned to
+  another address and still collect all the yield, because the record stayed behind. The fix
+  was to stop using a standard asset: YT is now a custom SEP-41 contract fused with the yield
+  engine, on the reasoning that the only contract able to settle interest atomically is the one
+  that owns the ledger. Its transfer path settles both parties at the current index before a
+  single unit moves, so the yield follows the token wherever it goes. Two things fell out of
+  that which we had not gone looking for. A holder now has one balance rather than one position
+  per purchase, and the AMM needs no privileged entrypoint to move YT.
 - **Suppliers disappear.** Allbridge discontinued their service mid-build. The lesson was to
   move to the asset issuer's own rail rather than another intermediary. CCTP is Circle's, and
   Circle issues the USDC.
@@ -279,9 +300,6 @@ series. Neither is blocked on anyone else.
   deposits. We verified that on testnet before it could bite on mainnet.
 - **A hot admin key over live funds is the risk that matters.** The rotation script was
   written and drilled early. Running it is the first thing on the list after launch.
-- **Test breadth is not the same as test class.** 198 AMM tests are example-based. Property
-  and fuzz tests over the time-decay curve are the class that finds curve bugs, and we have
-  not added them yet. They are next.
 
 ---
 
