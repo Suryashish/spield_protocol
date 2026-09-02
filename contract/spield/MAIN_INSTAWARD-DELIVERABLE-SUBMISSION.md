@@ -289,6 +289,14 @@ series. Neither is blocked on anyone else.
   large persistent entries carry rent. Read-only calls cost the same on both networks,
   which is what made the first estimate look reasonable. Simulate every write against
   mainnet before funding.
+- **A default is not a decision until you can measure it.** The AMM's `scalar_root` sets how
+  far a single trade moves our advertised rate. It sat at 40 because it had always sat at 40,
+  and it was unmeasurable until we fixed a bug that stopped the quoted rate responding to flow
+  at all. Once it responded the relationship fitted cleanly and turned out to be scale-free
+  and time-invariant, so one value serves every series and both networks. We then chose the
+  number against what the vault could tolerate rather than what looked reasonable, and shipped
+  160. At the old 40, a trade of a quarter of the pool dragged a 3.00% headline down to 1.69%
+  beside a vault still quoting 3.00%.
 - **Immutable parameters need to be decided before deploy, not after.** Maturity is set once,
   in `initialize`, with no roll function. Choosing 30 days meant no redeem hash inside the
   submission window. The fix, a second disposable series, cost 1.28 XLM because the code
