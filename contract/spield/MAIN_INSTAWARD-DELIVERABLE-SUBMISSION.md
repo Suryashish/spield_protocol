@@ -1,10 +1,9 @@
 # Instaward — Deliverable Submission (draft content)
 
 Draft text for each field of the deliverable completion form, written against what is
-actually live on **2026-09-01**, and calibrated against the §4.1 scope we committed to.
+actually live today, and calibrated against the §4.1 scope we committed to.
 
 Everything below is checked against the repo and the chain, not against status docs.
-Sources: `MAINNETCONTRACTADDRESSES.md`, `MAINNET_LAUNCH.md`, `90MINUTEMARKET.md`, `notcovered.md`.
 
 ---
 
@@ -20,11 +19,11 @@ None. Every field below is filled in with live links and on-chain transaction ha
 
 **Delivered. Spield is live on Stellar mainnet.**
 
-All six v2 contracts were deployed on 1 September 2026 against the real Blend FixedV2 pool
+All six v2 contracts are deployed on mainnet against the real Blend FixedV2 pool
 and real Circle USDC. After deploy, 24 of 24 wiring assertions passed, and every live WASM
 was fetched back off-chain and confirmed byte-identical to the binary we built — so the code
-running on mainnet is provably the code in the repo. The reproduction command is in
-`MAINNETCONTRACTADDRESSES.md`.
+running on mainnet is provably the code in the repo. Anyone can reproduce that check:
+fetch the live WASM for each contract and compare its sha256 against the built artifact.
 
 Hardening completed before launch:
 
@@ -63,8 +62,8 @@ deposit into the Fixed Vault, redeem after maturity, and claim the yield.
 
 The live series' own redeem hash follows on 30 September 2026 and we will submit it then.
 
-**Multisig custody is done.** On 1 September 2026 the admin of all six live contracts was
-moved off the single deployer key and onto a 2-of-3 multisig account. The multisig was built
+**Multisig custody is done.** The admin of all six live contracts has been moved off the
+single deployer key and onto a 2-of-3 multisig account. The multisig was built
 first — three signers of weight 1 added, the account's own master key disabled, and low,
 medium and high thresholds all set to 2 — so no single key can act for it. Soroban calls are
 medium-threshold operations, which is the one that governs admin actions.
@@ -169,8 +168,8 @@ series cannot be redeemed until 30 September. Same code, real USDC.
 - Redeem from the Fixed Vault — https://stellar.expert/explorer/public/tx/275838884402204672#275838884402204673
 - Claim yield — https://stellar.expert/explorer/public/tx/275838927352209408#275838927352209409
 
-Multisig custody. Admin of all six contracts moved to a 2-of-3 account on 1 September 2026.
-The account itself, showing three signers of weight 1 and its own master key at weight 0:
+Multisig custody. Admin of all six contracts moved to a 2-of-3 account. The account itself,
+showing three signers of weight 1 and its own master key at weight 0:
 
 - https://stellar.expert/explorer/public/account/GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL
 
@@ -194,7 +193,7 @@ Also submitted:
 
 - Public solvency dashboard — https://app.spield.live/solvency
 - Code verification: each contract's `version()` string and sha256, with the command to fetch
-  the live WASM and diff it against the built artifact — `MAINNETCONTRACTADDRESSES.md`.
+  the live WASM and diff it against the built artifact — supplied as a one-page attachment.
 
 ## Evidence 2 — Deliverable 2 (cross-chain on-ramp)
 
@@ -221,8 +220,8 @@ reviewer. Attach:
 1. Before and after UI screenshots (deposit → fixed-yield journey).
 2. The on-ramp screen recording.
 3. The non-technical user demo video, and the detailed walkthrough.
-4. `MAINNETCONTRACTADDRESSES.md` as PDF — addresses, parameters, code hashes, and the
-   verification command in one page.
+4. A one-page PDF of the mainnet contract addresses, parameters, code hashes, and the
+   verification command.
 5. Test run output: 605 passed, 0 failed.
 
 ---
@@ -290,8 +289,8 @@ series. Neither is blocked on anyone else.
 
 Done since launch:
 
-- Admin of all six contracts rotated to the 2-of-3 multisig (1 September 2026), verified on
-  chain in both directions.
+- Admin of all six contracts rotated to the 2-of-3 multisig, verified on chain in both
+  directions.
 
 Immediate, this week:
 
