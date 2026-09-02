@@ -62,9 +62,9 @@ solvent, PT issuer **locked**, and every live WASM byte-identical to the built a
 
 | Identity | Address | Role |
 | --- | --- | --- |
-| `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | Deployer, **current admin AND treasury of all six contracts**, holder of the PT trustline. A single hot key — rotate before real TVL |
+| `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | Deployer. **No longer admin** — rotated away 2026-09-01. Still the **treasury** of all six contracts and holder of the PT trustline |
 | `spield_pt_issuer` | `GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN` | PT classic issuer. **🔒 Locked forever** at deploy step 6b — verified on Horizon: no signer with weight > 0 |
-| `spield_admin_multisig` | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | The 2-of-3 admin account. Funded and ready, **not yet rotated to** |
+| `spield_admin_multisig` | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | **The admin of all six contracts since 2026-09-01.** 2-of-3: three signers of weight 1, master key weight 0, low/med/high thresholds all 2 |
 | `spield_sig_1` | `GA7BTFN2P4EXZS4MM4QNGLQBAWUZYLCYNACWDCRW74P3QJT4FUB7TF7Z` | Future signer. Signer keypairs need no ledger account and no funding |
 | `spield_sig_2` | `GAQ3DLLNUE5HPRKYL5JOCSLCD7RHKE3IRCOEHH7DULGXHZZB3V3SAYWP` | Future signer |
 | `spield_sig_3` | `GA3ODKNDDTVKGDONUFBRSO4REMGX6JDJTGZ4X5FTRQU3IOFGKTYFU3KP` | Future signer |
@@ -127,9 +127,10 @@ done
 - [x] Frontend wired to these addresses (`frontend/src/lib/config.ts`, `mainnet.sr`).
 - [ ] **Seed the AMM** (`market.add_liquidity`) — reserves are `[0, 0]`. Being done from the dashboard
       Liquidity page as an ordinary LP, not from the deploy script.
-- [ ] **Rotate admins to the multisig** — `scripts/rotate_admins.sh rotate`, drilled on testnet
-      (`DRILLS.md`). All six admins are currently `spield_deployer`, a hot key; keep its secret
-      offline until this is done.
+- [x] **Admins rotated to the multisig** (2026-09-01). All six contracts answer `admin()` with
+      `spield_admin_multisig`, nothing left pending. Verified on chain in both directions: the old
+      deployer key signing alone is rejected with `TxBadAuth`, and so is any single multisig signer.
+      Treasury and `emissions_to` were deliberately **not** moved — see `MODE=payouts`.
 - [ ] **Security audit.** Not started. See `MAINNET.md` §7.
 
 ## Frontend env block

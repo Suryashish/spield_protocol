@@ -10,11 +10,7 @@ Sources: `MAINNETCONTRACTADDRESSES.md`, `MAINNET_LAUNCH.md`, `90MINUTEMARKET.md`
 
 ## Blanks to fill before you submit
 
-| # | Blank | Where it appears |
-|---|---|---|
-| 1 | `<MULTISIG_DATE>` — the date you will run `rotate_admins.sh rotate` on mainnet | Deliverable 1, Next Steps |
-
-Everything else is filled in with live links.
+None. Every field below is filled in with live links and on-chain transaction hashes.
 
 ---
 
@@ -67,12 +63,34 @@ deposit into the Fixed Vault, redeem after maturity, and claim the yield.
 
 The live series' own redeem hash follows on 30 September 2026 and we will submit it then.
 
-Two items from this deliverable are not closed, and we would rather say so than imply
-otherwise:
+**Multisig custody is done.** On 1 September 2026 the admin of all six live contracts was
+moved off the single deployer key and onto a 2-of-3 multisig account. The multisig was built
+first — three signers of weight 1 added, the account's own master key disabled, and low,
+medium and high thresholds all set to 2 — so no single key can act for it. Soroban calls are
+medium-threshold operations, which is the one that governs admin actions.
 
-- **Multisig rotation has not run on mainnet yet.** The 2-of-3 account and all three signers
-  exist and are funded, and the rotation script has been round-tripped on testnet, 25 of 25
-  checks in both directions. Admin is still the deployer key. Scheduled for `<MULTISIG_DATE>`.
+The handover is two steps by design: the current admin proposes the new one, and the new one
+has to accept. An address that cannot sign can never become admin, so rotating to a typo or a
+key nobody holds is impossible.
+
+Verified on chain after the rotation, not assumed:
+
+- All six contracts report the multisig as admin, with no proposal left pending.
+- The old deployer key, signing alone, is rejected by the network with `TxBadAuth`. It can no
+  longer act as admin of anything.
+- A single multisig signer, acting alone, is also rejected with `TxBadAuth` — the 2-of-3
+  threshold genuinely holds.
+- The multisig is functional, not just recorded: all six `accept_admin` calls were
+  admin-gated actions authorized by two signatures.
+
+One thing deliberately left where it was: the three addresses that receive money —
+`yield.treasury`, `srmarket.treasury` and `strategy.emissions_to` — still point at the
+operating account. Control and income are separate concerns, and a cold multisig is the right
+home for control but an awkward one for a fee stream you spend from. Moving them is a
+one-command step whenever we choose.
+
+One item from this deliverable is not closed, and we would rather say so than imply otherwise:
+
 - **The cap is global, not per-address.** We committed to both. Total exposure is capped,
   which was the point, but one address could take the whole headroom today.
 
@@ -151,6 +169,27 @@ series cannot be redeemed until 30 September. Same code, real USDC.
 - Redeem from the Fixed Vault — https://stellar.expert/explorer/public/tx/275838884402204672#275838884402204673
 - Claim yield — https://stellar.expert/explorer/public/tx/275838927352209408#275838927352209409
 
+Multisig custody. Admin of all six contracts moved to a 2-of-3 account on 1 September 2026.
+The account itself, showing three signers of weight 1 and its own master key at weight 0:
+
+- https://stellar.expert/explorer/public/account/GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL
+
+The transaction that made it a 2-of-3 (master key disabled, thresholds set to 2):
+
+- https://stellar.expert/explorer/public/tx/f97011eb9394e19c802854a501e7b295cd029e1ba9e0710b048fb8610fb1a327
+
+The six handover transactions, each an `accept_admin` signed by two of the three signers:
+
+- SR — https://stellar.expert/explorer/public/tx/a1ea497c5342071a47bddc2ee95df10dea7fda7e12d8b5e5a0cc97ddf56fa409
+- Strategy — https://stellar.expert/explorer/public/tx/bea64c8ce60d72a45d99f93b8aae6ee3d31dfdb1655c5efb4731bd2f3e4bd874
+- Yield — https://stellar.expert/explorer/public/tx/68e0d0f5badacdc815305a5c4c2befd825e4bb0a6f296b3222e3527d948869bc
+- SR Market — https://stellar.expert/explorer/public/tx/9fcd1487dbaddf949012edb56ca205f22bcc40b2c82f2994fcde3ec1dce32b56
+- SR Vault — https://stellar.expert/explorer/public/tx/5ce278b6806cb9613212b2f5900d533a55a994e60fa7cae3ac860dcab54becd7
+- SR Router — https://stellar.expert/explorer/public/tx/488dad505d88a3b74991543b2340eb035bb335923cd52969ce35a555b1feaeb3
+
+Anyone can confirm the result without trusting us: call `admin()` on any of the six contracts
+and compare it to the account above.
+
 Also submitted:
 
 - Public solvency dashboard — https://app.spield.live/solvency
@@ -212,8 +251,12 @@ shipped is built to be checked rather than trusted: the deployed code is byte-id
 the repo, the solvency page reads from chain with no wallet required, and the UI states
 plainly that the protocol is unaudited.
 
-What is still open: the admin rotation to the multisig, AMM liquidity seeding, and the
-30 September redeem hash on the live series. None are blocked on anyone else.
+Custody was the last piece of the hardening work and it is now done: all six contracts are
+under a 2-of-3 multisig, and the single deployer key that held them at launch has been proven
+powerless on chain.
+
+What is still open: AMM liquidity seeding, and the 30 September redeem hash on the live
+series. Neither is blocked on anyone else.
 
 ## Blockers or Lessons Learned
 
@@ -245,11 +288,16 @@ What is still open: the admin rotation to the multisig, AMM liquidity seeding, a
 
 *(This section was cut off in the form screenshot — adjust to the actual field labels.)*
 
+Done since launch:
+
+- Admin of all six contracts rotated to the 2-of-3 multisig (1 September 2026), verified on
+  chain in both directions.
+
 Immediate, this week:
 
-1. Rotate all six contracts' admin and treasury to the 2-of-3 multisig (`<MULTISIG_DATE>`).
-   Script is drilled both directions.
-2. Seed the AMM from the dashboard as an ordinary LP, so the PT/SR market can fill.
+1. Seed the AMM from the dashboard as an ordinary LP, so the PT/SR market can fill.
+2. Decide whether the three payout addresses (`yield.treasury`, `srmarket.treasury`,
+   `strategy.emissions_to`) move to the multisig as well, or stay on an operating account.
 3. Publish the live series' redeem transaction on 30 September 2026.
 
 Next 30–60 days:

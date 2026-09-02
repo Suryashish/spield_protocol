@@ -34,9 +34,9 @@ done
 
 | Identity | Address | Role now |
 |---|---|---|
-| `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | **Admin and treasury of all six contracts.** Holds the PT trustline. 92.03 XLM left |
+| `spield_deployer` | `GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF` | **Treasury** of all six contracts and holder of the PT trustline. **Admin was rotated away 2026-09-01** |
 | `spield_pt_issuer` | `GDNSUOHJIWYXX6HC6ZVDJNLSIBLZMLJYBG7NAN2CRUSXOG4FIDAOH5KN` | **🔒 Locked** — every signer weight is 0. PT can only be minted by `YIELD` |
-| `spield_admin_multisig` | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | Funded, **not yet the admin.** Rotation is a separate day — see [§6](#6-the-multisig-is-a-separate-day) |
+| `spield_admin_multisig` | `GDJ66WMVVH6MWBL4KORY2HOXWLY4UGFCMP64RC474LUJPQCPQUC4RUFL` | **Admin of all six contracts since 2026-09-01.** Built and rotated to — see [§6](#6-the-multisig-is-a-separate-day) |
 | `spield_sig_1` | `GA7BTFN2P4EXZS4MM4QNGLQBAWUZYLCYNACWDCRW74P3QJT4FUB7TF7Z` | Future 2-of-3 signer. Needs no account and no funding |
 | `spield_sig_2` | `GAQ3DLLNUE5HPRKYL5JOCSLCD7RHKE3IRCOEHH7DULGXHZZB3V3SAYWP` | Future 2-of-3 signer |
 | `spield_sig_3` | `GA3ODKNDDTVKGDONUFBRSO4REMGX6JDJTGZ4X5FTRQU3IOFGKTYFU3KP` | Future 2-of-3 signer |
@@ -58,8 +58,9 @@ done
 (*"no signer with weight > 0"*), vault rate calibration passed. Total spend ≈ 188 XLM of the
 280 funded.
 
-**Still to do, both deliberately manual:** seed the AMM from the dashboard Liquidity page
-([§5](#5-the-run)), and rotate admin to the multisig ([§6](#6-the-multisig-is-a-separate-day)).
+**Admin rotation is done** (2026-09-01) — all six contracts are under the 2-of-3
+([§6](#6-the-multisig-is-a-separate-day)). **Still to do:** seed the AMM from the dashboard
+Liquidity page ([§5](#5-the-run)).
 
 ---
 
@@ -379,6 +380,20 @@ cause and re-run; completed steps are skipped from `deploy_mainnet_v2.state`.
 ---
 
 ## 6. The multisig is a separate day
+
+> ✅ **DONE 2026-09-01.** The account was built (3 signers of weight 1, master key weight 0,
+> low/med/high thresholds all 2) and admin of all six contracts was rotated to it. Verified: old
+> deployer key alone → `TxBadAuth`; a single multisig signer alone → `TxBadAuth`; all six
+> `accept_admin` calls authorized by 2 signatures. Payout roles were deliberately left behind.
+> The section below is the plan it was executed from, kept for the reasoning.
+>
+> Two things worth recording for next time. The account was **funded but never actually built** —
+> it sat at master weight 1 with no signers and thresholds 0/0/0, so it was a single-key account
+> wearing the name of a multisig. Build it and read its shape back before trusting the label.
+> And under network congestion four `accept_admin` submissions failed on `TxInsufficientFee` and
+> submission timeouts at the default fee of 100 stroops; re-running with `--fee 2000000` cleared
+> them. The two-step propose/accept design meant the half-finished state was harmless — admin
+> only moves when accept lands.
 
 **Yes — rotate whenever you like. It is not part of the deploy and nothing about launch day depends
 on it.** `deploy_mainnet.sh` leaves `spield_deployer` as admin of all six contracts, which is a
