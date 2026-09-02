@@ -83,12 +83,6 @@ Verified after the rotation, not assumed:
   signer weights and thresholds, linked in the evidence section, are what make the result
   checkable.
 
-One thing deliberately left where it was: the three addresses that receive money
-(`yield.treasury`, `srmarket.treasury` and `strategy.emissions_to`) still point at the
-operating account. Control and income are separate concerns, and a cold multisig is the right
-home for control but an awkward one for a fee stream you spend from. Moving them is a
-one-command step whenever we choose.
-
 Every item in this deliverable is closed. The deposit cap is live and enforced on chain at
 the SR contract, which is the only mint path, so total exposure is capped for as long as the
 protocol is unaudited and no deposit can route around it.
