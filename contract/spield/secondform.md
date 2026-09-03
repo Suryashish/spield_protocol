@@ -22,7 +22,7 @@
 | 1 | Primary contact name | Your legal name as registered with SCF | — |
 | 2 | Ambassador Chapter | The chapter you are enrolled under | Your SCF/Instaward acceptance email |
 | 3 | Ambassador Chapter Lead | Name of the lead who will verify §8 | Same email, or ask in the chapter channel |
-| 4 | Waitlist size | Current email count | `GET /waitlist` on the server, or count the `users` collection in Mongo |
+| 4 | Waitlist size | Current email count | Count the `users` collection in Mongo (see A5) |
 | 5 | GA4 numbers (§6.2) | Sessions / users / top pages since the tag went live | GA4 property `G-Y902DS1JCN` → Reports → export PDF |
 | 6 | Clarity session count (§6.2) | Recordings available, and how many reached the deposit panel | Clarity project `wjr8mkggic` → Recordings → filter by page |
 | 7 | npm downloads (§6.2) | `@spield/sdk` weekly downloads | npmjs.com/package/@spield/sdk → Downloads, or `npm view @spield/sdk` |
@@ -558,9 +558,73 @@ draft read as a roadmap. Two of them are still dependencies you should track pri
 counterparty conversations in Week 3 need the pool seeded first, and the design partners want
 a mainnet SDK.
 
-If the form gives you less room than this, submit the first four rows and the two Beyond rows.
-Interviews, demos, the behavioural baseline and the survey are the ones that close the two
-gaps §6.2 marks as partial.
+**Additional rows: the ones that actually put users into the product.**
+
+The table above learns what customers want. On its own it does not get anybody to deposit.
+The rows below do, and each one is still an activity with a customer that ends in a document,
+a number or a recording, so they belong on the form rather than in a private roadmap. Add them
+to the same table. They are kept separate here only so you can see what is new.
+
+| Timeline | Planned Activity | Expected Outcome |
+|---|---|---|
+| **Week 1** | **Convert the waitlist instead of only surveying it.** Three short emails to every address: the product is live and here is the 60 second deposit, here is a settled maturity with its transaction, and a last call before the cap fills. Every link tagged so the click arrives in GA4 as a named source. | The first honest conversion rate from stated intent to real money, measured at each step: open, click, wallet connect, deposit. Everyone who clicked and did not deposit becomes the recruiting list for the interviews, so this row also feeds Week 2. |
+| **Week 1** | **Concierge onboarding for the first 20 depositors.** Offered publicly in every channel: book 15 minutes and we will sit with you on a shared screen while you make your first deposit. No pitch, no minimum size. | An activation rate, and a named reason for every person who started and stopped. Watching somebody spend their own money is the highest signal event available to us, and it is the only reliable way to hear the objection people do not put in writing. |
+| **Week 1** | **Prospect the one list that is both perfect and free: current Blend USDC suppliers.** Read them off chain, rank by position size, filter to the 100 to 10,000 USDC band this product is built for, then reach them through the Blend and Stellar community channels rather than by unsolicited contact. | A named prospect list with reply rate by channel, and the first direct answer to whether a floating rate supplier will actually move. This group has already made the deposit decision once, which makes their no more informative than a stranger's yes. |
+| **Week 1–2** | **Get listed where this customer already looks.** DefiLlama, the Stellar ecosystem and dApp directories, the dApp browsers inside Freighter and Lobstr, Blend's ecosystem page, and contract labels on Stellar Expert so our addresses read as Spield rather than as unknown contracts. | Referral sessions per listing in GA4, which shows which surface genuinely sends users instead of which one we assumed would. Listings are also the cheapest credibility signal available to a protocol that is not yet audited. |
+| **Week 2** | **Distribute the 62 page corpus rather than only publishing it.** Answer the questions this segment is already asking, in the places they ask them (Stellar Discord and Telegram, Reddit, X, developer forums), with each answer linking the guide that covers it in full. | Referral traffic per channel, plus a list of the questions people actually ask, which is a content backlog written by customers instead of by us. This is the distribution half of **H6**, which publishing alone does not test. |
+| **Week 2** | **Turn the 50 USDC cap into a demand meter.** When a deposit is refused because the ceiling is full, ask the only two questions that matter: how much would you have deposited, and may we tell you when the cap lifts. | A quantified number for the demand the cap is turning away, and a warm queue for the post audit raise. It is also the cleanest test of **H5** we have, because it separates "unaudited stopped them" from "the cap stopped them", which today look identical in the data. |
+| **Week 2–3** | **One headline test on the landing page: certainty against APY.** Same page, two headlines, a week each: a fixed payout on a fixed date, against the highest number we can honestly quote. | A behavioural read on **H1** at a sample size interviews cannot reach. If the certainty framing loses to the number framing among real strangers, that finding is worth more than ten interviewees politely agreeing with us. |
+| **Week 2–3** | **A one question exit prompt on the deposit panel.** For anyone who reaches the panel and leaves without depositing: what stopped you, four options and a free text box, dismissible in one click. | Ranked blockers from the people who will never answer an email or take a call, which is most of them. It pairs with the Clarity friction pass: the recordings show where they stop, this says why. |
+| **Week 3** | **Publish every settlement as proof, on a fixed schedule.** For each maturity: promised this rate, paid this amount, on this date, with the transaction link, posted from `@spield_` and in the Chapter. | A track record that compounds. For an unaudited protocol this is the most persuasive asset we can build, because it is the one claim a reader can verify without trusting us. Measured by click through and by wallet connects attributed to each post. |
+| **Week 3–4** | **Go to where the yield traders already are.** This sub-segment is not on Stellar, so recruit it from the EVM yield communities where it does exist, using the CCTP on ramp as the reason arriving is now possible and the 80% LP fee share as the reason to bother. | Named LP and YT buyer prospects, and the real objection to trading a Stellar rate market. Nothing about **H8** can be learned from an empty pool, and no pool fills without specific people being asked to fill it. |
+| **Week 3–4** | **Sponsor an SDK bounty in a Stellar hackathon or in the Chapter.** A prize for the best product built on `@spield/sdk`, with us on hand for integration support during the build. | Integration attempts by builders who owe us nothing, which tests **H7** far harder than two design partners we recruited ourselves. Every submission is also a recorded integration story and a source of real SDK defects. |
+| **Week 4–5** | **Ask for the roll forward before maturity, not after.** Contact every depositor three days ahead of the 30 September settlement with the date, the amount they will receive, and the second series offer. | A stated roll rate before the event and a realised one after it, which is the cleanest retention number this product can produce. Anyone who declines is asked why in the same message, so no non renewal arrives without a reason attached. |
+| **Weekly, standing** | **Thirty minutes of public office hours, plus one build in public post.** Same time each week in the Stellar and Chapter channels, open to anything about fixed income on Stellar, competitors included. | A recurring, low effort recruiting pool for the interviews and demos above, an attendance and question log, and a project that is reachable by default. Expect most conversations after Week 2 to originate here. |
+
+**The four loops these rows are building.** Everything above is one of four repeatable motions
+rather than thirteen unrelated tasks:
+
+1. **Search loop.** A guide answers a question somebody already searched, they land, they deposit. It compounds as pages rank.
+2. **Proof loop.** Every settled maturity becomes a public post with a transaction link, and that post is what converts the next sceptic.
+3. **Referral loop.** Every depositor is asked for one introduction just after their own settlement, which is the moment trust is highest.
+4. **Builder loop.** Every SDK integration arrives carrying its own users, so that acquisition is no longer ours to fund.
+
+**The numbers we report every week.** Stated with definitions so a reviewer can check them,
+and so we cannot quietly move the goalposts later.
+
+| Number | Definition | Source | Target by end of period |
+|---|---|---|---|
+| Site visitors | Sessions on www.spield.live | GA4 | Baseline set in Week 1, then measured against it |
+| Site to app conversion | Sessions that cross to app.spield.live | GA4 cross domain | 10% |
+| Wallet connects | App sessions that connect a wallet | GA4 event | 25% of app sessions |
+| Trustlines created | PT trustline transactions | Chain | 60% of wallet connects |
+| Depositors | Unique addresses holding SR or PT | Stellar Expert holders tab | 25 |
+| Over cap demand | Sum of the "would have deposited" answers | Cap prompt | Reported, no target |
+| Waitlist | Addresses on the list | Server | Plus 200 |
+| Repeat depositors | Series 1 holders who enter series 2 | Chain | 50% of series 1 |
+| SDK weekly downloads | `@spield/sdk` | npm | Reported, no target |
+| Interviews, demos, design partners | Count | Our own log | 10, 5, 2 |
+
+**One framing point to state on the form rather than leave to interpretation.** While the
+guarded cap is 50 USDC, TVL cannot be the growth metric, and a reviewer who sees a small TVL
+without that context will read it as failure. The metrics that mean something at this stage are
+depositor count, activation rate through the funnel, and the demand the cap is turning away.
+Say it in one line before anyone has to ask.
+
+**What would make us stop, or change direction.** A plan with no failure condition is a wish
+list, so these are written down in advance:
+
+- If fewer than 3 of 10 interviewees choose a lower fixed rate over a higher floating one, **H1** is wrong, and the YT and leverage side of the same contracts becomes the product.
+- If the waitlist converts under 2% to a wallet connect, stated intent is not real intent here, and list building stops being a channel we spend on.
+- If no builder begins an integration after 20 serious approaches, **H7** is deprioritised and the SDK reverts to documentation by example.
+- If the cap fills quickly and the over cap queue keeps growing, **H5** was priced too conservatively, growth spend is not the constraint, and the audit is the only thing that matters.
+
+**If the form gives you less room than all of this.** Submit eight rows: the first four of the
+original table (recruiting, interviews, demos, behavioural baseline), then waitlist conversion,
+concierge onboarding, Blend supplier prospecting and the cap as a demand meter. Those four close
+the two gaps §6.2 marks as partial; these four are the ones that produce users while it happens.
+Keep the weekly numbers table whatever else you cut, because it is the part that lets the Chapter
+Lead check the next report against this one.
 
 ---
 
@@ -693,10 +757,14 @@ publishable evidence when you state the sample size honestly.
 
 ### A5 — Waitlist export
 
-`GET /waitlist` on the server returns the collected emails, or read the `users` collection in
-Mongo directly. **Export a count and a signup-date histogram for the form — not the address
-list.** Emails are personal data and the form does not need them; a Chapter Lead does not need
-to see them and you should not hand them over.
+Read the `users` collection in Mongo directly, through Atlas or a Mongo client. The API has no
+route that returns signups: `GET /waitlist` used to return every row to anyone who asked, and
+was removed on 3 Sep 2026 rather than left behind a token. The database's own auth is the only
+thing standing in front of this data now, which is the point.
+
+**Export a count and a signup-date histogram for the form — not the address list.** Names and
+emails are personal data and the form does not need them; a Chapter Lead does not need to see
+them and you should not hand them over.
 
 ### A6 — On-chain traction numbers (once deposits exist)
 

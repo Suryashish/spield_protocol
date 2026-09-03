@@ -39,35 +39,104 @@ app.get('/', (req, res) => {
   res.send('Hello, Spield Waitlist API!');
 });
 
-app.post('/waitlist', async (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+/**
+ * Waitlist signup.
+ *
+ *   POST /waitlist   { name, email }
+ *
+ * The parsing is split out from the handler because everything after it is a
+ * Mongo round-trip: `parseWaitlistSignup` is the part that can be unit-tested
+ * without a database, and it is where every rejection a caller can fix lives.
+ */
+const NAME_MAX = 80;
+const EMAIL_MAX = 254; // RFC 5321's maximum reverse-path length
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+function parseWaitlistSignup(body) {
+  const raw = body && typeof body === 'object' ? body : {};
+  // Collapse internal runs of whitespace too — a name pasted out of a form
+  // field otherwise stores as "Ada   Lovelace" and reads as a typo later.
+  const name = typeof raw.name === 'string' ? raw.name.trim().replace(/\s+/g, ' ') : '';
+  const email = typeof raw.email === 'string' ? raw.email.trim().toLowerCase() : '';
+
+  if (!name) return { error: 'Your name is required' };
+  if (name.length > NAME_MAX) {
+    return { error: `Name must be ${NAME_MAX} characters or fewer` };
+  }
+  if (!email) return { error: 'Email is required' };
+  if (email.length > EMAIL_MAX || !EMAIL_RE.test(email)) {
+    return { error: 'A valid email address is required' };
+  }
+  return { value: { name, email } };
+}
+
+/** The one answer a successful signup ever gets. Shared with the duplicate
+ *  path below, and exported so a test can assert the two are identical. */
+const SIGNUP_ACCEPTED = Object.freeze({ status: 201, body: { message: "You're on the waitlist" } });
+
+/**
+ * Maps a failed write to what the caller is told.
+ *
+ * A repeat signup answers with SIGNUP_ACCEPTED — the same status and the same
+ * bytes as a new one. It is only detectable at the write (the unique index on
+ * `email` is what rejects it), and the obvious response is a 409 saying so.
+ * That 409 is an email-enumeration oracle: anyone could put a colleague's
+ * address into the public form and be told whether that person had signed up.
+ * The list is private, so membership in it is private too, and the endpoint
+ * must not answer that question for an address the caller does not own.
+ *
+ * Nothing is written either way, and nothing is logged: a duplicate-key error
+ * carries the offending email in `keyValue`, and console.error would copy it
+ * into the platform's request log for no operational benefit.
+ */
+function waitlistWriteOutcome(error) {
+  if (error && (error.code === 11000 || error.code === 11001)) {
+    return SIGNUP_ACCEPTED;
+  }
+  if (error && error.name === 'ValidationError') {
+    return {
+      status: 400,
+      body: { error: 'Your name and a valid email address are required' },
+    };
+  }
+  console.error('Error adding email to waitlist:', error);
+  return { status: 500, body: { error: 'Internal server error' } };
+}
+
+async function waitlistHandler(req, res) {
+  const parsed = parseWaitlistSignup(req.body);
+  if (parsed.error) {
+    return res.status(400).json({ error: parsed.error });
   }
 
   try {
     await connectToDatabase();
     const User = require('./models/user');
-    const newUser = new User({ email });
-    await newUser.save();
-    res.status(201).json({ message: 'Email added to waitlist' });
+    await new User(parsed.value).save();
+    res.status(SIGNUP_ACCEPTED.status).json(SIGNUP_ACCEPTED.body);
   } catch (error) {
-    console.error('Error adding email to waitlist:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    const outcome = waitlistWriteOutcome(error);
+    res.status(outcome.status).json(outcome.body);
   }
-});
+}
 
-app.get('/waitlist', async (req, res) => {
-  try {
-    await connectToDatabase();
-    const User = require('./models/user');
-    const users = await User.find().sort({ createdAt: -1 });
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching waitlist:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+app.post('/waitlist', waitlistHandler);
+
+/**
+ * There is deliberately NO route that reads signups back out.
+ *
+ * `GET /waitlist` used to return every row, so the whole list — and, once the
+ * form started collecting names, who those people were — was one unauthenticated
+ * request away. It was replaced with a token-gated export and then removed
+ * outright on 3 Sep 2026: nothing in either frontend ever called it, and a
+ * credential that exists is a credential that can leak, be committed, or be left
+ * unset on a redeploy. The list is read from Mongo directly instead, where it is
+ * already behind the database's own auth.
+ *
+ * If a programmatic export is ever needed again, take the authenticated version
+ * out of git history rather than reinstating an open one. Whatever replaces this
+ * comment must require a credential and must fail CLOSED without one.
+ */
 
 /**
  * Activity proxy.
@@ -171,3 +240,7 @@ if (require.main === module) {
 module.exports = app;
 // Exposed on the Express handler for focused unit tests without opening a port.
 module.exports.activityHandler = activityHandler;
+module.exports.waitlistHandler = waitlistHandler;
+module.exports.parseWaitlistSignup = parseWaitlistSignup;
+module.exports.waitlistWriteOutcome = waitlistWriteOutcome;
+module.exports.SIGNUP_ACCEPTED = SIGNUP_ACCEPTED;

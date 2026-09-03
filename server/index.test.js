@@ -118,3 +118,150 @@ test('activity preserves the explorer failure status in its gateway error', asyn
   assert.equal(response.status, 502);
   assert.deepEqual(response.body, { error: 'Explorer returned 429', records: [] });
 });
+
+/* ---- waitlist signup ---------------------------------------------------- */
+
+const { parseWaitlistSignup, waitlistHandler } = app;
+
+const postWaitlist = async (body) => {
+  let status = 200;
+  let payload;
+  const response = {
+    status(code) {
+      status = code;
+      return this;
+    },
+    json(value) {
+      payload = value;
+      return this;
+    },
+  };
+
+  await waitlistHandler({ body }, response);
+  return { status, body: payload };
+};
+
+test('waitlist parses a signup, trimming and normalising both fields', () => {
+  const parsed = parseWaitlistSignup({
+    name: '  Ada   Lovelace  ',
+    email: '  Ada@Example.COM ',
+  });
+
+  assert.deepEqual(parsed.value, { name: 'Ada Lovelace', email: 'ada@example.com' });
+  assert.equal(parsed.error, undefined);
+});
+
+test('waitlist requires a name that is more than whitespace', () => {
+  assert.match(parseWaitlistSignup({ email: 'ada@example.com' }).error, /name/i);
+  assert.match(
+    parseWaitlistSignup({ name: '   ', email: 'ada@example.com' }).error,
+    /name/i,
+  );
+  // A non-string must not slip through as a Mongo query object.
+  assert.match(
+    parseWaitlistSignup({ name: { $ne: null }, email: 'ada@example.com' }).error,
+    /name/i,
+  );
+});
+
+test('waitlist rejects a name past the schema maximum', () => {
+  const parsed = parseWaitlistSignup({ name: 'a'.repeat(81), email: 'ada@example.com' });
+  assert.match(parsed.error, /80 characters/);
+});
+
+test('waitlist rejects a missing or malformed email', () => {
+  const rejected = [
+    undefined,
+    '',
+    'ada',
+    'ada@example',
+    'ada @example.com',
+    'ada@example.c',
+    `${'a'.repeat(250)}@example.com`,
+  ];
+  for (const email of rejected) {
+    const parsed = parseWaitlistSignup({ name: 'Ada Lovelace', email });
+    assert.ok(parsed.error, `expected ${JSON.stringify(email)} to be rejected`);
+    assert.equal(parsed.value, undefined);
+  }
+});
+
+test('waitlist answers 400 on a bad body without opening a database connection', async () => {
+  // connectToDatabase() would reject here (no MONGO_URL in the test env), so a
+  // 400 rather than a 500 is the proof that validation ran before the write.
+  assert.equal((await postWaitlist({ email: 'ada@example.com' })).status, 400);
+  assert.equal((await postWaitlist({ name: 'Ada Lovelace', email: 'nope' })).status, 400);
+  assert.equal((await postWaitlist(undefined)).status, 400);
+
+  const missingName = await postWaitlist({ email: 'ada@example.com' });
+  assert.match(missingName.body.error, /name/i);
+});
+
+/* ---- no read route ------------------------------------------------------- */
+
+test('the API exposes no way to read signups back out', () => {
+  // The regression this guards is someone reinstating a convenience export.
+  // Every route the app answers is listed here on purpose: adding one that
+  // returns personal data should fail this test and require a deliberate edit.
+  // `app.router` in Express 5 — `app._router` was removed in that major.
+  const routes = app.router.stack
+    .filter((layer) => layer.route)
+    .flatMap((layer) =>
+      Object.keys(layer.route.methods).map(
+        (method) => `${method.toUpperCase()} ${layer.route.path}`,
+      ),
+    );
+
+  assert.deepEqual(routes.sort(), ['GET /', 'GET /activity', 'POST /waitlist']);
+  assert.ok(!routes.includes('GET /waitlist'), 'the waitlist export must stay removed');
+});
+
+const { waitlistWriteOutcome, SIGNUP_ACCEPTED } = app;
+
+test('a repeat signup is answered identically to a new one', () => {
+  // The oracle this closes: a distinguishable "already on the waitlist" reply
+  // lets anyone test whether a given address is on the list.
+  for (const code of [11000, 11001]) {
+    const duplicate = Object.assign(new Error('E11000 duplicate key'), {
+      code,
+      keyValue: { email: 'ada@example.com' },
+    });
+    const outcome = waitlistWriteOutcome(duplicate);
+    assert.equal(outcome.status, SIGNUP_ACCEPTED.status);
+    assert.deepEqual(outcome.body, SIGNUP_ACCEPTED.body);
+    // byte-identical, not merely equivalent — a different key order would be
+    // a distinguishable response too
+    assert.equal(JSON.stringify(outcome.body), JSON.stringify(SIGNUP_ACCEPTED.body));
+  }
+});
+
+test('a real write failure is still an error, and never echoes the submission', () => {
+  const validation = Object.assign(new Error('bad'), { name: 'ValidationError' });
+  assert.equal(waitlistWriteOutcome(validation).status, 400);
+
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const outcome = waitlistWriteOutcome(new Error('connection reset'));
+    assert.equal(outcome.status, 500);
+    assert.deepEqual(outcome.body, { error: 'Internal server error' });
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test('a duplicate is not written to the log either', () => {
+  // keyValue carries the email; logging it would move the leak from the
+  // response into the platform's request log.
+  const originalError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args);
+  try {
+    waitlistWriteOutcome(
+      Object.assign(new Error('E11000'), { code: 11000, keyValue: { email: 'ada@example.com' } }),
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(logged, []);
+});

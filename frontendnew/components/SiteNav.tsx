@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SunIcon, MoonIcon } from "@/components/icons";
 import BrandMark from "@/components/BrandMark";
+import WaitlistDialog from "@/components/WaitlistDialog";
 import { SITE } from "@/lib/seo/site";
 
 /**
@@ -38,6 +39,7 @@ export default function SiteNav() {
      be uninterrupted. So: transparent at the top, frosted once you leave it. */
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -46,15 +48,18 @@ export default function SiteNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  /* Escape closes the menu, and the page behind it must not scroll. */
+  /* Escape closes the menu, and the page behind it must not scroll.
+     Skipped while the waitlist dialog is up: it opens FROM this menu on a
+     phone, and both effects restore `body.overflow` on cleanup — whichever
+     unmounts second would win and unlock the page under the open dialog. */
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen || waitlistOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
     return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
-  }, [menuOpen]);
+  }, [menuOpen, waitlistOpen]);
 
   /* --- the glider: appears where you enter, glides between links --- */
   const place = (link: HTMLElement) => {
@@ -152,6 +157,18 @@ export default function SiteNav() {
             <span />
           </span>
         </button>
+        {/* Left of the theme toggle, as the quiet sibling of "Launch App".
+            Desktop only — see `.wl-nav-btn`; below 901px it would push the
+            two icon buttons and the CTA off a 390px screen, so the phone
+            gets the row in the menu panel instead. */}
+        <button
+          type="button"
+          onClick={() => setWaitlistOpen(true)}
+          className="wl-nav-btn"
+        >
+          <span className="wl-nav-dot" aria-hidden="true" />
+          Join waitlist
+        </button>
         <button
           type="button"
           onClick={toggleTheme}
@@ -200,7 +217,22 @@ export default function SiteNav() {
             {label}
           </Link>
         ))}
+        <button
+          type="button"
+          tabIndex={menuOpen ? 0 : -1}
+          onClick={() => {
+            setMenuOpen(false);
+            setWaitlistOpen(true);
+          }}
+          /* No dot here, unlike the desktop button: the five links above set a
+             left edge, and a marker would push this label 16px off it. */
+          className="flex min-h-[46px] w-full items-center rounded-xl px-4 text-left text-[15px] font-medium text-ink transition-colors duration-200 hover:bg-canvas active:bg-canvas"
+        >
+          Join waitlist
+        </button>
       </div>
+
+      <WaitlistDialog open={waitlistOpen} onClose={() => setWaitlistOpen(false)} />
     </header>
   );
 }

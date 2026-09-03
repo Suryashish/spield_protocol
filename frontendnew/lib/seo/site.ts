@@ -26,12 +26,25 @@ const APP_ORIGIN = (process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://app.spield.li
   "",
 );
 
+/**
+ * The waitlist API is a THIRD deployment (the Express app in ../server), not a
+ * route on this site — so the join-waitlist form posts cross-origin to it. It
+ * must be https: the site is served over TLS and a browser blocks a plain-http
+ * POST from it as mixed content, silently, with the form appearing to hang.
+ *
+ * `NEXT_PUBLIC_WAITLIST_API` points a preview (or a local `pnpm dev`) at its own.
+ */
+const WAITLIST_API = (
+  process.env.NEXT_PUBLIC_WAITLIST_API ?? "https://api.spield.live"
+).replace(/\/+$/, "");
+
 export const SITE = {
   name: "Spield",
   legalName: "Spield Protocol",
   origin: ORIGIN,
   domain: ORIGIN.replace(/^https?:\/\//, ""),
   appOrigin: APP_ORIGIN,
+  waitlistApi: WAITLIST_API,
   twitter: "@spield_",
   twitterUrl: "https://x.com/spield_",
   github: "https://github.com/Suryashish/spield_protocol",

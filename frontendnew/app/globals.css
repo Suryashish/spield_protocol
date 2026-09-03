@@ -359,22 +359,25 @@ body {
 }
 /* The rows arrive just behind the panel, which is what stops the whole thing
    reading as one flat rectangle appearing. */
-.site-menu > a {
+/* `> *`, not `> a`: the last row is the waitlist <button>, and on the `a`-only
+   selector it stayed at opacity 0 — present, focusable, and invisible. */
+.site-menu > * {
   opacity: 0;
   transform: translateY(-6px);
   transition: opacity 0.001s, transform 0.001s, background-color 0.2s var(--ease-v);
 }
-.site-menu[data-open] > a {
+.site-menu[data-open] > * {
   opacity: 1;
   transform: none;
   transition: opacity 0.32s var(--ease-v), transform 0.32s var(--ease-v),
     background-color 0.2s var(--ease-v);
 }
-.site-menu[data-open] > a:nth-child(1) { transition-delay: 0.05s, 0.05s, 0s; }
-.site-menu[data-open] > a:nth-child(2) { transition-delay: 0.09s, 0.09s, 0s; }
-.site-menu[data-open] > a:nth-child(3) { transition-delay: 0.13s, 0.13s, 0s; }
-.site-menu[data-open] > a:nth-child(4) { transition-delay: 0.17s, 0.17s, 0s; }
-.site-menu[data-open] > a:nth-child(5) { transition-delay: 0.21s, 0.21s, 0s; }
+.site-menu[data-open] > *:nth-child(1) { transition-delay: 0.05s, 0.05s, 0s; }
+.site-menu[data-open] > *:nth-child(2) { transition-delay: 0.09s, 0.09s, 0s; }
+.site-menu[data-open] > *:nth-child(3) { transition-delay: 0.13s, 0.13s, 0s; }
+.site-menu[data-open] > *:nth-child(4) { transition-delay: 0.17s, 0.17s, 0s; }
+.site-menu[data-open] > *:nth-child(5) { transition-delay: 0.21s, 0.21s, 0s; }
+.site-menu[data-open] > *:nth-child(6) { transition-delay: 0.25s, 0.25s, 0s; }
 
 .site-menu-scrim {
   opacity: 0;
@@ -391,8 +394,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .menu-icon > span,
   .site-menu,
-  .site-menu > a,
-  .site-menu-scrim {
+  .site-menu > *,
+  .site-menu-scrim,
+  .wl-root,
+  .wl-scrim,
+  .wl-panel {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
   }
@@ -402,6 +408,281 @@ body {
 .js body:has(.stage):not(.loaded) .site-nav {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+/* ============================================================
+   Join waitlist — the nav button and its dialog
+   ============================================================ */
+/* The nav's third control. It cannot be a second `.btn-primary` beside
+   "Launch App" — two solid buttons in a row read as two equal front doors,
+   and the app is the front door. So it wears the theme toggle's surface
+   pill, sized for a word instead of an icon: present, clearly clickable,
+   and unmistakably the quieter of the two. */
+.wl-nav-btn {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow: var(--shadow-float-sm);
+  color: var(--muted);
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: transform 0.2s var(--ease-v), border-color 0.2s var(--ease-v),
+    color 0.2s var(--ease-v);
+}
+@media (min-width: 901px) {
+  .wl-nav-btn { display: inline-flex; }
+}
+.wl-nav-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--muted);
+  color: var(--ink);
+}
+.wl-nav-btn:active {
+  transform: scale(0.97);
+}
+/* The dot is the site's live marker. Here it is hollow — nothing is
+   running yet, which is the entire reason the button exists. */
+.wl-nav-dot {
+  width: 6px;
+  height: 6px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.55;
+}
+
+/* ---- the dialog ---------------------------------------------------------
+   Mounted always, opened by `data-open`, so it fades OUT as well as in —
+   the same trick the mobile menu uses. `visibility` carries a delay equal
+   to the fade when closing and none when opening, which is what keeps a
+   closed dialog out of the tab order without `display: none` killing the
+   transition in both directions. */
+.wl-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* above the click-warp layer at 45 and the nav at 30 */
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vh, 40px) clamp(16px, 4vw, 40px);
+  visibility: hidden;
+  transition: visibility 0s linear 0.34s;
+}
+.wl-root[data-open] {
+  visibility: visible;
+  transition: visibility 0s linear 0s;
+}
+
+/* A LITERAL dark, not `var(--ink)`. On the dark theme `--ink` is #fafaf8, so
+   an ink scrim there is a white veil: it lightens the page instead of pushing
+   it back, and turns the light "Launch App" pill into the brightest thing on
+   screen — brighter than the dialog it is meant to be behind. A scrim darkens
+   in both themes; only how much it has to darken changes. */
+.wl-scrim {
+  position: absolute;
+  inset: 0;
+  cursor: default;
+  border: 0;
+  background: rgb(10 10 9 / 0.34);
+  opacity: 0;
+  transition: opacity 0.34s var(--ease-v);
+}
+/* Deeper on the dark theme, where the same veil over an already-dark page
+   reads as haze rather than as distance. */
+[data-theme="dark"] .wl-scrim {
+  background: rgb(6 6 5 / 0.62);
+}
+.wl-root[data-open] .wl-scrim {
+  opacity: 1;
+}
+
+.wl-panel {
+  position: relative;
+  width: min(100%, 480px);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(26px, 4vw, 38px);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition: opacity 0.34s var(--ease-v), transform 0.34s var(--ease-v);
+}
+.wl-root[data-open] .wl-panel {
+  opacity: 1;
+  transform: none;
+}
+
+.wl-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--subtle);
+  transition: background-color 0.2s var(--ease-v), color 0.2s var(--ease-v);
+}
+.wl-close:hover {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.wl-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wl-title {
+  margin-top: 16px;
+  font-family: var(--ff-display);
+  font-size: clamp(27px, 3.4vw, 34px);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+
+.wl-sub {
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.58;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* ---- the fields ----
+   Same construction as the vault's deposit field: a mono label over a
+   hairline rule, and on focus the rule thickens into the accent. That
+   2px rule IS the focus indicator, so the default ring is dropped only
+   where something visible replaces it. */
+.wl-label {
+  display: block;
+  margin-top: clamp(24px, 3.2vh, 30px);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wl-label-2 {
+  margin-top: clamp(20px, 2.6vh, 26px);
+}
+
+.wl-field {
+  margin-top: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  transition: box-shadow 0.3s var(--ease-v), border-color 0.3s var(--ease-v);
+}
+.wl-field:focus-within {
+  border-color: transparent;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.wl-input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--ff-body);
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.wl-input:focus-visible {
+  outline: none; /* the rule above is the indicator */
+}
+.wl-input::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+/* Chrome paints autofilled inputs a fixed pale blue, which on the dark
+   theme is the one opaque light-mode rectangle on the page. An inset
+   shadow the height of the field is the only way to override it. */
+.wl-input:-webkit-autofill,
+.wl-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ink);
+  -webkit-box-shadow: 0 0 0 40px var(--surface) inset;
+  caret-color: var(--ink);
+}
+
+.wl-hint {
+  margin-top: 9px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--subtle);
+}
+
+.wl-error {
+  margin-top: 18px;
+  padding-left: 12px;
+  border-left: 2px solid var(--ember);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ember-text);
+}
+
+.wl-actions {
+  margin-top: clamp(26px, 3.4vh, 32px);
+}
+
+/* The dialog's own primary. `.btn-primary` is not reusable here: its 30%
+   accent bloom is the light it casts on the black stage, and on this
+   surface it would be a green haze around the button — glow is not
+   something paper does. Ink on canvas, matching "Launch App". */
+.wl-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--canvas);
+  box-shadow: var(--shadow-cta);
+  font-size: 15px;
+  font-weight: 500;
+  transition: transform 0.2s var(--ease-v), box-shadow 0.2s var(--ease-v),
+    opacity 0.2s var(--ease-v);
+}
+.wl-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-cta-hover);
+  opacity: 0.92;
+}
+.wl-submit:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.wl-submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.wl-arrow {
+  display: inline-flex;
+  transition: transform 0.2s var(--ease-v);
+}
+.wl-submit:hover:not(:disabled) .wl-arrow {
+  transform: translateX(3px);
 }
 
 /* ============================================================
