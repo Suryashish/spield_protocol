@@ -20,6 +20,7 @@ import { useShareCard } from '@/context/ShareCardContext';
 import { useToast } from '@/context/ToastContext';
 import { getRecentActivity, type Activity, type ActivityKind } from '@/lib/events';
 import {
+  addLiquidityCard,
   buyPtCard,
   buyYtCard,
   claimYieldCard,
@@ -27,6 +28,7 @@ import {
   redeemParCard,
   vaultLockCard,
   vaultRedeemCard,
+  wrapCard,
   type ShareCard,
 } from '@/lib/shareCard';
 import { formatAmount } from '@/lib/soroban';
@@ -73,7 +75,9 @@ const cardFor = async (item: Activity, maturity: number | null): Promise<ShareCa
     case 'vaultRedeem': {
       // The payout event carries the receipt's number and nothing else about it. A closed receipt
       // stays readable, so the principal and the rate it earned come from there.
-      const receipt = await getVaultReceipt(s.receiptId);
+      // Asked twice before giving up: it is a single call, and a public RPC drops the odd request.
+      const receipt =
+        (await getVaultReceipt(s.receiptId)) ?? (await getVaultReceipt(s.receiptId));
       return receipt ? vaultRedeemCard(receipt) : null;
     }
     case 'mint':
@@ -86,6 +90,10 @@ const cardFor = async (item: Activity, maturity: number | null): Promise<ShareCa
       return claimYieldCard({ amount: s.amount, unit: s.unit, yt: 0n, at });
     case 'redeemPar':
       return redeemParCard({ pt: s.pt });
+    case 'wrap':
+      return wrapCard({ usdc: s.usdc, sr: s.sr, at });
+    case 'addLiquidity':
+      return addLiquidityCard({ pt: s.pt, usdc: s.usdc, maturity });
   }
 };
 

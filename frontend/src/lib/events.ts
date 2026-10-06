@@ -110,7 +110,9 @@ export type ActivityShare =
   | { type: 'buyPt'; paid: bigint; pt: bigint }
   | { type: 'buyYt'; paid: bigint; yt: bigint }
   | { type: 'claim'; amount: bigint; unit: 'USDC' | 'SR' }
-  | { type: 'redeemPar'; pt: bigint };
+  | { type: 'redeemPar'; pt: bigint }
+  | { type: 'wrap'; usdc: bigint; sr: bigint }
+  | { type: 'addLiquidity'; pt: bigint; usdc: bigint };
 
 export type Activity = {
   id: string;
@@ -360,6 +362,47 @@ const decodeXdrTopic = (b64: string): string => {
 const SCALE_12 = 10n ** 12n;
 
 /**
+ * What `sr` shares cost in USDC at `rate`, rounded UP.
+ *
+ * Wrapping floors (`shares = usdc / rate`), so flooring again on the way back loses a stroop and a
+ * 1.00 USDC deposit comes out as 0.9999999. Rounding up undoes exactly that: it is what the holder
+ * paid for those shares, which is the number a card about what they put in should carry.
+ */
+const srCost = (sr: bigint, rate: bigint): bigint => (sr * rate + SCALE_12 - 1n) / SCALE_12;
+
+/**
+ * How long after a wrap the same wallet's next move still counts as its second step.
+ *
+ * A deposit, a YT buy and a liquidity add are each two signatures — wrap, then act — a few seconds
+ * apart. Five minutes covers a slow wallet prompt without reaching back to a wrap made earlier in
+ * the day for its own sake.
+ */
+const STEP_WINDOW_SECS = 5 * 60;
+
+/**
+ * The price of one SR in USDC at the time of `e`: the most recent one any event recorded at or
+ * before it. `0n` when the loaded window holds none.
+ *
+ * A wrap records the rate it was done at, and a split records the index, which before maturity is
+ * the same number. (After maturity the index freezes while SR keeps earning, so redemptions and
+ * claims are not used.) The rate only rises, so an earlier sample can only UNDER-state a value —
+ * and in practice the sample is the wallet's own wrap a few seconds before.
+ */
+const srRateAt = (e: RawEvent, raw: RawEvent[]): bigint => {
+  let best: RawEvent | undefined;
+  let rate = 0n;
+  for (const s of raw) {
+    if (s.ledger > e.ledger || (best && s.ledger < best.ledger)) continue;
+    const r =
+      s.name === 'sr_deposit' ? toBig(s.body.rate) : s.name === 'mint_py' ? toBig(s.body.index) : 0n;
+    if (r <= 0n) continue;
+    best = s;
+    rate = r;
+  }
+  return rate;
+};
+
+/**
  * What a routed call was, read off the router's own event: `["router", <action>, user]`.
  *
  * These are the only events that state a routed action in the user's terms — who it was for and
@@ -409,9 +452,21 @@ const directShare = (
   kind: ActivityKind,
   e: RawEvent,
   siblings: RawEvent[],
+  raw: RawEvent[],
 ): ActivityShare | undefined => {
   const b = e.body;
   switch (kind) {
+    case 'Wrap':
+      // Offered on every wrap here; `toActivities` then withdraws it from the ones that turn out
+      // to be the first step of something else.
+      return { type: 'wrap', usdc: toBig(b.underlying_in), sr: toBig(b.shares_out) };
+    case 'AddLiquidity': {
+      // The pool takes its second leg in SR shares. What those shares cost in USDC needs the SR
+      // price at the time, which this event does not carry.
+      const rate = srRateAt(e, raw);
+      if (rate <= 0n) return undefined;
+      return { type: 'addLiquidity', pt: toBig(b.pt_in), usdc: srCost(toBig(b.sr_in), rate) };
+    }
     case 'VaultDeposit':
       return {
         type: 'vaultLock',
@@ -433,11 +488,7 @@ const directShare = (
       // one SR at that instant. So the USDC cost is exact, not an estimate at today's rate.
       const index = toBig(siblings.find((s) => s.name === 'mint_py')?.body.index);
       if (index <= 0n) return undefined;
-      return {
-        type: 'buyYt',
-        paid: (toBig(b.sr_amount) * index) / SCALE_12,
-        yt: toBig(b.yt_amount),
-      };
+      return { type: 'buyYt', paid: srCost(toBig(b.sr_amount), index), yt: toBig(b.yt_amount) };
     }
     default:
       return undefined;
@@ -488,18 +539,44 @@ const toActivities = (raw: RawEvent[]): Activity[] => {
     for (const e of group) {
       const kind = EVENT_NAME_TO_KIND[e.name];
       if (!kind) continue;
+      const share = directShare(kind, e, group, raw);
       out.push({
         id: e.id,
         kind,
         user: e.topics[0] ?? '',
         ...readBody(e.body),
+        // A liquidity add is two legs. With the card's figures in hand the row states both, as
+        // the card does, instead of the SR leg alone with "USDC" printed after it.
+        ...(share?.type === 'addLiquidity' ? { amount: share.pt + share.usdc } : {}),
         explorerUrl: e.explorerUrl,
         ledger: e.ledger,
         at: e.at,
-        share: directShare(kind, e, group),
+        share,
       });
     }
   }
+
+  // ## A wrap is only worth a card when it was the whole action
+  //
+  // Every deposit, YT buy and liquidity add begins by wrapping USDC, and that wrap is plumbing: the
+  // action it belongs to has its own row and its own card. Posting both would be one deposit told
+  // twice. So each such action claims the closest wrap the same wallet made just before it, and
+  // only an unclaimed wrap — USDC put into SR and left there to earn — keeps its card.
+  const consumesSr = (r: Activity): boolean =>
+    r.kind === 'Mint' || r.kind === 'AddLiquidity' || r.share?.type === 'buyYt';
+  for (const action of out) {
+    if (!consumesSr(action) || !action.at) continue;
+    let step: Activity | undefined;
+    for (const w of out) {
+      if (w.kind !== 'Wrap' || w.user !== action.user || !w.at) continue;
+      if (w.at > action.at || action.at - w.at > STEP_WINDOW_SECS) continue;
+      if (!step || w.at > step.at) step = w;
+    }
+    if (step) step.share = undefined;
+  }
+  // Without a time there is no telling which kind of wrap it was, so it offers nothing.
+  for (const w of out) if (w.kind === 'Wrap' && !w.at) w.share = undefined;
+
   return out;
 };
 

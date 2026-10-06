@@ -206,6 +206,51 @@ export const claimYieldCard = (r: {
   text: `Claimed ${amt(r.amount)} ${r.unit} of yield with ${HANDLE} on Stellar.`,
 });
 
+/**
+ * SR Wrapper: USDC supplied to the venue and left there to earn the variable rate.
+ *
+ * `sr` is the shares received, when that is known exactly. At the moment of the transaction only an
+ * estimate exists, so the card says nothing about it; the activity feed has the real number.
+ */
+export const wrapCard = (r: { usdc: bigint; sr?: bigint; at?: number }): ShareCard => ({
+  tone: 'usdc',
+  eyebrow: 'Earning variable yield',
+  figure: amt(r.usdc),
+  unit: 'USDC',
+  line: 'Supplied to Blend through Spield, earning the live rate.',
+  stats: [
+    ...(r.sr && r.sr > 0n ? [{ label: 'Received', value: `${amt(r.sr)} SR` }] : []),
+    { label: 'Lent through', value: 'Blend' },
+    { label: 'Since', value: day(r.at ?? Date.now() / 1000) },
+  ],
+  text: `Put ${amt(r.usdc)} USDC to work on Stellar with ${HANDLE}, earning Blend's variable yield.`,
+});
+
+/**
+ * Liquidity: PT and USDC added to the PT market.
+ *
+ * The headline adds the two legs with PT at FACE, and the line says so. Face is the one PT value
+ * that is a fact of the contract (it redeems 1:1 at maturity) rather than a reading of a price
+ * that has since moved, and it is the same number whether the card is made now or next week.
+ */
+export const addLiquidityCard = (r: {
+  pt: bigint;
+  usdc: bigint;
+  maturity: number | null;
+}): ShareCard => ({
+  tone: 'usdc',
+  eyebrow: 'Liquidity provided',
+  figure: amt(r.pt + r.usdc),
+  unit: 'USDC',
+  line: 'Making the market for fixed yield. PT counted at face.',
+  stats: [
+    { label: 'PT side', value: `${amt(r.pt)} PT` },
+    { label: 'USDC side', value: `${amt(r.usdc)} USDC` },
+    ...(r.maturity ? [{ label: 'Matures', value: day(r.maturity) }] : []),
+  ],
+  text: `Providing liquidity to the fixed-yield market on Stellar with ${HANDLE}: ${amt(r.pt)} PT and ${amt(r.usdc)} USDC.`,
+});
+
 /** Deposit page, after maturity: PT burned for its face value. */
 export const redeemParCard = (r: { pt: bigint }): ShareCard => ({
   tone: 'brand',

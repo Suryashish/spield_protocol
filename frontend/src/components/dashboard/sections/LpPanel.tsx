@@ -10,7 +10,8 @@ import { useProtocol } from '@/context/ProtocolContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { buildAddLiquiditySteps, removeLiquidity } from '@/lib/v2adapters';
 import { setupSrPtTrustline } from '@/lib/horizon';
-import { fromBaseUnits, formatAmount, formatUsd } from '@/lib/soroban';
+import { fromBaseUnits, toBaseUnits, formatAmount, formatUsd } from '@/lib/soroban';
+import { addLiquidityCard } from '@/lib/shareCard';
 import { NETWORK, MARKET_DEPLOYED } from '@/lib/config';
 
 type Mode = 'add' | 'remove';
@@ -25,7 +26,7 @@ type Mode = 'add' | 'remove';
  */
 const LpPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
-  const { balances, marketStats: m, lpPosition, trustlines } = useProtocol();
+  const { balances, marketStats: m, lpPosition, trustlines, maturity } = useProtocol();
   const { run, runSteps, busy } = useTxAction();
 
   const [mode, setMode] = useState<Mode>('add');
@@ -94,7 +95,16 @@ const LpPanel = () => {
     if (mode === 'add') {
       const steps = await buildAddLiquiditySteps(address, ptAmount, String(usdcNeeded));
       if (!steps) return;
-      const ok = await runSteps('Add liquidity', steps);
+      const ok = await runSteps(
+        'Add liquidity',
+        steps,
+        // Adding liquidity is an investment and gets a card. Removing it is an exit and does not.
+        addLiquidityCard({
+          pt: toBaseUnits(ptAmount),
+          usdc: toBaseUnits(String(usdcNeeded)),
+          maturity,
+        }),
+      );
       if (ok) setPtAmount('');
     } else {
       const ok = await run('Remove liquidity', () =>

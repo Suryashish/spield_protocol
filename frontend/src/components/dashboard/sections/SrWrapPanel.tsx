@@ -8,6 +8,7 @@ import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { fromBaseUnits, toBaseUnits, formatAmount } from '@/lib/soroban';
+import { wrapCard } from '@/lib/shareCard';
 import { SR_DEPLOYED } from '@/lib/config';
 import {
   getExchangeRate,
@@ -105,6 +106,9 @@ const SrWrapPanel = () => {
             crunched
             ? unwrapSrPartial(address, units)
             : unwrapSr(address, units),
+      // On this page a wrap is the whole point: USDC left in SR to earn. (The wraps the app does
+      // as the first step of a deposit or a trade go through other panels and offer nothing.)
+      mode === 'wrap' ? wrapCard({ usdc: units }) : undefined,
     );
     setAmount('');
     void refresh();
