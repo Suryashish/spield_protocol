@@ -2,7 +2,25 @@ import { useCallback, useState } from 'react';
 
 import { useProtocol } from '@/context/ProtocolContext';
 import { useToast } from '@/context/ToastContext';
+import type { ShareCard } from '@/lib/shareCard';
 import type { WriteResult } from '@/lib/soroban';
+
+/**
+ * A card to offer once the write has landed. Pass the card itself when it is known up front, or a
+ * function when it depends on the outcome (a redemption that may only part-fill has nothing to
+ * post until it is known to have paid in full). Returning `null` offers nothing.
+ */
+export type ShareOffer = ShareCard | (() => ShareCard | null | Promise<ShareCard | null>);
+
+/** Never lets a card stand between a confirmed transaction and its confirmation. */
+const resolveShare = async (offer?: ShareOffer): Promise<ShareCard | undefined> => {
+  if (!offer) return undefined;
+  try {
+    return (typeof offer === 'function' ? await offer() : offer) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /** One leg of a multi-step transaction flow (e.g. the YT route's mint → sell PT). */
 export type TxStep = {
@@ -21,6 +39,9 @@ export type TxStep = {
  * error. `runSteps` chains several writes under ONE toast (for routed flows that need >1 tx,
  * like buying YT = mint then sell the PT). Multiple panels share this so the behaviour is
  * identical everywhere.
+ *
+ * Both take an optional `share`: the card the success toast offers to post. Only deposits and
+ * payouts pass one. An exit, a trustline or a harvest is not something anyone shares.
  */
 export const useTxAction = () => {
   const { push, update } = useToast();
@@ -28,7 +49,7 @@ export const useTxAction = () => {
   const [busy, setBusy] = useState(false);
 
   const run = useCallback(
-    async (label: string, fn: () => Promise<WriteResult>): Promise<boolean> => {
+    async (label: string, fn: () => Promise<WriteResult>, share?: ShareOffer): Promise<boolean> => {
       setBusy(true);
       const id = push({
         kind: 'pending',
@@ -42,6 +63,7 @@ export const useTxAction = () => {
           title: `${label} confirmed`,
           message: 'Your transaction is on-chain.',
           hash,
+          share: await resolveShare(share),
         });
         await refresh();
         return true;
@@ -66,7 +88,7 @@ export const useTxAction = () => {
    * message names which leg failed so the user can finish manually). Refreshes once at the end.
    */
   const runSteps = useCallback(
-    async (title: string, steps: TxStep[]): Promise<boolean> => {
+    async (title: string, steps: TxStep[], share?: ShareOffer): Promise<boolean> => {
       setBusy(true);
       const id = push({
         kind: 'pending',
@@ -90,6 +112,7 @@ export const useTxAction = () => {
           title: `${title} confirmed`,
           message: 'All steps are on-chain.',
           hash: lastHash,
+          share: await resolveShare(share),
         });
         await refresh();
         return true;

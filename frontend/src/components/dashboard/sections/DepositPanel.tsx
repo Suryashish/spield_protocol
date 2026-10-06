@@ -11,6 +11,7 @@ import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { buildMintSteps, redeemPt } from '@/lib/v2adapters';
 import { fromBaseUnits, toBaseUnits, formatAmount } from '@/lib/soroban';
+import { mintCard, redeemParCard } from '@/lib/shareCard';
 import { setupSrPtTrustline } from '@/lib/horizon';
 import { NETWORK, VAULT_DEPLOYED, MARKET_DEPLOYED, MIN_MINT_BASE_UNITS } from '@/lib/config';
 
@@ -131,8 +132,11 @@ const DepositPanel = () => {
     }
     if (mode === 'redeem') {
       // One transaction either way — the engine reads expiry and burns one leg or two.
-      const ok = await run(matured ? 'Redeem at par' : 'Combining PT + YT', () =>
-        redeemPt(address, 0, amount),
+      const ok = await run(
+        matured ? 'Redeem at par' : 'Combining PT + YT',
+        () => redeemPt(address, 0, amount),
+        // Redeeming at maturity is the payout. Combining early is only an exit.
+        matured ? redeemParCard({ pt: toBaseUnits(amount) }) : undefined,
       );
       if (ok) setAmount('');
       return;
@@ -149,7 +153,11 @@ const DepositPanel = () => {
     // under one toast with real progress, instead of a single spinner spanning two wallet prompts.
     const steps = await buildMintSteps(address, amount);
     if (!steps) return;
-    const ok = await runSteps('Deposit', steps);
+    const ok = await runSteps(
+      'Deposit',
+      steps,
+      mintCard({ usdc: toBaseUnits(amount), maturity }),
+    );
     if (ok) setAmount('');
   };
 

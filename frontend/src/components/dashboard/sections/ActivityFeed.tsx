@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   ExternalLink,
   History,
+  Share2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -15,8 +16,21 @@ import EmptyState from './EmptyState';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
+import { useShareCard } from '@/context/ShareCardContext';
+import { useToast } from '@/context/ToastContext';
 import { getRecentActivity, type Activity, type ActivityKind } from '@/lib/events';
+import {
+  buyPtCard,
+  buyYtCard,
+  claimYieldCard,
+  mintCard,
+  redeemParCard,
+  vaultLockCard,
+  vaultRedeemCard,
+  type ShareCard,
+} from '@/lib/shareCard';
 import { formatAmount } from '@/lib/soroban';
+import { getVaultReceipt } from '@/lib/srstack';
 import { shortenAddress } from '@/lib/stellar';
 
 const KIND_META: Record<
@@ -38,11 +52,50 @@ const KIND_META: Record<
   VaultRedeem: { label: 'Fixed-Rate Payout', icon: Sparkles, positive: true },
 };
 
+/**
+ * Rebuild the share card for a transaction that has already happened.
+ *
+ * The event recorded what was done. What it did not record — when the series matures, what a
+ * since-closed receipt was opened with — is read here, when someone asks for the card, rather than
+ * for every row on every refresh. `null` means that read did not come back, so there is nothing
+ * the card could truthfully say.
+ */
+const cardFor = async (item: Activity, maturity: number | null): Promise<ShareCard | null> => {
+  const s = item.share;
+  if (!s) return null;
+  // `0` is "the source did not say", and must fall back to the builders' own default.
+  const at = item.at || undefined;
+  switch (s.type) {
+    case 'vaultLock':
+      return maturity
+        ? vaultLockCard({ principal: s.principal, payout: s.payout, rateBps: s.rateBps, maturity })
+        : null;
+    case 'vaultRedeem': {
+      // The payout event carries the receipt's number and nothing else about it. A closed receipt
+      // stays readable, so the principal and the rate it earned come from there.
+      const receipt = await getVaultReceipt(s.receiptId);
+      return receipt ? vaultRedeemCard(receipt) : null;
+    }
+    case 'mint':
+      return mintCard({ usdc: s.usdc, maturity });
+    case 'buyPt':
+      return maturity ? buyPtCard({ paid: s.paid, pt: s.pt, expiry: maturity, at }) : null;
+    case 'buyYt':
+      return maturity ? buyYtCard({ paid: s.paid, yt: s.yt, expiry: maturity }) : null;
+    case 'claim':
+      return claimYieldCard({ amount: s.amount, unit: s.unit, yt: 0n, at });
+    case 'redeemPar':
+      return redeemParCard({ pt: s.pt });
+  }
+};
+
 const ActivityFeed = () => {
   const { address, isConnected } = useWallet();
   // `refreshing` flips true then false for one refresh, which used to run this
   // effect twice. A completed refresh has one new timestamp instead.
-  const { lastUpdated } = useProtocol();
+  const { lastUpdated, maturity } = useProtocol();
+  const { share } = useShareCard();
+  const { push } = useToast();
   const [items, setItems] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [mineOnly, setMineOnly] = useState(true);
@@ -63,6 +116,19 @@ const ActivityFeed = () => {
 
   const visible =
     mineOnly && isConnected && address ? items.filter((i) => i.user === address) : items;
+
+  const onShare = async (item: Activity) => {
+    const card = await cardFor(item, maturity);
+    if (card) {
+      share(card);
+      return;
+    }
+    push({
+      kind: 'error',
+      title: 'Could not build that card',
+      message: 'Its details could not be read from the chain just now. Try again in a moment.',
+    });
+  };
 
   return (
     <Card className="gap-0 overflow-hidden rounded-xl py-0">
@@ -143,6 +209,23 @@ const ActivityFeed = () => {
                       {formatAmount(item.amount)} USDC
                     </span>
                   )}
+                  {/* Only on your own rows. The "All" view lists everyone, and a card is a
+                      first-person statement: nobody should be handed one for a stranger's trade.
+                      The slot is there on every row, filled or not, so the amounts stay in one
+                      column instead of stepping sideways wherever a row has nothing to share. */}
+                  <span className="grid size-[13px] place-items-center">
+                    {item.share && item.user === address && (
+                      <button
+                        type="button"
+                        onClick={() => void onShare(item)}
+                        className="text-muted-foreground transition-colors hover:text-foreground"
+                        title="Share this"
+                        aria-label="Share this"
+                      >
+                        <Share2 size={13} />
+                      </button>
+                    )}
+                  </span>
                   <a
                     href={item.explorerUrl}
                     target="_blank"

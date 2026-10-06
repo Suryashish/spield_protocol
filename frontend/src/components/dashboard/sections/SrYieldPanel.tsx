@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useWallet } from '@/context/WalletContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
+import { claimYieldCard } from '@/lib/shareCard';
 import { SR_DEPLOYED } from '@/lib/config';
 import {
   getPortfolio,
@@ -82,15 +83,6 @@ const SrYieldPanel = () => {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const onClaim = async () => {
-    if (!address) return;
-    await run(
-      ROUTER_AVAILABLE ? 'Claiming yield to USDC' : 'Claiming yield (paid in SR)',
-      () => (ROUTER_AVAILABLE ? claimYieldToUsdc(address) : claimYield(address)),
-    );
-    void refresh();
-  };
-
   if (!SR_DEPLOYED) return null;
 
   const ytFace = portfolio?.yt ?? 0n;
@@ -104,6 +96,22 @@ const SrYieldPanel = () => {
   const feeBps = solvency?.yieldFeeBps ?? 0;
   const hasClaim = claimableSr > 0n;
   const matured = isMatured(stats);
+
+  const onClaim = async () => {
+    if (!address) return;
+    await run(
+      ROUTER_AVAILABLE ? 'Claiming yield to USDC' : 'Claiming yield (paid in SR)',
+      () => (ROUTER_AVAILABLE ? claimYieldToUsdc(address) : claimYield(address)),
+      // The figure on the button is the figure on the card: net of the fee when the router pays
+      // USDC, the raw SR claim when it cannot.
+      claimYieldCard(
+        ROUTER_AVAILABLE
+          ? { amount: netUsdc, unit: 'USDC', yt: ytFace }
+          : { amount: claimableSr, unit: 'SR', yt: ytFace },
+      ),
+    );
+    void refresh();
+  };
 
   return (
     <Card>

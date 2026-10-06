@@ -11,6 +11,7 @@ import { useTxAction } from '@/lib/useTxAction';
 import { type Quote } from '@/lib/vault';
 import { deposit, quote } from '@/lib/v2adapters';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
+import { vaultLockCard } from '@/lib/shareCard';
 import { NETWORK, VAULT_DEPLOYED } from '@/lib/config';
 
 const bpsToPct = (bps: number) => (bps / 100).toFixed(2);
@@ -117,7 +118,19 @@ const VaultPanel = () => {
       openWalletPicker();
       return;
     }
-    const ok = await run('Lock fixed rate', () => deposit(address, amount));
+    const ok = await run(
+      'Lock fixed rate',
+      () => deposit(address, amount),
+      // The live quote is what the contract is about to lock in, so it is what the card states.
+      liveQuote && vaultStats
+        ? vaultLockCard({
+            principal: toBigSafe(amount),
+            payout: liveQuote.payout,
+            rateBps: liveQuote.rateBps,
+            maturity: vaultStats.maturity,
+          })
+        : undefined,
+    );
     if (ok) setAmount('');
   };
 

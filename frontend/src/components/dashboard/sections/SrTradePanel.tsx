@@ -18,6 +18,7 @@ import { useWallet } from '@/context/WalletContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { fromBaseUnits, toBaseUnits } from '@/lib/soroban';
+import { buyPtCard, buyYtCard } from '@/lib/shareCard';
 import { setupSrPtTrustline } from '@/lib/horizon';
 import { SR_CONTRACTS, SR_DEPLOYED } from '@/lib/config';
 import {
@@ -250,6 +251,17 @@ const SrTradePanel = () => {
       sellYt: 'Selling YT for USDC',
     }[mode];
 
+    // Only a buy gets a share card: it is the investment. A sale is an exit. For YT the quote is
+    // the COST and `ytFace` the size, the reverse of PT, where the quote is what arrives.
+    const card =
+      stats && quote !== null && quote > 0n
+        ? mode === 'buyPt'
+          ? buyPtCard({ paid: units, pt: quote, expiry: stats.expiry })
+          : mode === 'buyYt' && ytFace > 0n
+            ? buyYtCard({ paid: quote, yt: ytFace, expiry: stats.expiry })
+            : undefined
+        : undefined;
+
     await run(label, async () => {
       switch (mode) {
         case 'buyPt':
@@ -265,7 +277,7 @@ const SrTradePanel = () => {
             setYtStep(`${step === 'sell' ? 1 : 2} of ${of}`),
           );
       }
-    });
+    }, card);
     setAmount('');
     setYtStep(null);
     void refresh();

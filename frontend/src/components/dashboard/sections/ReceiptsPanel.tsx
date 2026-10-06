@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Lock, ShieldCheck, Sprout, Clock, CheckCircle2 } from 'lucide-react';
+import { Loader2, Lock, ShieldCheck, Sprout, Clock, CheckCircle2, Share2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -7,10 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
+import { useShareCard } from '@/context/ShareCardContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { type Receipt } from '@/lib/vault';
 import { harvest, redeem, redeemRemaining } from '@/lib/v2adapters';
 import { formatUsd } from '@/lib/soroban';
+import { vaultLockCard, vaultRedeemCard } from '@/lib/shareCard';
 import { VAULT_DEPLOYED } from '@/lib/config';
 
 const bpsToPct = (bps: number) => (bps / 100).toFixed(2);
@@ -60,6 +62,7 @@ const ReceiptRow = ({
   address: string | null;
 }) => {
   const { run, busy } = useTxAction();
+  const { share } = useShareCard();
   const matured = now >= receipt.maturity;
   const coupon = receipt.payout - receipt.principal;
 
@@ -85,13 +88,22 @@ const ReceiptRow = ({
   const handleRedeem = async () => {
     if (!address) return;
     setPhase('redeeming');
-    const ok = await run('Redeem', () => redeem(address, receipt.receiptId));
+    // The transaction succeeding is not the receipt being paid — ask the contract rather than
+    // assuming. The same answer decides the share card: only a payout that actually finished gets
+    // one, because "paid in full" on a part-collected receipt would be false.
+    let remaining = 0n;
+    const ok = await run(
+      'Redeem',
+      () => redeem(address, receipt.receiptId),
+      async () => {
+        remaining = await redeemRemaining(receipt.receiptId);
+        return remaining > 0n ? null : vaultRedeemCard(receipt);
+      },
+    );
     if (!ok) {
       setPhase('idle');
       return;
     }
-    // The transaction succeeded — but did it finish? Ask the contract rather than assuming.
-    const remaining = await redeemRemaining(receipt.receiptId);
     setStillOwed(remaining);
     setPhase(remaining > 0n ? 'partial' : 'redeemed');
   };
@@ -148,6 +160,17 @@ const ReceiptRow = ({
                 ? 'Matured'
                 : fmtRelative(receipt.maturity, now)}
         </span>
+        {/* The toast offers the card once, at the moment of the deposit. This is the way back to
+            it for as long as the position is open. */}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => share(vaultLockCard(receipt))}
+          title="Share this position"
+          aria-label="Share this position"
+        >
+          <Share2 size={14} />
+        </Button>
         <Button
           size="sm"
           disabled={busy || !matured || !address || phase === 'redeeming' || phase === 'redeemed'}
