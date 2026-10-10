@@ -1523,3 +1523,43 @@ fn h01_bump_holder_actually_extends_live_entry_ttl() {
     );
 }
 
+#[test]
+fn m03_late_stamped_expiry_index_interpolates_to_prevent_yt_payout_skew() {
+    let w = setup(30 * DAY, 0);
+    let (u, _) = w.user_with_py(10_000 * USDC);
+
+    // Stamping 180 days late:
+    // User held 10,000 YT for the 30-day term.
+    // Time advances past expiry by 180 days (total 210 days).
+    w.advance(210 * DAY);
+
+    // With M-03 fix, stamp_expiry_index linearly interpolates between Day 0 and Day 210
+    // to calculate the index at Day 30, preventing post-expiry inflation of YT claims.
+    let stamped = w.y().stamp_expiry_index();
+    let claimable = w.y().claimable_interest(&u);
+
+    // Compare with a prompt stamp benchmark:
+    let w_prompt = setup(30 * DAY, 0);
+    let (u_prompt, _) = w_prompt.user_with_py(10_000 * USDC);
+    w_prompt.advance(30 * DAY);
+    let prompt_stamped = w_prompt.y().stamp_expiry_index();
+    let prompt_claimable = w_prompt.y().claimable_interest(&u_prompt);
+
+    // The interpolated index at Day 30 must match the prompt Day 30 index within rounding tolerance
+    assert!(
+        (stamped - prompt_stamped).abs() <= 100,
+        "interpolated index ({stamped}) must closely match prompt stamp ({prompt_stamped})"
+    );
+    assert!(
+        (claimable - prompt_claimable).abs() <= 10,
+        "late claimable ({claimable}) must not exceed prompt claimable ({prompt_claimable})"
+    );
+
+    // Verify post-expiry yield is sweepable surplus to treasury
+    let sweepable = w.y().sweepable();
+    assert!(
+        sweepable > 0,
+        "post-expiry rate growth must be retained as sweepable treasury surplus, not paid to YT"
+    );
+}
+

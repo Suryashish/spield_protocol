@@ -73,6 +73,10 @@ impl Harness {
         governance::timelock(&env)
     }
 
+    pub fn effective_timelock(env: Env) -> u64 {
+        governance::effective_timelock(&env)
+    }
+
     pub fn set_timelock(env: Env, secs: u64) {
         governance::set_timelock(&env, &Self::admin(env.clone()), secs);
     }
@@ -258,4 +262,38 @@ fn changing_timelock_does_not_alter_existing_schedule_eta() {
         eta,
         "existing schedule's eta is immutable to later timelock changes"
     );
+}
+
+#[test]
+fn n04_shortening_timelock_does_not_accelerate_future_upgrade_until_prior_window_passes() {
+    let (env, c, _admin) = setup();
+    let initial = c.timelock();
+    assert_eq!(initial, governance::DEFAULT_TIMELOCK_SECS); // 24 hours
+
+    // Admin attempts to lower timelock to 1 hour and immediately schedule upgrade
+    c.set_timelock(&governance::MIN_TIMELOCK_SECS); // 1 hour
+    assert_eq!(c.timelock(), governance::MIN_TIMELOCK_SECS);
+    // Effective timelock remains 24 hours!
+    assert_eq!(c.effective_timelock(), initial);
+
+    let hash = BytesN::<32>::random(&env);
+    let now = env.ledger().timestamp();
+    let eta = c.schedule_upgrade(&hash);
+    assert_eq!(
+        eta,
+        now + initial,
+        "upgrade must be bound to the prior 24h delay, preventing 1h instant upgrade attack"
+    );
+
+    // Advancing 1 hour: effective timelock is still 24 hours
+    env.ledger().set_timestamp(now + governance::MIN_TIMELOCK_SECS + 1);
+    assert_eq!(c.effective_timelock(), initial);
+
+    // Advancing past 24 hours: prior window has passed, new schedules use 1 hour timelock
+    env.ledger().set_timestamp(now + initial + 1);
+    assert_eq!(c.effective_timelock(), governance::MIN_TIMELOCK_SECS);
+    let hash2 = BytesN::<32>::random(&env);
+    let now2 = env.ledger().timestamp();
+    let eta2 = c.schedule_upgrade(&hash2);
+    assert_eq!(eta2, now2 + governance::MIN_TIMELOCK_SECS);
 }

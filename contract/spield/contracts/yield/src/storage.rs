@@ -54,6 +54,8 @@ pub enum DataKey {
     YieldFeeBps,
     /// Per-holder interest state.
     Interest(Address),
+    /// Timestamp of the latest pre-expiry index_stored observation.
+    IndexStoredTimestamp,
 }
 
 pub fn bump_instance(env: &Env) {
@@ -120,6 +122,14 @@ pub fn index_stored(env: &Env) -> i128 {
 
 pub fn set_index_stored(env: &Env, i: i128) {
     env.storage().instance().set(&DataKey::IndexStored, &i);
+}
+
+pub fn get_index_stored_timestamp(env: &Env) -> Option<u64> {
+    env.storage().instance().get(&DataKey::IndexStoredTimestamp)
+}
+
+pub fn set_index_stored_timestamp(env: &Env, ts: u64) {
+    env.storage().instance().set(&DataKey::IndexStoredTimestamp, &ts);
 }
 
 pub fn init_index(env: &Env) -> i128 {

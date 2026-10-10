@@ -123,7 +123,7 @@ fn w2_a_pt_buyer_earns_the_discount_and_redeems_at_face_after_expiry() {
     w.assert_router_empty("buy_pt_with_usdc");
 
     // The market refuses to trade past expiry — the engine is the exit from there.
-    w.advance(90 * DAY + 1);
+    w.advance(90 * DAY);
     assert!(
         w.m().try_swap_exact_pt_for_sr(&buyer, &pt, &0i128, &NO_DEADLINE).is_err(),
         "the AMM must be closed after expiry"

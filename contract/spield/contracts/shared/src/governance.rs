@@ -124,6 +124,16 @@ enum GovKey {
     Upgrade,
     /// The current upgrade timelock delay, in seconds. Defaults to `DEFAULT_TIMELOCK_SECS`.
     Timelock,
+    /// Reduction floor: when timelock is shortened, the old delay remains effective until valid_until.
+    TimelockFloor,
+}
+
+/// Reduction floor to ensure exit notice cannot be bypassed by shortening the timelock (N-04).
+#[derive(Clone)]
+#[contracttype]
+pub struct TimelockFloor {
+    pub min_delay: u64,
+    pub valid_until: u64,
 }
 
 /// A pending, scheduled upgrade.
@@ -221,20 +231,52 @@ pub fn timelock(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_TIMELOCK_SECS)
 }
 
+/// The effective upgrade timelock delay in seconds. If the timelock was shortened, the previous delay
+/// remains the effective floor until its full window has elapsed, ensuring users always receive
+/// their expected exit notice (N-04).
+pub fn effective_timelock(env: &Env) -> u64 {
+    let base = timelock(env);
+    if let Some(floor) = env
+        .storage()
+        .instance()
+        .get::<_, TimelockFloor>(&GovKey::TimelockFloor)
+    {
+        let now = env.ledger().timestamp();
+        if now < floor.valid_until {
+            return base.max(floor.min_delay);
+        }
+    }
+    base
+}
+
 /// Set the upgrade timelock delay (seconds), bounded to `[MIN_TIMELOCK_SECS, MAX_TIMELOCK_SECS]`.
-/// Requires the current admin's auth. Takes effect immediately for *future* schedules; it does not
-/// change the `eta` of an already-scheduled upgrade.
+/// Requires the current admin's auth. Takes effect immediately for *future* schedules;
+/// if shortened, the reduction is subject to the previous delay window so users have notice to exit (N-04).
 pub fn set_timelock(env: &Env, current_admin: &Address, secs: u64) {
     current_admin.require_auth();
     if secs < MIN_TIMELOCK_SECS || secs > MAX_TIMELOCK_SECS {
         panic_with_error!(env, Error::TimelockOutOfBounds);
+    }
+    let current = effective_timelock(env);
+    let now = env.ledger().timestamp();
+    if secs < current {
+        let valid_until = now.saturating_add(current);
+        env.storage().instance().set(
+            &GovKey::TimelockFloor,
+            &TimelockFloor {
+                min_delay: current,
+                valid_until,
+            },
+        );
+    } else {
+        env.storage().instance().remove(&GovKey::TimelockFloor);
     }
     env.storage().instance().set(&GovKey::Timelock, &secs);
     bump(env);
     TimelockChanged { secs }.publish(env);
 }
 
-/// Schedule an upgrade to `wasm_hash`, applyable no earlier than `now + timelock`. Requires the
+/// Schedule an upgrade to `wasm_hash`, applyable no earlier than `now + effective_timelock`. Requires the
 /// current admin's auth. Overwrites any previously-scheduled-but-not-applied upgrade (re-scheduling
 /// resets the clock). Returns the computed `eta` so the host can emit it in an event.
 pub fn schedule_upgrade(env: &Env, current_admin: &Address, wasm_hash: BytesN<32>) -> u64 {
@@ -242,7 +284,7 @@ pub fn schedule_upgrade(env: &Env, current_admin: &Address, wasm_hash: BytesN<32
     let eta = env
         .ledger()
         .timestamp()
-        .checked_add(timelock(env))
+        .checked_add(effective_timelock(env))
         .unwrap_or_else(|| panic_with_error!(env, Error::MathOverflow));
     env.storage().instance().set(
         &GovKey::Upgrade,

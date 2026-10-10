@@ -463,6 +463,9 @@ impl BlendStrategy {
     /// against Blend's *real* position on every mutation.
     pub fn set_max_apr_bps(env: Env, max_apr_bps: u32) {
         Self::current_admin(&env).require_auth();
+        if max_apr_bps == 0 {
+            panic_with_error!(&env, Error::RateOutOfBounds);
+        }
         let mut bound = Self::bound(&env);
         bound.max_apr_bps = max_apr_bps;
         env.storage().instance().set(&DataKey::Bound, &bound);

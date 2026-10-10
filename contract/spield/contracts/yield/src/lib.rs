@@ -140,6 +140,7 @@ impl Yield {
         storage::set_expiry(&env, expiry);
         storage::set_yield_fee_bps(&env, yield_fee_bps);
         storage::set_index_stored(&env, index);
+        storage::set_index_stored_timestamp(&env, env.ledger().timestamp());
         storage::set_init_index(&env, index);
         storage::bump_instance(&env);
 
@@ -323,11 +324,12 @@ impl Yield {
             return i;
         }
         let live = Self::live_index_synced(&env);
-        storage::set_post_expiry_index(&env, live);
-        storage::set_index_stored(&env, live);
+        let expiry_index = Self::interpolated_expiry_index(&env, live);
+        storage::set_post_expiry_index(&env, expiry_index);
+        storage::set_index_stored(&env, expiry_index);
         storage::bump_instance(&env);
-        events::expiry_stamped(&env, live);
-        live
+        events::expiry_stamped(&env, expiry_index);
+        expiry_index
     }
 
     /// Sweep genuinely-unowed SR to the treasury.
@@ -420,16 +422,56 @@ impl Yield {
             }
             // First touch after expiry pins the ceiling on the way past.
             let live = Self::live_index_synced(env);
-            storage::set_post_expiry_index(env, live);
-            storage::set_index_stored(env, live);
-            events::expiry_stamped(env, live);
-            return live;
+            let expiry_index = Self::interpolated_expiry_index(env, live);
+            storage::set_post_expiry_index(env, expiry_index);
+            storage::set_index_stored(env, expiry_index);
+            events::expiry_stamped(env, expiry_index);
+            return expiry_index;
         }
         let live = Self::live_index_synced(env);
-        if live > storage::index_stored(env) {
+        let stored = storage::index_stored(env);
+        if live > stored {
             storage::set_index_stored(env, live);
         }
+        storage::set_index_stored_timestamp(env, env.ledger().timestamp());
         live
+    }
+
+    /// Interpolates the PY index at the exact series expiry timestamp (M-03).
+    ///
+    /// If stamped promptly (at expiry), returns `live`.
+    /// If stamped late (after expiry), linearly interpolates between the last pre-expiry
+    /// observation `(last_sync_time, stored_index)` and `(now, live_index)` to estimate
+    /// the index at `expiry`.
+    /// Post-expiry yield growth thereby stays as protocol surplus rather than being
+    /// erroneously credited to YT holders.
+    pub fn interpolated_expiry_index(env: &Env, live: i128) -> i128 {
+        let stored = storage::index_stored(env);
+        if live <= stored {
+            return stored;
+        }
+        let expiry = storage::get_expiry(env);
+        let now = env.ledger().timestamp();
+        let last_sync_time = match storage::get_index_stored_timestamp(env) {
+            Some(ts) => ts,
+            None => return live,
+        };
+        if now <= expiry || last_sync_time >= expiry || now <= last_sync_time {
+            return live;
+        }
+        let delta_idx = live - stored;
+        let dt_total = (now - last_sync_time) as i128;
+        let dt_to_expiry = (expiry - last_sync_time) as i128;
+        let growth_to_expiry =
+            math::mul_div_floor(env, delta_idx, dt_to_expiry, dt_total).unwrap_or(0);
+        let expiry_index = stored.saturating_add(growth_to_expiry);
+        if expiry_index < stored {
+            stored
+        } else if expiry_index > live {
+            live
+        } else {
+            expiry_index
+        }
     }
 
     /// Non-mutating twin of [`Self::index_current`], for views and quotes.
@@ -438,6 +480,8 @@ impl Yield {
             if let Some(i) = storage::post_expiry_index(env) {
                 return i;
             }
+            let live = Self::live_index_view(env);
+            return Self::interpolated_expiry_index(env, live);
         }
         Self::live_index_view(env)
     }

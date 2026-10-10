@@ -377,6 +377,20 @@ fn tiny_annual_cap_trips_then_set_max_apr_bps_unsticks() {
     assert!(strategy.position_value(&total) > 0, "downstream value reads unfrozen");
 }
 
+#[test]
+fn n04_set_max_apr_bps_zero_is_rejected() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let s = deploy_strategy(&b, &wrapper);
+
+    // Attempting to set max_apr_bps to 0 (which would freeze all withdrawals) is rejected
+    assert_eq!(
+        s.try_set_max_apr_bps(&0u32),
+        Err(Ok(spield_shared::Error::RateOutOfBounds.into())),
+        "setting max_apr_bps to 0 must be rejected to prevent instant withdrawal freeze attack"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The `b_rate` DECREASE valve: `reset_rate_floor` (tofix.md item 3)
 // ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@
               "function_name": "schedule_upgrade",
               "args": [
                 {
-                  "bytes": "4a57207b939badee8d0de15ac1a5b0e00d1efb9818f3758893265ac2c2c0f75d"
+                  "bytes": "7a3cf17cbf4dacf63c5eb1121e6e97c194aef02c66e48363140da697bbabb631"
                 }
               ]
             }
@@ -140,6 +140,35 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "TimelockFloor"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "min_delay"
+                            },
+                            "val": {
+                              "u64": "86400"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "valid_until"
+                            },
+                            "val": {
+                              "u64": "1700086400"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Upgrade"
                           }
                         ]
@@ -159,7 +188,7 @@
                               "symbol": "wasm_hash"
                             },
                             "val": {
-                              "bytes": "4a57207b939badee8d0de15ac1a5b0e00d1efb9818f3758893265ac2c2c0f75d"
+                              "bytes": "7a3cf17cbf4dacf63c5eb1121e6e97c194aef02c66e48363140da697bbabb631"
                             }
                           }
                         ]

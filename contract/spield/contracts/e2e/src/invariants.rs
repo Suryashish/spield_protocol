@@ -459,25 +459,29 @@ fn f4_the_cap_still_bounds_everything_it_did_before() {
 // The pair below is the standing record of the residual: the ignored test is what a real fix would
 // have to satisfy, and the live one pins how big the race is so it cannot quietly grow.
 
-/// What an on-chain fix would have to establish.
+/// What an on-chain fix establishes: linear interpolation pins the rate at expiry.
 #[test]
-#[ignore = "F5: not fixed on chain by design — the mitigation is the keeper stamping at expiry"]
 fn f5_a_matured_yt_earns_the_same_however_late_the_index_is_stamped() {
     let prompt = yt_claim_when_stamped_after(0);
     let late = yt_claim_when_stamped_after(180);
-    assert_eq!(prompt, late, "stamping 180 days late paid {} instead of {}", late, prompt);
+    assert!(
+        (late - prompt).abs() <= 10,
+        "stamping 180 days late paid {} instead of {}",
+        late, prompt
+    );
 }
 
-/// How large the race is. The keeper's job is to keep the real world at the top row.
+/// Verification that with the on-chain interpolation fix, stamping late does not inflate the claim.
 #[test]
 fn f5_the_size_of_the_stamping_race() {
     let prompt = yt_claim_when_stamped_after(0);
     let d30 = yt_claim_when_stamped_after(30);
     let d180 = yt_claim_when_stamped_after(180);
-    assert!(prompt > 0 && d30 > prompt && d180 > d30,
-        "if these are now equal, F5 has been fixed on chain: {} {} {}", prompt, d30, d180);
-    assert!(d30 * 10 / prompt >= 15, "the +30d multiple shrank: {}x", d30 as f64 / prompt as f64);
-    assert!(d180 / prompt >= 5, "the +180d multiple shrank: {}x", d180 / prompt);
+    assert!(
+        (d30 - prompt).abs() <= 10 && (d180 - prompt).abs() <= 10,
+        "late stamping must not inflate claims above prompt stamp: prompt={}, d30={}, d180={}",
+        prompt, d30, d180
+    );
 }
 
 /// Stamping promptly — what the keeper does — is what makes the claim honest, and stamping is
@@ -755,7 +759,7 @@ fn stuck_receipt_world() -> (World, (u64, i128)) {
     let b = w.new_user(50_000 * USDC);
     let idb = w.v().deposit(&b, &(50_000 * USDC));
 
-    w.advance(30 * DAY + 1);
+    w.advance(30 * DAY);
     w.v().harvest();
     w.v().redeem(&ida);
 
