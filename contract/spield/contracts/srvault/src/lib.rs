@@ -34,7 +34,7 @@ mod storage;
 mod test;
 
 use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, BytesN, Env, String};
-use spield_shared::{governance, math, Error};
+use spield_shared::{governance, math, Error, SCALAR_12};
 
 pub use storage::Receipt;
 
@@ -263,35 +263,46 @@ impl SrVault {
         // How much of the promise is still unfunded.
         let remaining = r.payout - r.collected;
         if remaining > 0 {
-            // **Size the burn to what the venue can actually pay.**
+            // **Size the burn to what the venue can actually pay (H-02 fix).**
             //
-            // The naive shape — burn the whole payout, then hope `Sr::redeem` covers it — is what
-            // `tofix.md` #20 is about: during a liquidity crunch it reverts, the holder gets
-            // nothing, and no progress is kept. Sizing first means the withdrawal we attempt is one
-            // the venue can satisfy, so a crunch costs the holder extra transactions rather than
-            // the whole exit.
-            //
-            // Redeeming to the VAULT (not the holder) and paying out separately is deliberate: it
-            // keeps the flooring remainder as vault inventory and pays exactly what was promised.
+            // Sizing in PT face rather than live rate avoids requesting more than
+            // the venue holds during crunches when rate exceeds expiry index.
             let sr = SrClient::new(&env, &sr_addr);
-            // `max_redeemable` returns `i128::MAX` on a healthy venue, and `preview_redeem`
-            // answers 0 for an amount it cannot convert — so `cap == 0` means "no constraint",
-            // not "nothing available". Treat it as unconstrained explicitly rather than relying
-            // on the comparison below happening to do the right thing.
-            let cap = sr.preview_redeem(&sr.max_redeemable());
-            let take = if cap > 0 && cap < remaining { cap } else { remaining };
+            let max_sh = sr.max_redeemable();
+            let take = if max_sh == i128::MAX {
+                remaining
+            } else {
+                let py_index = YieldClient::new(&env, &yield_addr).py_index();
+                let cap_face = math::mul_div_floor(&env, max_sh, py_index, SCALAR_12).unwrap_or(0);
+                if cap_face > 0 && cap_face < remaining { cap_face } else { remaining }
+            };
 
-            // Never burn more PT face than the vault holds. The buffer is only reserved on the
-            // final leg, where the flooring actually bites.
+            // Never burn more PT face than the vault holds.
             let inventory = Self::pt_inventory(&env);
-            // The rounding buffer is only reserved on the closing leg, where the flooring in
-            // `redeem_py` -> `Sr::redeem` actually bites; a partial leg banks whatever it gets.
             let final_leg = take >= remaining;
             let mut to_burn = if final_leg { take + REDEEM_DUST } else { take };
             if to_burn > inventory {
                 to_burn = inventory;
             }
+
             if to_burn <= 0 {
+                // N-02 fix: If vault inventory is exhausted due to venue shortfall
+                // and USDC was already collected, pay it out and close rather than locking funds!
+                if r.collected > 0 {
+                    let paid = r.collected;
+                    token::Client::new(&env, &underlying).transfer(&me, &r.owner, &paid);
+                    storage::set_total_collected(&env, storage::total_collected(&env) - r.collected);
+                    storage::set_total_residue(&env, storage::total_residue(&env) - r.residue);
+                    storage::set_total_liability(&env, storage::total_liability(&env) - r.payout);
+                    storage::set_open_receipts(&env, storage::open_receipts(&env).saturating_sub(1));
+                    r.collected = 0;
+                    r.residue = 0;
+                    r.open = false;
+                    storage::save_receipt(&env, receipt_id, &r);
+                    storage::bump_instance(&env);
+                    events::redeemed(&env, &r.owner, receipt_id, paid);
+                    return paid;
+                }
                 panic_with_error!(&env, Error::InsufficientCapacity);
             }
 
@@ -299,33 +310,43 @@ impl SrVault {
             let sr_out = YieldClient::new(&env, &yield_addr).redeem_py(&me, &me, &to_burn);
             let got = sr.redeem(&me, &me, &sr_out, &0i128);
             if got <= 0 {
-                // The venue paid nothing at all. Refuse rather than record phantom progress.
                 panic_with_error!(&env, Error::WithdrawShortfall);
             }
 
-            // Bank it. `collected` is capped at `payout` so a generous flooring can never let a
-            // receipt claim more than it is owed; any excess simply stays as vault inventory.
             let banked = if r.collected + got > r.payout { r.payout - r.collected } else { got };
             r.collected += banked;
             storage::set_total_collected(&env, storage::total_collected(&env) + banked);
 
-            if r.collected < r.payout {
-                // Partial. Keep the receipt open and retryable; the USDC stays reserved.
-                //
-                // **Record what the flooring cost** (`anyfix.md` F2). This leg burned `to_burn` PT
-                // face and banked `banked` USDC against the liability; the gap is real inventory
-                // that the two floors on the way out (`PT -> SR -> USDC`) consumed. Without this,
-                // `assert_solvent` reads that gap as a deficit — and since it recurs every leg, the
-                // third one on any receipt reverted with `SolvencyViolation` and the holder was
-                // stuck until the venue could pay the whole remainder at once.
-                //
-                // Recorded per receipt so it can be released again when the receipt closes: a
-                // permanent global figure would loosen the invariant for the life of the contract.
-                let leg_residue = to_burn - banked;
-                if leg_residue > 0 {
-                    r.residue += leg_residue;
-                    storage::set_total_residue(&env, storage::total_residue(&env) + leg_residue);
+            // H-03 fix: Bound per-receipt residue to PARTIAL_LEG_BUDGET. Shortfalls beyond
+            // this budget represent venue losses rather than flooring residue.
+            let leg_residue = to_burn - banked;
+            if leg_residue > 0 {
+                let budget_left = PARTIAL_LEG_BUDGET.saturating_sub(r.residue);
+                let allowable = leg_residue.min(budget_left);
+                if allowable > 0 {
+                    r.residue += allowable;
+                    storage::set_total_residue(&env, storage::total_residue(&env) + allowable);
                 }
+            }
+
+            if r.collected < r.payout {
+                // N-02 fix: If vault inventory is exhausted after this burn, settle and close with what was collected.
+                if Self::pt_inventory(&env) == 0 {
+                    let paid = r.collected;
+                    token::Client::new(&env, &underlying).transfer(&me, &r.owner, &paid);
+                    storage::set_total_collected(&env, storage::total_collected(&env) - r.collected);
+                    storage::set_total_residue(&env, storage::total_residue(&env) - r.residue);
+                    storage::set_total_liability(&env, storage::total_liability(&env) - r.payout);
+                    storage::set_open_receipts(&env, storage::open_receipts(&env).saturating_sub(1));
+                    r.collected = 0;
+                    r.residue = 0;
+                    r.open = false;
+                    storage::save_receipt(&env, receipt_id, &r);
+                    storage::bump_instance(&env);
+                    events::redeemed(&env, &r.owner, receipt_id, paid);
+                    return paid;
+                }
+
                 storage::save_receipt(&env, receipt_id, &r);
                 storage::bump_instance(&env);
                 events::redeemed_partial(&env, &r.owner, receipt_id, banked, r.payout - r.collected);
@@ -339,8 +360,6 @@ impl SrVault {
         let paid = r.payout;
 
         storage::set_total_collected(&env, storage::total_collected(&env) - r.collected);
-        // The receipt is settled, so its rounding slack goes with it — the invariant tightens back
-        // up rather than keeping the allowance forever.
         storage::set_total_residue(&env, storage::total_residue(&env) - r.residue);
         r.collected = 0;
         r.residue = 0;
@@ -353,6 +372,37 @@ impl SrVault {
         events::redeemed(&env, &r.owner, receipt_id, paid);
         Self::assert_solvent(&env);
         paid
+    }
+
+    /// Withdraw USDC already collected toward an open receipt by partial redemptions (N-02 fix).
+    /// Lets the receipt owner access their banked funds immediately without waiting for full funding.
+    pub fn withdraw_collected(env: Env, receipt_id: u64) -> i128 {
+        Self::ensure_initialized(&env);
+        let mut r = storage::get_receipt(&env, receipt_id)
+            .unwrap_or_else(|e| panic_with_error!(&env, e));
+        r.owner.require_auth();
+        if !r.open {
+            panic_with_error!(&env, Error::ReceiptClosed);
+        }
+        let available = r.collected;
+        if available <= 0 {
+            return 0;
+        }
+
+        let me = env.current_contract_address();
+        let underlying = storage::get_underlying(&env);
+        token::Client::new(&env, &underlying).transfer(&me, &r.owner, &available);
+
+        storage::set_total_collected(&env, storage::total_collected(&env) - available);
+        storage::set_total_liability(&env, storage::total_liability(&env) - available);
+        r.payout -= available;
+        r.collected = 0;
+        storage::save_receipt(&env, receipt_id, &r);
+        storage::bump_instance(&env);
+
+        events::redeemed_partial(&env, &r.owner, receipt_id, available, r.payout);
+        Self::assert_solvent(&env);
+        available
     }
 
     /// How much more USDC a receipt still needs before it can be paid. `0` = ready (or closed).
@@ -749,6 +799,7 @@ pub trait YieldContract {
     fn redeem_py(env: Env, from: Address, receiver: Address, py_amount: i128) -> i128;
     fn redeem_due_interest(env: Env, user: Address) -> (i128, i128);
     fn transfer(env: Env, from: Address, to: Address, amount: i128);
+    fn py_index(env: Env) -> i128;
 }
 
 /// SR's surface.

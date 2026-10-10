@@ -1450,3 +1450,51 @@ fn an_enormous_max_sr_in_still_only_costs_the_quote() {
         "LP value must not fall from an over-authorized buy"
     );
 }
+
+/// N-03 audit finding:
+/// 1) Dust deposit (1 stroop) cannot become the first LP because MINIMUM_LIQUIDITY (1000) is enforced.
+/// 2) Even if first LP clears MINIMUM_LIQUIDITY, attempting to donate an excess leg via min_shares > 0
+///    does NOT inflate reserves: only the proportional leg is pulled.
+/// 3) Subsequent depositors cannot have their deposits diluted or stolen.
+#[test]
+fn n03_first_lp_inflation_and_donation_attack_is_prevented() {
+    let w = std_setup(YEAR, 500);
+
+    // 1) Attacker tries to become first LP with 1 stroop of PT and 1 of SR:
+    let (attacker, _) = w.user_with_sr(10_000 * USDC);
+    let py = w.y().mint_py(&attacker, &attacker, &5000);
+    assert!(
+        w.m().try_add_liquidity(&attacker, &1i128, &1i128, &0i128).is_err(),
+        "dust add <= MINIMUM_LIQUIDITY must revert with InvalidAmount"
+    );
+
+    // Attacker clears MINIMUM_LIQUIDITY: deposits 1000 PT and 1000 SR
+    let ok = w.m().add_liquidity(&attacker, &1000i128, &1000i128, &0i128);
+    assert_eq!(ok, 1000, "attacker receives 1000 shares");
+    assert_eq!(w.m().total_shares(), 1000);
+
+    // 2) Attacker attempts inflation attack:
+    // Attacker calls add_liquidity with 500 PT and 1 SR, min_shares = 1, trying to donate 499 PT
+    let pt_before = w.pt().balance(&attacker);
+    let sr_before = w.sr().balance(&attacker);
+    let minted2 = w.m().add_liquidity(&attacker, &500i128, &1i128, &1i128);
+    assert_eq!(minted2, 1);
+    // Because only proportional amounts are pulled, the contract only pulled 1 PT (ceil(1 * 1001 / 1001)) and 1 SR!
+    let pt_spent = pt_before - w.pt().balance(&attacker);
+    let sr_spent = sr_before - w.sr().balance(&attacker);
+    assert_eq!(pt_spent, 1, "excess 499 PT was NOT pulled from attacker");
+    assert_eq!(sr_spent, 1, "1 SR was pulled");
+    let (res_pt, res_sr) = w.m().reserves();
+    assert_eq!((res_pt, res_sr), (1001, 1001), "reserves remained balanced 1:1");
+
+    // 3) Victim adds liquidity:
+    let (victim, vsr) = w.user_with_sr(10_000 * USDC);
+    let _ = w.y().mint_py(&victim, &victim, &(500 * USDC));
+    let v_shares = w.m().add_liquidity(&victim, &(400 * USDC), &(400 * USDC), &0i128);
+    assert!(v_shares > 0);
+    // Victim can exit immediately and receive their full deposit back without loss:
+    let (v_pt_out, v_sr_out) = w.m().remove_liquidity(&victim, &v_shares, &0i128, &0i128);
+    assert!(v_pt_out >= 399 * USDC);
+    assert!(v_sr_out >= 399 * USDC);
+    let _ = (py, vsr);
+}

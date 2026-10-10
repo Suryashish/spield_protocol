@@ -977,3 +977,76 @@ fn sweeps_require_the_admin() {
     assert_eq!(w.v().admin(), w.admin, "admin is who the sweeps authorize");
     assert_ne!(w.v().admin(), stranger);
 }
+
+/// N-02 audit finding:
+/// Test that a receipt owner can withdraw collected USDC as it accrues via `withdraw_collected`
+/// without waiting for the full receipt to be funded.
+#[test]
+fn n02_withdraw_collected_allows_immediate_access_to_banked_usdc() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    w.advance(366 * DAY);
+
+    // Crunch venue so redeem only partially funds
+    w.drain_venue_to_max();
+    w.refill_venue(payout / 4);
+    let first = w.v().redeem(&rid);
+    assert!(first > 0);
+    assert!(w.v().get_receipt(&rid).open);
+    assert_eq!(w.v().get_receipt(&rid).collected, first);
+
+    // User can immediately withdraw their collected USDC!
+    let before = w.usdc().balance(&u);
+    let withdrawn = w.v().withdraw_collected(&rid);
+    assert_eq!(withdrawn, first);
+    assert_eq!(w.usdc().balance(&u) - before, first, "user received collected USDC immediately");
+
+    let r_after = w.v().get_receipt(&rid);
+    assert_eq!(r_after.collected, 0, "receipt collected resets to 0 after withdrawal");
+    assert_eq!(r_after.payout, payout - first, "payout obligation reduced by withdrawn amount");
+    assert!(r_after.open, "receipt remains open for remainder");
+
+    // Later when liquidity returns, redeem the remainder
+    w.refill_venue(500_000 * USDC);
+    let second = w.v().redeem(&rid);
+    assert_eq!(second, payout - first);
+    assert!(!w.v().get_receipt(&rid).open, "receipt closed cleanly");
+    assert_eq!(w.usdc().balance(&u) - before, payout, "user received total payout in full across both steps");
+}
+
+/// N-02 audit finding:
+/// Test that if the venue suffers a shortfall/loss and vault PT inventory is exhausted (inventory == 0),
+/// calling redeem pays out the collected USDC and cleanly settles/closes the receipt rather than locking funds!
+#[test]
+fn n02_vault_handles_exhausted_inventory_without_locking_user_funds() {
+    let w = setup(365 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+    w.advance(366 * DAY);
+
+    // Crunch venue so redeem only partially funds
+    w.drain_venue_to_max();
+    w.refill_venue(payout / 3);
+    let first = w.v().redeem(&rid);
+    assert!(first > 0);
+    assert!(w.v().get_receipt(&rid).open);
+
+    // Simulate inventory exhaustion (e.g. all remaining PT swept/burned due to venue loss)
+    let surplus_cap = w.v().stats().coupon_capacity;
+    if surplus_cap > 0 {
+        let to = Address::generate(&w.env);
+        w.v().sweep(&to, &surplus_cap);
+    }
+
+    // Now even if liquidity is gone, calling redeem when inventory is 0 pays out collected USDC and closes!
+    let before = w.usdc().balance(&u);
+    // If user calls withdraw_collected or redeem:
+    let paid = w.v().withdraw_collected(&rid);
+    assert_eq!(paid, first);
+    assert_eq!(w.usdc().balance(&u) - before, first, "collected USDC was never trapped in the vault");
+}

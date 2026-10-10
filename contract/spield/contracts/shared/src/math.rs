@@ -27,6 +27,25 @@ pub fn mul_div_floor(env: &Env, a: i128, b: i128, denom: i128) -> Result<i128, E
     quot.to_i128().ok_or(Error::MathOverflow)
 }
 
+/// `ceil(a * b / denom)` computed with a widened (i256) intermediate so `a * b` cannot
+/// overflow i128. `denom` must be > 0.
+pub fn mul_div_ceil(env: &Env, a: i128, b: i128, denom: i128) -> Result<i128, Error> {
+    if denom <= 0 || a < 0 || b < 0 {
+        return Err(Error::InvalidAmount);
+    }
+    if a == 0 || b == 0 {
+        return Ok(0);
+    }
+    let quot = mul_div_floor(env, a, b, denom)?;
+    let prod = soroban_sdk::I256::from_i128(env, a).mul(&soroban_sdk::I256::from_i128(env, b));
+    let rem = prod.rem_euclid(&soroban_sdk::I256::from_i128(env, denom));
+    if rem > soroban_sdk::I256::from_i128(env, 0) {
+        quot.checked_add(1).ok_or(Error::MathOverflow)
+    } else {
+        Ok(quot)
+    }
+}
+
 /// Convert bToken *shares* to *underlying* using a 12-decimal `b_rate`:
 /// `underlying = shares * b_rate / SCALAR_12` (floored, like Blend).
 pub fn shares_to_underlying(env: &Env, shares: i128, b_rate: i128) -> Result<i128, Error> {
