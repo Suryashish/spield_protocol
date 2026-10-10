@@ -1050,3 +1050,84 @@ fn n02_vault_handles_exhausted_inventory_without_locking_user_funds() {
     assert_eq!(paid, first);
     assert_eq!(w.usdc().balance(&u) - before, first, "collected USDC was never trapped in the vault");
 }
+
+/// H-02 audit finding:
+/// Partial redemption 90 days after maturity stamp during a venue liquidity crunch.
+/// In the old code, live rate had grown > 1.01% past frozen index, causing cap_face calculation
+/// to demand more shares than the venue had, reverting the call.
+/// With H-02 fix, cap_face is sized in PT face using py_index so redeem never reverts!
+#[test]
+fn h02_crunched_redeem_does_not_revert_after_90_days_rate_growth() {
+    let w = setup(90 * DAY);
+    w.seed(400_000 * USDC);
+    let u = w.user(200_000 * USDC);
+    let rid = w.v().deposit(&u, &(200_000 * USDC));
+    let payout = w.v().get_receipt(&rid).payout;
+
+    // Reach maturity and advance another 90 days so Blend rate grows significantly
+    w.advance(91 * DAY);
+    let _ = w.y().expiry_index();
+    w.advance(90 * DAY);
+
+    // Crunch venue so it has only limited liquidity
+    w.drain_venue_to_max();
+    let free = w.free_liquidity();
+    assert!(free < payout, "liquidity must bind");
+
+    // In old code, this call reverted. With H-02 fix, it successfully collects what venue can pay!
+    let first = w.v().redeem(&rid);
+    assert!(first > 0, "partial leg must succeed without reverting");
+    let r = w.v().get_receipt(&rid);
+    assert!(r.open);
+    assert_eq!(r.collected, first);
+
+    // Once liquidity returns, finish cleanly
+    w.refill_venue(500_000 * USDC);
+    let before = w.usdc().balance(&u);
+    let second = w.v().redeem(&rid);
+    assert_eq!(second, payout, "closing call returns total payout");
+    assert_eq!(w.usdc().balance(&u) - before, payout, "user received payout in full");
+    assert!(!w.v().get_receipt(&rid).open, "receipt closed cleanly");
+}
+
+/// H-03 audit finding:
+/// Per-receipt residue reserve can be exceeded by repeated partial redemptions.
+/// With H-03 fix, residue is bounded to PARTIAL_LEG_BUDGET (64 stroops) per receipt so repeated
+/// dust legs do not exhaust capacity or cause solvency violations.
+#[test]
+fn h03_repeated_dust_legs_do_not_exhaust_capacity_or_solvency() {
+    let w = setup(90 * DAY);
+    w.seed(100_000 * USDC);
+    let u = w.user(50_000 * USDC);
+    let rid = w.v().deposit(&u, &(50_000 * USDC));
+    let _payout = w.v().get_receipt(&rid).payout;
+    w.advance(91 * DAY);
+
+    // Crunch venue and refill only small amounts per leg
+    w.drain_venue_to_max();
+    for _ in 0..70 {
+        if !w.v().get_receipt(&rid).open {
+            break;
+        }
+        w.refill_venue(100 * USDC);
+        let got = w.v().redeem(&rid);
+        if got == 0 {
+            break;
+        }
+    }
+
+    let r = w.v().get_receipt(&rid);
+    assert!(r.residue <= 64, "residue must never exceed PARTIAL_LEG_BUDGET (64 stroops)");
+    assert_eq!(w.v().total_residue(), r.residue);
+
+    // When venue liquidity is restored, user completes redemption in full
+    w.refill_venue(500_000 * USDC);
+    if w.v().get_receipt(&rid).open {
+        w.v().redeem(&rid);
+    }
+    let r_final = w.v().get_receipt(&rid);
+    assert!(!r_final.open, "receipt closed cleanly");
+    assert_eq!(r_final.residue, 0);
+    assert_eq!(w.v().total_residue(), 0);
+}
+

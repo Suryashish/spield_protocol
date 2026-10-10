@@ -33,11 +33,15 @@ pub const POST_MATURITY_GRACE_SECS: u64 = 30 * 24 * 60 * 60;
 /// already covers this, but we also never bump by *less* than ~30 days of ledgers.
 pub const MIN_BUMP_LEDGERS: u32 = (30 * 24 * 60 * 60 / SECS_PER_LEDGER) as u32;
 
+/// Number of ledgers in roughly one day (~5s close time). Entries are refreshed whenever their
+/// remaining lifetime is more than a day short of `extend_to`.
+pub const BUMP_THRESHOLD_BUFFER_LEDGERS: u32 = 17_280;
+
 /// Compute the `(threshold, extend_to)` pair for `extend_ttl` so that a per-position/receipt entry
 /// lives until at least `maturity + grace`, clamped to the network's max allowed TTL.
 ///
-/// * `threshold` — we always re-extend (return `0`) so every touch refreshes the lifetime; cheap and
-///   keeps the logic simple (the host no-ops if the entry is already past the target anyway).
+/// * `threshold` — Soroban only acts when remaining TTL <= threshold. We refresh whenever the entry
+///   is more than ~1 day short of `extend_to` (H-01 fix).
 /// * `extend_to` — ledgers from *now* to keep the entry live. Computed as
 ///   `(maturity + grace - now)/SECS_PER_LEDGER`, floored at `MIN_BUMP_LEDGERS`, and capped so the
 ///   resulting live-until ledger never exceeds `env.ledger().max_live_until_ledger()`.
@@ -65,6 +69,14 @@ pub fn maturity_aware_bump(env: &Env, maturity: u64) -> (u32, u32) {
         extend_to = max_extend;
     }
 
-    // Re-extend on every call: threshold 0 means "always bump to extend_to".
-    (0, extend_to)
+    // H-01 fix: Soroban's extend_ttl only extends when remaining lifetime <= threshold.
+    // Setting threshold = 0 meant live entries were never extended.
+    // Setting threshold = extend_to.saturating_sub(17_280) refreshes an entry whenever it is
+    // more than ~1 day short of extend_to.
+    let threshold = if extend_to > BUMP_THRESHOLD_BUFFER_LEDGERS {
+        extend_to - BUMP_THRESHOLD_BUFFER_LEDGERS
+    } else {
+        extend_to
+    };
+    (threshold, extend_to)
 }

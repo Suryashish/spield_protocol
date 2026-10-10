@@ -131,7 +131,13 @@ pub fn set_allowance(
         },
     );
     if amount > 0 {
-        let live_for = expiration_ledger.saturating_sub(env.ledger().sequence());
+        let max_extend = env
+            .ledger()
+            .max_live_until_ledger()
+            .saturating_sub(env.ledger().sequence());
+        let live_for = expiration_ledger
+            .saturating_sub(env.ledger().sequence())
+            .min(max_extend);
         env.storage().temporary().extend_ttl(&key, live_for, live_for);
     }
 }

@@ -175,7 +175,11 @@ fn ttl_bump_targets_maturity_plus_grace() {
     set_ledger(&env, now, 100, 50_000_000);
 
     let (threshold, extend_to) = ttl::maturity_aware_bump(&env, maturity);
-    assert_eq!(threshold, 0, "always re-extends");
+    assert_eq!(
+        threshold,
+        extend_to - ttl::BUMP_THRESHOLD_BUFFER_LEDGERS,
+        "threshold is ~1 day short of extend_to (H-01 fix)"
+    );
     // Expected: (maturity + grace - now) / 5 ledgers (network cap is not binding here).
     let expected =
         ((maturity + ttl::POST_MATURITY_GRACE_SECS - now) / ttl::SECS_PER_LEDGER) as u32;

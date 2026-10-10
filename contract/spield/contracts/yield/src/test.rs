@@ -1465,3 +1465,61 @@ fn redirecting_yield_pays_exactly_what_a_self_claim_would() {
     assert_eq!(w.sr().balance(&sink), net_b, "the redirected SR landed at the receiver");
     assert_eq!(w.sr().balance(&b), 0, "and not at the holder");
 }
+
+/// H-01 audit finding:
+/// In the old code, `maturity_aware_bump` returned `(threshold = 0, extend_to)`.
+/// Because Soroban's `extend_ttl` only acts when remaining TTL <= threshold, and a live entry
+/// always has remaining TTL > 0, live entries were NEVER extended by `bump_holder` or by writes!
+/// With the H-01 fix (`threshold = extend_to.saturating_sub(17_280)`), `bump_holder` actively
+/// refreshes the TTL of the user's balance and interest records past maturity + grace.
+#[test]
+fn h01_bump_holder_actually_extends_live_entry_ttl() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+    let w = setup(90 * DAY, 500);
+    let (u, sr) = w.user_with_sr(10_000 * USDC);
+    w.y().mint_py(&u, &u, &sr);
+
+    let balance_key = spield_shared::token::TokenKey::Balance(u.clone());
+    let interest_key = crate::storage::DataKey::Interest(u.clone());
+
+    let initial_balance_ttl = w.env.as_contract(&w.yield_c, || {
+        w.env.storage().persistent().get_ttl(&balance_key)
+    });
+    let initial_interest_ttl = w.env.as_contract(&w.yield_c, || {
+        w.env.storage().persistent().get_ttl(&interest_key)
+    });
+
+    // Advance ledger sequence by 20,000 ledgers (> 1-day buffer of 17,280 ledgers)
+    w.env.ledger().with_mut(|li| {
+        li.sequence_number += 20_000;
+    });
+
+    let mid_balance_ttl = w.env.as_contract(&w.yield_c, || {
+        w.env.storage().persistent().get_ttl(&balance_key)
+    });
+    let mid_interest_ttl = w.env.as_contract(&w.yield_c, || {
+        w.env.storage().persistent().get_ttl(&interest_key)
+    });
+    assert_eq!(mid_balance_ttl, initial_balance_ttl - 20_000);
+    assert_eq!(mid_interest_ttl, initial_interest_ttl - 20_000);
+
+    // Call bump_holder! With H-01 fix, this refreshes the TTL back to the target!
+    w.y().bump_holder(&u);
+
+    let bumped_balance_ttl = w.env.as_contract(&w.yield_c, || {
+        w.env.storage().persistent().get_ttl(&balance_key)
+    });
+    let bumped_interest_ttl = w.env.as_contract(&w.yield_c, || {
+        w.env.storage().persistent().get_ttl(&interest_key)
+    });
+
+    assert!(
+        bumped_balance_ttl > mid_balance_ttl,
+        "bump_holder must extend the balance TTL: {bumped_balance_ttl} vs {mid_balance_ttl}"
+    );
+    assert!(
+        bumped_interest_ttl > mid_interest_ttl,
+        "bump_holder must extend the interest TTL: {bumped_interest_ttl} vs {mid_interest_ttl}"
+    );
+}
+
