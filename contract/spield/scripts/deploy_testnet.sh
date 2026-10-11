@@ -662,7 +662,7 @@ stellar contract invoke --id $WRAPPER --source-account <MULTISIG_SIGNER> --netwo
 #    (Repeat for strategy, vault, market. Before launch, ALL FOUR admins
 #     should be a multisig, not a single hot key.)
 
-# 2) Upgrade path is timelocked (default 24h; bounded 1h..30d). Schedule, wait, apply:
+# 2) Upgrade path is timelocked (default and minimum 24h; bounded 24h..30d). Schedule, wait, apply:
 HASH=\$(stellar contract install --source-account $SOURCE --network $NETWORK --wasm <new.wasm>)
 stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
   -- schedule_upgrade --wasm_hash \$HASH      # returns the eta (now + timelock)
@@ -672,7 +672,7 @@ stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWOR
 #    Abort a pending upgrade any time before apply:
 stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
   -- cancel_upgrade
-#    Tune the exit window (seconds, 3600..2592000):
+#    Tune the exit window (seconds, 86400..2592000):
 stellar contract invoke --id $WRAPPER --source-account $SOURCE --network $NETWORK \\
   -- set_timelock --secs 259200
 

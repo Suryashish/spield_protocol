@@ -700,8 +700,7 @@ fn lps_can_always_exit_proportionally() {
 
     let (pt_out, sr_out) = w.m().remove_liquidity(&lp, &shares, &0i128, &0i128);
     assert!(pt_out > 0 && sr_out > 0);
-    assert_eq!(w.m().total_shares(), 0);
-    assert_eq!(w.m().reserves(), (0, 0));
+    assert_eq!(w.m().total_shares(), 1000, "MINIMUM_LIQUIDITY shares remain locked");
 }
 
 #[test]
@@ -1131,6 +1130,47 @@ fn a_dust_first_lp_cannot_dilute_a_real_one() {
     let _ = (py, py2);
 }
 
+#[test]
+fn n03_first_lp_minimum_liquidity_and_proportional_pull() {
+    let w = std_setup(YEAR, 500);
+    let (att, sr) = w.user_with_sr(10_000 * USDC);
+    let _py = w.y().mint_py(&att, &att, &(sr / 2));
+
+    // First LP with dust (<= 1000 shares) must fail
+    assert!(w.m().try_add_liquidity(&att, &100, &100, &0i128).is_err());
+
+    // First LP with valid initial deposit. The test uses face amounts that the freshly minted PT
+    // balance can actually cover (the first half of SR was stripped into PT above).
+    let att_shares = w.m().add_liquidity(&att, &4_000, &4_000, &0i128);
+    assert_eq!(att_shares, 4_000 - 1_000); // 1000 locked as MINIMUM_LIQUIDITY
+    assert_eq!(w.m().total_shares(), 4_000);
+
+    // Follow-on LP with unbalanced deposit and min_shares > 0
+    let (lp, sr2) = w.user_with_sr(10_000 * USDC);
+    let _py2 = w.y().mint_py(&lp, &lp, &(sr2 / 2));
+    let pt_bal_before = w.pt().balance(&lp);
+    let sr_bal_before = w.sr().balance(&lp);
+
+    // Attempting an unbalanced deposit: 5,000 PT, 1,000 SR, min_shares = 1. The SR side is
+    // limiting, so only 1,000 PT and 1,000 SR may be pulled; the extra PT must not be donated.
+    let lp_shares = w.m().add_liquidity(&lp, &5_000, &1_000, &1);
+    assert_eq!(lp_shares, 1_000);
+
+    let pt_spent = pt_bal_before - w.pt().balance(&lp);
+    let sr_spent = sr_bal_before - w.sr().balance(&lp);
+    assert_eq!(pt_spent, 1_000, "only proportional PT should be pulled");
+    assert_eq!(sr_spent, 1_000, "only proportional SR should be pulled");
+
+    // Exercise the opposite limiting leg as well. The implementation must not rely on the SR
+    // side being the smaller input: excess SR must remain with the caller just as excess PT did.
+    let pt_bal_before = w.pt().balance(&lp);
+    let sr_bal_before = w.sr().balance(&lp);
+    let inverse_shares = w.m().add_liquidity(&lp, &1_000, &5_000, &1);
+    assert_eq!(inverse_shares, 1_000);
+    assert_eq!(pt_bal_before - w.pt().balance(&lp), 1_000);
+    assert_eq!(sr_bal_before - w.sr().balance(&lp), 1_000);
+}
+
 /// An LP must never be able to withdraw more value than they put in, absent fees.
 #[test]
 fn an_lp_round_trip_returns_no_more_than_it_deposited() {
@@ -1140,8 +1180,8 @@ fn an_lp_round_trip_returns_no_more_than_it_deposited() {
     let (pt_out, sr_out) = w.m().remove_liquidity(&lp, &shares, &0i128, &0i128);
     assert!(pt_out <= pt_in && sr_out <= sr_in, "cannot withdraw more than the reserves");
     assert!(
-        pt_in - pt_out <= 2 && sr_in - sr_out <= 2,
-        "the only LP should get essentially everything back"
+        pt_in - pt_out <= 1002 && sr_in - sr_out <= 1002,
+        "the only LP should get essentially everything back except MINIMUM_LIQUIDITY dust"
     );
 }
 
@@ -1313,7 +1353,7 @@ fn an_lp_can_wind_down_completely_after_expiry() {
     let usdc = w.sr().redeem(&lp, &lp, &total_sr, &0i128);
     assert!(usdc > 0);
     std::println!("LP wound down completely: {:.2} USDC out", usdc as f64 / USDC as f64);
-    assert_eq!(w.m().total_shares(), 0);
+    assert_eq!(w.m().total_shares(), 1000, "MINIMUM_LIQUIDITY permanently locked");
 }
 
 /// The fee split must never round in a way that pays the treasury more than the fee itself.

@@ -32,30 +32,23 @@
 //! * `mint_py` is **refused** at/after expiry.
 //! * `redeem_py` **before** expiry burns PT **and** YT; **after** expiry it burns **PT only** —
 //!   YT is not required, because a matured YT has no principal claim.
-//! * The index freezes at the first post-expiry observation — see the caveat below; it is not the
-//!   same thing as freezing at expiry.
+//! * The first post-expiry observation reconstructs the expiry index by interpolation from the
+//!   last pre-expiry observation; it is no longer stamped at the time of the late call.
 //! * Interest accrued **before** expiry stays claimable forever.
 //! * Post-expiry residue that is provably owed to nobody is sweepable to the treasury — but see
 //!   [`Yield::sweep_surplus`]: in a share-based design that residue is *small*, and the surplus
 //!   above PT cover is **not** free money. Getting this wrong was a real bug caught in testing.
 //!
-//! ## The expiry freeze is at the first OBSERVATION, not at expiry (`anyfix.md` F5)
+//! ## The expiry freeze is reconstructed at expiry (`anyfix.md` F5)
 //!
-//! Worth stating plainly, because the natural reading of the rule above is wrong. A matured YT does
-//! not stop earning at expiry — it stops earning when somebody first calls
-//! [`Yield::stamp_expiry_index`], and until then the post-expiry appreciation of the **whole** SR
-//! backing, PT's share included, is credited to YT holders. Measured on a 30-day series holding
-//! 10,000 USDC of face: **21.37 USDC** if stamped at expiry, **42.65** thirty days later,
-//! **147.69** after a hundred and eighty.
+//! A matured YT stops earning at the exact expiry timestamp. The contract records the last observed
+//! index and timestamp before expiry, then linearly interpolates between that observation and the
+//! first live post-expiry rate. The unavoidable uncertainty is limited to the interpolation model,
+//! rather than assigning the whole keeper delay to YT holders.
 //!
-//! It cannot be fixed here. Freezing at the expiry *timestamp* would need the rate as it was at that
-//! moment, and Blend exposes only the current rate with no historical lookup — so the first
-//! observation genuinely is the tightest ceiling this contract can construct.
-//!
-//! The mitigation is operational, and it is why [`Yield::stamp_expiry_index`] is permissionless:
-//! `scripts/ttl_keeper.mjs` stamps daily, as soon as a series expires, and
-//! `scripts/sr_solvency_monitor.mjs` (check 7) pages if a matured series is still unstamped. That
-//! bounds the race to a day rather than leaving it open.
+//! Blend exposes no historical rate, so this is intentionally a linear estimate. The permissionless
+//! stamp remains useful for finalizing the state promptly, but a late keeper no longer transfers the
+//! entire post-expiry interval to YT holders.
 //!
 //! **PT holders are never short-changed by this** — PT redeems at face regardless. What moves is the
 //! split between YT holders and the treasury's sweepable surplus.
@@ -140,6 +133,7 @@ impl Yield {
         storage::set_expiry(&env, expiry);
         storage::set_yield_fee_bps(&env, yield_fee_bps);
         storage::set_index_stored(&env, index);
+        storage::set_index_stored_at(&env, env.ledger().timestamp());
         storage::set_init_index(&env, index);
         storage::bump_instance(&env);
 
@@ -323,11 +317,13 @@ impl Yield {
             return i;
         }
         let live = Self::live_index_synced(&env);
-        storage::set_post_expiry_index(&env, live);
-        storage::set_index_stored(&env, live);
+        let frozen = Self::interpolated_expiry_index(&env, live);
+        storage::set_post_expiry_index(&env, frozen);
+        storage::set_index_stored(&env, frozen);
+        storage::set_index_stored_at(&env, env.ledger().timestamp());
         storage::bump_instance(&env);
-        events::expiry_stamped(&env, live);
-        live
+        events::expiry_stamped(&env, frozen);
+        frozen
     }
 
     /// Sweep genuinely-unowed SR to the treasury.
@@ -418,16 +414,28 @@ impl Yield {
             if let Some(i) = storage::post_expiry_index(env) {
                 return i;
             }
-            // First touch after expiry pins the ceiling on the way past.
+            // First touch after expiry reconstructs the index at the maturity timestamp, rather than
+            // crediting the entire keeper delay to YT holders.
             let live = Self::live_index_synced(env);
-            storage::set_post_expiry_index(env, live);
-            storage::set_index_stored(env, live);
-            events::expiry_stamped(env, live);
-            return live;
+            let frozen = Self::interpolated_expiry_index(env, live);
+            storage::set_post_expiry_index(env, frozen);
+            storage::set_index_stored(env, frozen);
+            storage::set_index_stored_at(env, env.ledger().timestamp());
+            events::expiry_stamped(env, frozen);
+            return frozen;
         }
         let live = Self::live_index_synced(env);
         if live > storage::index_stored(env) {
             storage::set_index_stored(env, live);
+            storage::set_index_stored_at(env, env.ledger().timestamp());
+        } else if live == storage::index_stored(env) {
+            // Seeing the same rate at a later timestamp is still a useful observation for the
+            // interpolation endpoint. This also initializes the new key on an incremental upgrade.
+            storage::set_index_stored_at(env, env.ledger().timestamp());
+        } else if storage::index_stored_at(env) == 0 {
+            // Old live instances have no timestamp key. Preserve their existing index and use the
+            // first post-upgrade observation as the conservative fallback.
+            storage::set_index_stored_at(env, env.ledger().timestamp());
         }
         live
     }
@@ -438,6 +446,9 @@ impl Yield {
             if let Some(i) = storage::post_expiry_index(env) {
                 return i;
             }
+            // Keep pure quotes aligned with the value-moving path even before a keeper finalizes
+            // the write-once stamp.
+            return Self::interpolated_expiry_index(env, Self::live_index_view(env));
         }
         Self::live_index_view(env)
     }
@@ -479,6 +490,27 @@ impl Yield {
         let live = SrClient::new(env, &storage::get_sr(env)).exchange_rate();
         let stored = storage::index_stored(env);
         if live > stored { live } else { stored }
+    }
+
+    /// Estimate the index exactly at maturity from the latest pre-expiry observation and the first
+    /// live post-expiry observation. A missing timestamp only occurs on an instance upgraded after
+    /// it was initialized; in that case retaining the old first-observation behaviour is the only
+    /// value available without historical Blend state.
+    fn interpolated_expiry_index(env: &Env, live: i128) -> i128 {
+        let observed = storage::index_stored(env);
+        let observed_at = storage::index_stored_at(env);
+        let now = env.ledger().timestamp();
+        let maturity = storage::get_expiry(env);
+        if observed_at == 0 || now <= observed_at || maturity <= observed_at || live <= observed {
+            return observed.max(1).min(live.max(1));
+        }
+        let elapsed = now - observed_at;
+        let to_maturity = maturity - observed_at;
+        let delta = live - observed;
+        let growth = math::mul_div_floor(env, delta, to_maturity as i128, elapsed as i128)
+            .unwrap_or(0)
+            .min(delta);
+        observed + growth
     }
 
     // ================= YT as SEP-41 =================

@@ -175,7 +175,11 @@ fn ttl_bump_targets_maturity_plus_grace() {
     set_ledger(&env, now, 100, 50_000_000);
 
     let (threshold, extend_to) = ttl::maturity_aware_bump(&env, maturity);
-    assert_eq!(threshold, 0, "always re-extends");
+    assert_eq!(
+        threshold,
+        extend_to.saturating_sub(17_280),
+        "threshold must actively refresh live entries before archival"
+    );
     // Expected: (maturity + grace - now) / 5 ledgers (network cap is not binding here).
     let expected =
         ((maturity + ttl::POST_MATURITY_GRACE_SECS - now) / ttl::SECS_PER_LEDGER) as u32;

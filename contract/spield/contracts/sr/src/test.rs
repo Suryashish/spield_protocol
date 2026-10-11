@@ -454,6 +454,27 @@ fn the_high_water_clamp_holds_the_rate_when_the_strategy_reports_a_dip() {
     std::println!("unguarded dip: strategy said {}, SR held {after}", SCALAR_12 / 2);
 }
 
+/// The vault-facing path rejects new fixed-rate exposure atomically, while ordinary SR deposits
+/// retain their documented ability to enter at the current realizable value.
+#[test]
+fn checked_deposit_rejects_a_realizable_loss_without_blocking_ordinary_sr() {
+    let w = setup(false);
+    let u = w.user(2_000 * USDC);
+    let existing = w.sr().deposit(&u, &u, &(1_000 * USDC), &0i128);
+
+    w.st().set_rate(&(SCALAR_12 / 2));
+    assert!(
+        w.sr().try_deposit_checked(&u, &u, &(1 * USDC), &0i128).is_err(),
+        "fixed-rate callers must not add exposure after a venue loss"
+    );
+    assert_eq!(w.sr().balance(&u), existing, "the rejected checked deposit changes nothing");
+
+    assert!(
+        w.sr().try_deposit(&u, &u, &(1 * USDC), &0i128).is_ok(),
+        "ordinary SR deposits retain their separate loss policy"
+    );
+}
+
 /// The clamp is one-directional: a genuine rise still passes straight through.
 #[test]
 fn the_clamp_never_holds_back_a_genuine_rise() {

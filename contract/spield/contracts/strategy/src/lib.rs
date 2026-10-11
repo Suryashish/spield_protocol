@@ -223,11 +223,20 @@ impl BlendStrategy {
         // since `last_ts`, so a long-untouched position never false-trips (the soft-brick fix).
         let now = env.ledger().timestamp();
         let elapsed = now.saturating_sub(bound.last_ts);
-        math::check_rate_bound_timed(&env, bound.last_rate, rate, elapsed, bound.max_apr_bps)
-            .unwrap_or_else(|e| panic_with_error!(&env, e));
+        if rate <= 0 {
+            panic_with_error!(&env, Error::RateOutOfBounds);
+        }
+        // A falling Blend rate is a venue loss, not a reason to brick every exit. The old lower
+        // monotonicity check forced all deposits and redemptions to wait for an admin to call
+        // reset_rate_floor. Accept the observed lower rate, ratchet the observation down, and let
+        // the SR/YT/vault layers account for the resulting pro-rata haircut.
+        if rate >= bound.last_rate {
+            math::check_rate_bound_timed(&env, bound.last_rate, rate, elapsed, bound.max_apr_bps)
+                .unwrap_or_else(|e| panic_with_error!(&env, e));
+        }
 
-        // Advance the observation point. `last_rate` rises only when the rate actually rose;
-        // `last_ts` always moves to now so the next read's elapsed window is measured from here.
+        // Advance the observation point. A lower rate is deliberately recorded as a realized loss;
+        // the next upper-bound window starts from the new venue value.
         //
         // The write is **UNCONDITIONAL**, and that is load-bearing rather than wasteful.
         //
@@ -243,9 +252,7 @@ impl BlendStrategy {
         // Writing the same value back is cheap (the entry is already in the read set) and makes the
         // footprint a function of the call graph alone, which is what simulation can actually
         // predict.
-        if rate > bound.last_rate {
-            bound.last_rate = rate;
-        }
+        bound.last_rate = rate;
         bound.last_ts = now;
         env.storage().instance().set(&DataKey::Bound, &bound);
         Self::bump_instance(&env);
@@ -352,14 +359,13 @@ impl BlendStrategy {
     /// **Loss accounting.** What the whole Blend position is really worth right now — live
     /// `b_rate`, **no** monotonicity guard, **no** write.
     ///
-    /// [`Self::current_rate`] refuses a fallen rate, which freezes every deposit, sync and
-    /// redemption until [`Self::reset_rate_floor`]. That is the right safety behaviour and the
-    /// wrong behaviour for a question a user is entitled to an answer to during the freeze:
+    /// [`Self::current_rate`] now records a fallen rate as a realized loss instead of freezing
+    /// every deposit, sync and redemption until an admin reset. This is the number
+    /// a user is entitled to see after a venue incident:
     /// *how much money actually exists?* This reads the venue and reports it, unguarded.
     ///
-    /// It is therefore the **only** rate path here that can report a number LOWER than the stored
-    /// high-water mark. Never route a deposit or a redemption through it — the guard exists for a
-    /// reason. `Sr::realizable_rate` composes it into the per-share figure a UI should quote.
+    /// It is the rate path that can report a number LOWER than the stored SR high-water mark.
+    /// `Sr::realizable_rate` composes it into the per-share figure a UI should quote.
     pub fn position_value_unguarded(env: Env) -> i128 {
         let pool = Self::pool_addr(&env);
         let underlying = Self::underlying(env.clone());
@@ -463,46 +469,36 @@ impl BlendStrategy {
     /// against Blend's *real* position on every mutation.
     pub fn set_max_apr_bps(env: Env, max_apr_bps: u32) {
         Self::current_admin(&env).require_auth();
+        if max_apr_bps == 0 {
+            // Zero used to be accepted as a valid bound and made the next rate movement freeze
+            // every SR exit. Keep the safety guard enabled and reject the trapdoor configuration.
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
         let mut bound = Self::bound(&env);
         bound.max_apr_bps = max_apr_bps;
         env.storage().instance().set(&DataKey::Bound, &bound);
         Self::bump_instance(&env);
     }
 
-    /// **The recovery valve for a `b_rate` DECREASE.** Lowers the stored `last_rate` high-water
-    /// mark to the pool's live `b_rate`, re-stamping `last_ts` to now. Admin only. Returns the
-    /// floor in effect after the call.
+    /// **Compatibility recovery valve for a `b_rate` DECREASE.** Lowers the stored observation to
+    /// the pool's live `b_rate`, re-stamping `last_ts` to now. New code accepts the decrease
+    /// automatically in `current_rate`; this remains for old deployments and explicit operations.
     ///
-    /// `check_rate_bound_timed` rejects `current < last` outright, because Blend documents `b_rate`
-    /// as monotonic non-decreasing. If Blend ever socialises bad debt and the rate dips by even one
-    /// stroop, that guard sits under `current_rate`, which sits under **every** wrapper entry point
-    /// — mint, `claim_yield`, `redeem_pt` (even at maturity), `combine_and_redeem`,
-    /// `position_value` and `solvency` all revert `RateOutOfBounds`. Only `transfer_position`
-    /// survives (it never reads the rate), so a position could be moved but never exited, and the
-    /// freeze lasts until Blend's rate climbs back above the high-water mark — with no admin
-    /// action, timelock, or upgrade able to shorten it.
-    ///
-    /// [`Self::set_max_apr_bps`] is **not** a substitute: it widens the *upper* ceiling, and this
-    /// failure is the *lower* monotonicity guard. Widening it to `u32::MAX` leaves the freeze
-    /// exactly where it was.
+    /// Older code rejected `current < last` in `current_rate`, which froze every caller until this
+    /// method was called. The upgraded path records the lower observation directly, so this method
+    /// remains for old deployments and explicit operator recovery.
     ///
     /// ## Why this cannot mint value
-    /// Resetting the floor only lets reads resolve again; it changes no balance and no share count.
-    /// The wrapper still asserts `backing >= principal` against Blend's **real** position after
-    /// every mutation, so if the dip is deep enough that the backing genuinely no longer covers
-    /// outstanding principal, mutations still refuse — with `SolvencyViolation` instead of
-    /// `RateOutOfBounds`. That is the honest limit of this valve: it restores exits for the class
-    /// of dips the position can still absorb, and correctly declines to paper over the ones it
-    /// cannot. Read paths (`position_value`, `solvency`) come back in **both** cases, which is what
-    /// the dashboard and the off-chain monitor need during an incident.
+    /// Resetting the observation changes no balance and no share count. The wrapper still asserts
+    /// `backing >= principal` against Blend's **real** position after every mutation, so a deep loss
+    /// is handled by the higher-level pro-rata/loss accounting rather than by inventing backing.
     ///
-    /// Immediate rather than timelocked, for the same reason as `set_max_apr_bps`: it is a liveness
-    /// valve that can only ever *lower* a sanity threshold on an already-trusted pool reading.
-    /// It requires a human in the loop during an incident — that is deliberate, not an oversight.
+    /// Immediate rather than timelocked, for the same reason as `set_max_apr_bps`: it only lowers a
+    /// sanity observation and never moves funds.
     pub fn reset_rate_floor(env: Env) -> i128 {
         Self::current_admin(&env).require_auth();
-        // Read the RAW pool rate, deliberately bypassing `current_rate` — that is the very call
-        // the stale floor is bricking, so going through it would make this valve unusable.
+        // Read the RAW pool rate, deliberately bypassing `current_rate` so this compatibility valve
+        // remains usable on an instance running the previous implementation.
         let pool = Self::pool_addr(&env);
         let underlying = Self::underlying(env.clone());
         let raw = PoolClient::new(&env, &pool).get_reserve(&underlying).data.b_rate;
@@ -510,9 +506,8 @@ impl BlendStrategy {
             panic_with_error!(&env, Error::RateOutOfBounds);
         }
         let mut bound = Self::bound(&env);
-        // Only ever LOWER the floor. If the live rate is already at/above the stored mark there is
-        // no freeze to clear, and *raising* it would brick reads that currently pass — the exact
-        // failure this exists to undo. So that case is a no-op that reports the unchanged floor.
+        // Only ever LOWER the observation. If the live rate is already at/above the stored mark,
+        // this compatibility operation is a no-op.
         if raw < bound.last_rate {
             bound.last_rate = raw;
             bound.last_ts = env.ledger().timestamp();

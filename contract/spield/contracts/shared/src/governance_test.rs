@@ -231,6 +231,17 @@ fn set_timelock_below_min_fails() {
 }
 
 #[test]
+fn the_old_one_hour_floor_is_no_longer_accepted() {
+    let (_env, c, _admin) = setup();
+    assert_eq!(
+        c.try_set_timelock(&(60 * 60)),
+        Err(Ok(Error::TimelockOutOfBounds.into())),
+        "an admin cannot remove the promised 24-hour exit window immediately"
+    );
+    assert_eq!(c.timelock(), governance::DEFAULT_TIMELOCK_SECS);
+}
+
+#[test]
 fn set_timelock_above_max_fails() {
     let (_env, c, _admin) = setup();
     let r = c.try_set_timelock(&(governance::MAX_TIMELOCK_SECS + 1));

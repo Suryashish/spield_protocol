@@ -378,7 +378,7 @@ fn tiny_annual_cap_trips_then_set_max_apr_bps_unsticks() {
 }
 
 // ---------------------------------------------------------------------------
-// The `b_rate` DECREASE valve: `reset_rate_floor` (tofix.md item 3)
+// The `b_rate` DECREASE path: a venue loss must not brick exits (tofix.md item 3)
 // ---------------------------------------------------------------------------
 
 /// The valve against the real Blend pool. Blend's `b_rate` only rises, so we cannot make
@@ -387,7 +387,7 @@ fn tiny_annual_cap_trips_then_set_max_apr_bps_unsticks() {
 /// evaluate at an earlier one. That reproduces exactly the `current < last` condition a
 /// bad-debt socialisation would create, against real pool data.
 #[test]
-fn reset_rate_floor_recovers_from_a_stale_high_water_mark() {
+fn a_rate_decrease_is_observed_without_bricking_the_strategy() {
     let b = setup_blend();
     let wrapper = Address::generate(&b.env);
     let admin = Address::generate(&b.env);
@@ -406,27 +406,24 @@ fn reset_rate_floor_recovers_from_a_stale_high_water_mark() {
     // …then evaluate against an earlier ledger, where the pool's real rate is lower.
     b.env.ledger().set_timestamp(b.env.ledger().timestamp() - 180 * 24 * 60 * 60);
     b.oracle().set_price_stable(&vec![&b.env, 1_0000000, 1_0000000]);
-    let frozen = strategy.try_current_rate();
-    assert_eq!(
-        frozen,
-        Err(Ok(spield_shared::Error::RateOutOfBounds.into())),
-        "a rate below the stored high-water mark must freeze reads (the failure mode)"
-    );
-    // The wrong valve stays wrong, against real Blend too.
-    strategy.set_max_apr_bps(&u32::MAX);
-    assert_eq!(
-        strategy.try_current_rate(),
-        Err(Ok(spield_shared::Error::RateOutOfBounds.into())),
-        "set_max_apr_bps widens the UPPER ceiling; it cannot clear a decrease"
-    );
-
-    // The right valve: one admin call, and reads resolve again.
-    let new_floor = strategy.reset_rate_floor();
-    assert!(new_floor < high, "the floor was lowered: {} -> {}", high, new_floor);
     let rate = strategy.current_rate();
-    assert_eq!(rate, new_floor, "reads return the live pool rate");
+    assert!(rate < high, "the live venue rate must be below the previous observation");
+    let (stored, _, _) = strategy.rate_bound();
+    assert_eq!(stored, rate, "the loss becomes the new observation floor");
     let total = strategy.total_shares();
     assert!(strategy.position_value(&total) > 0, "downstream value reads unfrozen");
+}
+
+#[test]
+fn zero_max_apr_is_rejected_instead_of_becoming_an_exit_trapdoor() {
+    let b = setup_blend();
+    let wrapper = Address::generate(&b.env);
+    let admin = Address::generate(&b.env);
+    let strategy = deploy_strategy_with_bound(&b, &wrapper, &admin, 30_000u32);
+    assert_eq!(
+        strategy.try_set_max_apr_bps(&0u32),
+        Err(Ok(spield_shared::Error::InvalidAmount.into()))
+    );
 }
 
 /// The valve is admin-only. It can only ever lower a sanity threshold, but it is still a
@@ -543,8 +540,8 @@ fn repeated_same_ledger_rate_reads_leave_the_bound_identical() {
     }
 }
 
-/// Across ledgers the bound advances exactly as before: `last_ts` tracks now, `last_rate` only
-/// ratchets upward.
+/// Across ledgers the bound advances: `last_ts` tracks now and `last_rate` records the latest venue
+/// observation (including a realized loss).
 #[test]
 fn the_bound_still_advances_correctly_across_ledgers() {
     let b = setup_blend();
@@ -565,12 +562,8 @@ fn the_bound_still_advances_correctly_across_ledgers() {
     }
 }
 
-// NOTE on the monotonicity half of the bound: forcing `b_rate` DOWN needs a test-only setter this
-// contract deliberately does not expose, and `BlendFixture` cannot push the real rate backwards.
-// That half is covered against a controllable mock in `wrapper::test_rate_brick`
-// (`brate_decrease_bricks_every_entry_point_including_exits`) and in `sr::test`
-// (`a_guarded_strategy_still_bricks_sr_on_a_rate_dip`) — both still pass after this change, which
-// is the evidence that the CHECK was untouched and only the WRITE became unconditional.
+// BlendFixture cannot push the real rate backwards. The controllable venue path above covers the
+// decrease case; this suite continues to cover the upper ceiling against real Blend.
 
 /// And the *ceiling* half of the bound still fires: an implausible jump is still rejected.
 #[test]

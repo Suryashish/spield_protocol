@@ -8,17 +8,21 @@
 
 extern crate std;
 
-use crate::{SrVault, SrVaultClient};
+use crate::SrVaultClient;
 use blend_contract_sdk::{pool, testutils::BlendFixture};
 use sep_40_oracle::testutils::{Asset, MockPriceOracleClient, MockPriceOracleWASM};
 use soroban_sdk::{
+    contract, contractimpl, contracttype,
     testutils::{Address as _, BytesN as _, Ledger as _, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
+use spield_shared::{math, SCALAR_12};
 use spield_sr::{Sr, SrClient};
 use spield_strategy::{BlendStrategy, BlendStrategyClient};
 use spield_yield::{Yield, YieldClient};
+
+use super::SrVault;
 
 const USDC: i128 = 1_0000000;
 const SCALAR_7: i128 = 1_0000000;
@@ -28,6 +32,244 @@ const REQ_BORROW: u32 = 4;
 const REQ_REPAY: u32 = 5;
 const RATE_BPS: u32 = 500; // 5%
 const MAX_RATE_BPS: u32 = 2000; // 20% ceiling
+
+// The real Blend fixture exercises liquidity crunches and rate growth, but it cannot manufacture a
+// bad-debt b_rate decrease. This controllable strategy is deliberately tiny: it implements the
+// same YieldStrategy surface as the production adapter while allowing the test to apply a real
+// lower venue value to the full SR -> Yield -> Vault stack.
+#[derive(Clone)]
+#[contracttype]
+enum LossStrategyKey {
+    Underlying,
+    Rate,
+    Shares,
+}
+
+#[contract]
+pub struct LossStrategy;
+
+#[contractimpl]
+impl LossStrategy {
+    pub fn init(env: Env, underlying: Address, rate: i128) {
+        let s = env.storage().instance();
+        s.set(&LossStrategyKey::Underlying, &underlying);
+        s.set(&LossStrategyKey::Rate, &rate);
+        s.set(&LossStrategyKey::Shares, &0i128);
+    }
+
+    pub fn set_rate(env: Env, rate: i128) {
+        env.storage().instance().set(&LossStrategyKey::Rate, &rate);
+    }
+
+    pub fn drain(env: Env, to: Address, amount: i128) {
+        let underlying: Address = env.storage().instance().get(&LossStrategyKey::Underlying).unwrap();
+        TokenClient::new(&env, &underlying).transfer(&env.current_contract_address(), &to, &amount);
+    }
+
+    pub fn deposit(env: Env, from: Address, amount: i128) -> i128 {
+        let underlying: Address = env.storage().instance().get(&LossStrategyKey::Underlying).unwrap();
+        let rate: i128 = env.storage().instance().get(&LossStrategyKey::Rate).unwrap();
+        TokenClient::new(&env, &underlying).transfer(&from, &env.current_contract_address(), &amount);
+        let shares = math::underlying_to_shares(&env, amount, rate).unwrap();
+        let total: i128 = env.storage().instance().get(&LossStrategyKey::Shares).unwrap_or(0);
+        env.storage().instance().set(&LossStrategyKey::Shares, &(total + shares));
+        shares
+    }
+
+    pub fn redeem(env: Env, to: Address, shares: i128) -> i128 {
+        let underlying: Address = env.storage().instance().get(&LossStrategyKey::Underlying).unwrap();
+        let rate: i128 = env.storage().instance().get(&LossStrategyKey::Rate).unwrap();
+        let amount = math::shares_to_underlying(&env, shares, rate).unwrap();
+        TokenClient::new(&env, &underlying).transfer(&env.current_contract_address(), &to, &amount);
+        let total: i128 = env.storage().instance().get(&LossStrategyKey::Shares).unwrap();
+        env.storage().instance().set(&LossStrategyKey::Shares, &(total - shares));
+        amount
+    }
+
+    pub fn redeem_underlying(env: Env, to: Address, amount: i128) -> i128 {
+        let underlying: Address = env.storage().instance().get(&LossStrategyKey::Underlying).unwrap();
+        let rate: i128 = env.storage().instance().get(&LossStrategyKey::Rate).unwrap();
+        let shares = math::underlying_to_shares(&env, amount, rate).unwrap();
+        TokenClient::new(&env, &underlying).transfer(&env.current_contract_address(), &to, &amount);
+        let total: i128 = env.storage().instance().get(&LossStrategyKey::Shares).unwrap();
+        env.storage().instance().set(&LossStrategyKey::Shares, &(total - shares));
+        shares
+    }
+
+    pub fn position_value_unguarded(env: Env) -> i128 {
+        let rate: i128 = env.storage().instance().get(&LossStrategyKey::Rate).unwrap();
+        let shares: i128 = env.storage().instance().get(&LossStrategyKey::Shares).unwrap_or(0);
+        math::shares_to_underlying(&env, shares, rate).unwrap_or(0)
+    }
+
+    pub fn current_rate(env: Env) -> i128 {
+        env.storage().instance().get(&LossStrategyKey::Rate).unwrap()
+    }
+
+    pub fn position_value(env: Env, shares: i128) -> i128 {
+        let rate: i128 = env.storage().instance().get(&LossStrategyKey::Rate).unwrap();
+        math::shares_to_underlying(&env, shares, rate).unwrap_or(0)
+    }
+
+    pub fn total_shares(env: Env) -> i128 {
+        env.storage().instance().get(&LossStrategyKey::Shares).unwrap_or(0)
+    }
+
+    pub fn underlying(env: Env) -> Address {
+        env.storage().instance().get(&LossStrategyKey::Underlying).unwrap()
+    }
+
+    pub fn available_liquidity(env: Env) -> i128 {
+        let underlying: Address = env.storage().instance().get(&LossStrategyKey::Underlying).unwrap();
+        TokenClient::new(&env, &underlying).balance(&env.current_contract_address())
+    }
+}
+
+struct LossWorld {
+    env: Env,
+    usdc: Address,
+    strategy: Address,
+    vault: Address,
+    expiry: u64,
+}
+
+impl LossWorld {
+    fn strategy(&self) -> LossStrategyClient<'_> { LossStrategyClient::new(&self.env, &self.strategy) }
+    fn vault(&self) -> SrVaultClient<'_> { SrVaultClient::new(&self.env, &self.vault) }
+    fn usdc(&self) -> TokenClient<'_> { TokenClient::new(&self.env, &self.usdc) }
+
+    fn user(&self, amount: i128) -> Address {
+        let user = Address::generate(&self.env);
+        StellarAssetClient::new(&self.env, &self.usdc).mint(&user, &amount);
+        user
+    }
+
+    fn advance_to_expiry(&self) {
+        self.env.ledger().set_timestamp(self.expiry + 1);
+    }
+}
+
+fn loss_setup(term: u64) -> LossWorld {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_700_000_000);
+    env.ledger().set_sequence_number(1_000_000);
+    env.cost_estimate().budget().reset_unlimited();
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let usdc = register_sac(&env, &admin);
+
+    let strategy = env.register(LossStrategy, ());
+    LossStrategyClient::new(&env, &strategy).init(&usdc, &SCALAR_12);
+
+    let sr = env.register(Sr, (admin.clone(),));
+    SrClient::new(&env, &sr).initialize(&strategy);
+
+    let yield_c = env.register(Yield, (admin.clone(), treasury));
+    let pt = register_sac(&env, &yield_c);
+    let expiry = env.ledger().timestamp() + term;
+    YieldClient::new(&env, &yield_c).initialize(&sr, &pt, &expiry, &0u32);
+
+    let vault = env.register(SrVault, (admin.clone(),));
+    SrVaultClient::new(&env, &vault).initialize(&yield_c, &RATE_BPS, &MAX_RATE_BPS);
+
+    LossWorld { env, usdc, strategy, vault, expiry }
+}
+
+#[test]
+fn a_first_deposit_after_a_seed_loss_is_refused() {
+    let w = loss_setup(30 * DAY);
+    let funder = w.user(10_000 * USDC);
+    w.vault().seed(&funder, &(10_000 * USDC));
+
+    let sink = Address::generate(&w.env);
+    let held = w.usdc().balance(&w.strategy);
+    w.strategy().set_rate(&(SCALAR_12 / 2));
+    w.strategy().drain(&sink, &(held / 2));
+
+    // There are no receipts yet. The loss must still be observed, otherwise the first user would
+    // be allowed to create a new fixed-rate claim against a stale, pre-loss PT index.
+    let user = w.user(1_000 * USDC);
+    assert!(w.vault().try_deposit(&user, &(1_000 * USDC)).is_err());
+    assert_eq!(w.usdc().balance(&user), 1_000 * USDC, "the refused deposit must not pull funds");
+}
+
+#[test]
+fn venue_loss_detection_cannot_be_stale_within_one_ledger() {
+    let w = loss_setup(30 * DAY);
+    let funder = w.user(10_000 * USDC);
+    w.vault().seed(&funder, &(10_000 * USDC));
+
+    // The second deposit observes a healthy venue and deliberately leaves the test ledger sequence
+    // unchanged. A venue loss is then introduced before the third transaction in that same ledger.
+    // Caching only by ledger sequence would incorrectly let the third deposit through.
+    let first = w.user(1_000 * USDC);
+    w.vault().deposit(&first, &(1_000 * USDC));
+    let second = w.user(1_000 * USDC);
+    w.vault().deposit(&second, &(1_000 * USDC));
+
+    let sink = Address::generate(&w.env);
+    let held = w.usdc().balance(&w.strategy);
+    w.strategy().set_rate(&(SCALAR_12 * 3 / 4));
+    w.strategy().drain(&sink, &(held / 4));
+
+    let third = w.user(1_000 * USDC);
+    assert!(w.vault().try_deposit(&third, &(1_000 * USDC)).is_err());
+    assert_eq!(w.usdc().balance(&third), 1_000 * USDC, "stale loss detection must not consume funds");
+}
+
+#[test]
+fn venue_loss_haircuts_every_receipt_pro_rata_and_settles_the_stack() {
+    let w = loss_setup(30 * DAY);
+    let funder = w.user(10_000 * USDC);
+    w.vault().seed(&funder, &(10_000 * USDC));
+
+    let first = w.user(1_000 * USDC);
+    let first_id = w.vault().deposit(&first, &(1_000 * USDC));
+    let first_payout = w.vault().get_receipt(&first_id).payout;
+    let second = w.user(1_000 * USDC);
+    let second_id = w.vault().deposit(&second, &(1_000 * USDC));
+    let second_payout = w.vault().get_receipt(&second_id).payout;
+    assert_eq!(first_payout, second_payout, "equal deposits have equal claims");
+
+    // Lower the venue value and remove the corresponding underlying. This is a deterministic
+    // bad-debt event: the SR high-water mark remains at 1.0, while the realizable venue value is
+    // exactly 75% and the strategy can only pay the 75% balance left in custody.
+    let sink = Address::generate(&w.env);
+    let held = w.usdc().balance(&w.strategy);
+    w.strategy().set_rate(&(SCALAR_12 * 3 / 4));
+    w.strategy().drain(&sink, &(held / 4));
+
+    // A new fixed-rate claim is not allowed to enter against the old index after the loss.
+    let newcomer = w.user(1_000 * USDC);
+    assert!(w.vault().try_deposit(&newcomer, &(1_000 * USDC)).is_err());
+
+    w.advance_to_expiry();
+    let first_before = w.usdc().balance(&first);
+    let second_before = w.usdc().balance(&second);
+    let second_paid = w.vault().redeem(&second_id);
+    let first_paid = w.vault().redeem(&first_id);
+    let expected_first = first_payout * 3 / 4;
+    let expected_second = second_payout * 3 / 4;
+
+    assert_eq!(first_paid, expected_first, "first receipt receives the realized pro-rata claim");
+    assert_eq!(second_paid, expected_second, "second receipt receives the same pro-rata claim");
+    assert_eq!(w.usdc().balance(&first) - first_before, expected_first);
+    assert_eq!(w.usdc().balance(&second) - second_before, expected_second);
+    assert!(!w.vault().get_receipt(&first_id).open);
+    assert!(!w.vault().get_receipt(&second_id).open);
+    assert_eq!(w.vault().total_liability(), 0, "recognized loss must not leave claims retryable");
+    assert_eq!(w.vault().stats().open_receipts, 0);
+}
+
+#[test]
+fn a_zero_realizable_venue_value_is_a_full_haircut_not_a_frozen_claim() {
+    let env = Env::default();
+    assert_eq!(SrVault::loss_factor_from_observation(&env, 1_000_000_000_000, 0), Some(0));
+    assert_eq!(SrVault::loss_factor_from_observation(&env, 0, 1_000), Some(0));
+    assert_eq!(SrVault::loss_factor_from_observation(&env, 1_000_000_000_000, 1_000_000_000_000), None);
+}
 
 struct World {
     env: Env,
@@ -660,7 +902,7 @@ fn a_pt_donation_becomes_real_coupon_capacity() {
 // ===========================================================================
 
 /// **The headline property.** With the venue drawn down, a redeem that cannot cover the whole
-/// payout banks what it collected instead of reverting, and a later call finishes the job.
+/// payout pays what it collected immediately instead of reverting, and a later call finishes the job.
 ///
 /// Before this, `redeem` was all-or-nothing: a crunch meant the holder got **nothing** and no
 /// progress was kept, however much liquidity was available.
@@ -686,10 +928,10 @@ fn a_crunched_redeem_banks_progress_and_a_later_call_finishes_it() {
 
     assert!(first > 0, "a crunched redeem must make progress, not revert");
     assert!(r.open, "the receipt stays open until fully funded");
-    assert_eq!(r.collected, first, "progress is banked on the receipt");
-    assert_eq!(w.usdc().balance(&u), before, "the holder is paid only once, at the end");
+    assert_eq!(r.collected, 0, "new progress is paid rather than stranded in the receipt");
+    assert_eq!(w.usdc().balance(&u) - before, first, "each successful leg pays immediately");
     assert_eq!(w.v().redeem_remaining(&rid), payout - first);
-    assert_eq!(w.v().stats().total_collected, first, "and reserved vault-wide");
+    assert_eq!(w.v().stats().total_collected, 0, "no new cash is reserved vault-wide");
 
     // Liquidity returns; further calls finish the job.
     let more = w.redeem_until_closed(rid, 500_000 * USDC);
@@ -733,8 +975,8 @@ fn a_receipt_cannot_be_paid_twice() {
     assert_eq!(w.v().redeem_remaining(&rid), 0);
 }
 
-/// `collected` can never exceed `payout`, so a generous flooring cannot let a receipt claim more
-/// than it is owed. Any excess stays as vault inventory.
+/// Incremental legs can never pay more than the effective receipt claim. Any excess venue output
+/// stays as vault surplus.
 #[test]
 fn a_partial_redeem_never_over_collects() {
     let w = setup(365 * DAY);
@@ -748,12 +990,15 @@ fn a_partial_redeem_never_over_collects() {
     let mut calls = 0;
     while w.v().get_receipt(&rid).open && calls < 12 {
         w.refill_venue(payout / 3);
-        let r_before = w.v().get_receipt(&rid);
+        let owed_before = w.v().redeem_remaining(&rid);
         w.v().redeem(&rid);
         let r_after = w.v().get_receipt(&rid);
         assert!(r_after.collected <= payout, "collected must never exceed payout");
         if r_after.open {
-            assert!(r_after.collected > r_before.collected, "each call must make progress");
+            assert!(
+                w.v().redeem_remaining(&rid) < owed_before,
+                "each call must make progress"
+            );
         }
         calls += 1;
     }
@@ -779,7 +1024,7 @@ fn solvency_holds_while_a_receipt_is_partially_collected() {
 
     w.v().redeem(&ra); // partial
     let st = w.v().stats();
-    assert!(st.total_collected > 0);
+    assert_eq!(st.total_collected, 0, "new partial legs pay directly");
     assert!(
         st.pt_inventory + st.total_collected >= st.total_liability,
         "PT + banked USDC must still cover every open payout: {st:?}"
@@ -801,9 +1046,11 @@ fn solvency_holds_while_a_receipt_is_partially_collected() {
     assert_eq!(w.v().stats().total_collected, 0, "no reservation left behind");
 }
 
-/// A completely dry venue pays nothing and must refuse rather than record phantom progress.
+/// Blend's maximum utilization leaves a bounded liquidity slice rather than literal zero. The vault
+/// must take that real partial fill and keep the receipt open, rather than manufacture a full
+/// payout or record progress without cash.
 #[test]
-fn a_redeem_against_a_dry_venue_refuses_without_corrupting_state() {
+fn a_redeem_against_a_liquidity_crunched_venue_makes_bounded_progress() {
     let w = setup(365 * DAY);
     w.seed(400_000 * USDC);
     let u = w.user(200_000 * USDC);
@@ -818,12 +1065,12 @@ fn a_redeem_against_a_dry_venue_refuses_without_corrupting_state() {
 
     let r = w.v().get_receipt(&rid);
     assert!(r.open, "the receipt stays open either way");
-    assert_eq!(w.usdc().balance(&u), before_usdc, "the holder was not paid");
-    if res.is_err() {
-        assert_eq!(r.collected, 0, "a refused call banks nothing");
-        assert_eq!(w.v().stats().pt_inventory, before_pt, "and burns no PT");
-        assert_eq!(w.v().stats().total_collected, 0);
-    }
+    assert!(res.is_ok(), "the bounded liquidity slice should make partial progress");
+    let paid = w.usdc().balance(&u) - before_usdc;
+    assert!(paid > 0, "a successful partial leg pays real USDC");
+    assert!(paid < r.payout, "the first leg must not close the underfunded receipt");
+    assert_eq!(r.collected, 0, "new progress is paid directly");
+    assert!(w.v().stats().pt_inventory < before_pt, "the partial payment burns only its PT leg");
     // Recovery still works.
     w.refill_venue(300_000 * USDC);
     assert!(w.v().try_redeem(&rid).is_ok(), "recoverable once liquidity returns");
@@ -918,30 +1165,32 @@ fn sweep_surplus_never_touches_usdc_reserved_for_a_partial_redemption() {
     let payout = w.v().get_receipt(&rid).payout;
     w.advance(366 * DAY);
 
-    // Collect part of it, leaving USDC reserved on the receipt.
+    // Collect part of it. The upgraded path pays it immediately rather than reserving it in the
+    // vault; the assertion below protects the legacy reservation path if an old receipt is present.
     w.drain_venue_to_max();
     w.refill_venue(payout / 4);
-    w.v().redeem(&rid);
-    let banked = w.v().get_receipt(&rid).collected;
-    assert!(banked > 0, "the partial must have banked something");
-    assert_eq!(w.v().stats().total_collected, banked);
+    let before_first = w.usdc().balance(&u);
+    let banked = w.v().redeem(&rid);
+    assert!(banked > 0, "the partial must have made progress");
+    assert_eq!(w.usdc().balance(&u) - before_first, banked);
+    assert_eq!(w.v().stats().total_collected, 0, "new partial legs do not strand cash in the vault");
 
     let vault_usdc = w.usdc().balance(&w.vault);
     let (_, _, sweepable) = w.v().surplus();
     std::println!("#22  vault holds {vault_usdc} USDC, {banked} reserved, {sweepable} sweepable");
-    assert_eq!(sweepable, vault_usdc - banked, "only the unreserved part is sweepable");
+    assert_eq!(sweepable, vault_usdc, "directly-paid partial legs leave no reserved cash");
 
     let to = Address::generate(&w.env);
     w.v().sweep_surplus(&to);
     assert!(
-        w.usdc().balance(&w.vault) >= banked,
-        "the holder's banked USDC must remain in the vault after a sweep"
+        w.usdc().balance(&w.vault) == vault_usdc - sweepable,
+        "sweep does not touch a receipt's already-paid proceeds"
     );
 
     // And the holder is still paid in full.
     let before = w.usdc().balance(&u);
     w.redeem_until_closed(rid, 500_000 * USDC);
-    assert_eq!(w.usdc().balance(&u) - before, payout, "the holder is still paid the full promise");
+    assert_eq!(w.usdc().balance(&u) - before, payout - banked, "the holder receives the remaining promise");
 }
 
 /// A sweep can never take PT that an open payout still needs.

@@ -43,8 +43,8 @@ pub struct Redeemed {
     pub paid: i128,
 }
 
-/// A redeem that could only collect part of its payout (`tofix.md` #20). The receipt stays open;
-/// `still_owed` is what a later call must still gather before the holder is paid.
+/// A redeem that could only pay part of its effective payout (`tofix.md` #20). The receipt stays
+/// open; `collected` is the amount paid by this leg and `still_owed` is the remaining claim.
 #[contractevent]
 #[derive(Clone)]
 pub struct RedeemedPartial {
@@ -87,6 +87,14 @@ pub struct RateSet {
     pub rate_bps: u32,
 }
 
+/// A lower venue value was observed. Future redemptions apply this factor to each open receipt
+/// lazily, so the loss allocation is visible without iterating all receipt storage.
+#[contractevent]
+#[derive(Clone)]
+pub struct LossRecognized {
+    pub factor: i128,
+}
+
 pub fn initialized(env: &Env, y: &Address, pt: &Address, sr: &Address, maturity: u64, rate_bps: u32) {
     Initialized { yield_contract: y.clone(), pt: pt.clone(), sr: sr.clone(), maturity, rate_bps }.publish(env);
 }
@@ -113,4 +121,7 @@ pub fn swept(env: &Env, to: &Address, pt_amount: i128) {
 }
 pub fn rate_set(env: &Env, rate_bps: u32) {
     RateSet { rate_bps }.publish(env);
+}
+pub fn loss_recognized(env: &Env, factor: i128) {
+    LossRecognized { factor }.publish(env);
 }

@@ -27,6 +27,25 @@ pub fn mul_div_floor(env: &Env, a: i128, b: i128, denom: i128) -> Result<i128, E
     quot.to_i128().ok_or(Error::MathOverflow)
 }
 
+/// `ceil(a * b / denom)` using the same widened intermediate as [`mul_div_floor`].
+pub fn mul_div_ceil(env: &Env, a: i128, b: i128, denom: i128) -> Result<i128, Error> {
+    if denom <= 0 || a < 0 || b <= 0 {
+        return Err(Error::InvalidAmount);
+    }
+    let floor = mul_div_floor(env, a, b, denom)?;
+    if floor == 0 {
+        return if a == 0 { Ok(0) } else { Ok(1) };
+    }
+    // If floor * denom / b is still below a, the original division had a remainder.
+    // Using the widened helper again keeps this check overflow-safe.
+    let covered = mul_div_floor(env, floor, denom, b)?;
+    if covered < a {
+        floor.checked_add(1).ok_or(Error::MathOverflow)
+    } else {
+        Ok(floor)
+    }
+}
+
 /// Convert bToken *shares* to *underlying* using a 12-decimal `b_rate`:
 /// `underlying = shares * b_rate / SCALAR_12` (floored, like Blend).
 pub fn shares_to_underlying(env: &Env, shares: i128, b_rate: i128) -> Result<i128, Error> {

@@ -6,10 +6,10 @@
 //! vault holds a *balance*, not a list, and redemption touches one entry regardless of history.
 
 use soroban_sdk::{contracttype, panic_with_error, Address, Env};
-use spield_shared::{ttl, Error};
+use spield_shared::{ttl, Error, SCALAR_12};
 
-/// A single fixed-rate deposit. The user is promised exactly `payout` at maturity, backed by PT the
-/// vault actually holds — so the rate is solvent by construction, not by forecast.
+/// A single fixed-rate deposit. `payout` is the current effective claim, backed by PT the vault
+/// actually holds. A realized venue loss can reduce it by the shared loss factor.
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct Receipt {
@@ -22,22 +22,13 @@ pub struct Receipt {
     pub rate_bps: u32,
     pub maturity: u64,
     pub open: bool,
-    /// USDC already collected toward `payout` by earlier partial redemptions (`tofix.md` #20).
-    ///
-    /// A redeem sizes its PT burn to what the venue can actually pay, banks the proceeds here, and
-    /// pays the holder only once `collected >= payout`. Until then this USDC sits in the vault
-    /// **reserved for this receipt** — it is counted by `assert_solvent` in place of the PT that was
-    /// burned to obtain it, and excluded from every sweep.
+    /// USDC collected by the legacy all-or-nothing redemption path before the incremental upgrade.
+    /// New redemptions pay each leg directly, so this remains only for upgrade compatibility.
     pub collected: i128,
-    /// PT face burned by this receipt's partial redemptions that did **not** turn into banked USDC
-    /// (`anyfix.md` F2).
+    /// PT face deficit tolerated from partial redemptions (`anyfix.md` F2).
     ///
-    /// Each partial leg burns `take` PT and banks `got <= take` USDC, because both conversions on
-    /// the way out (`PT -> SR -> USDC`) floor. The gap is a genuine loss of vault inventory, about
-    /// a stroop a leg. Recording it is what lets [`SrVault::assert_solvent`] tell expected rounding
-    /// residue apart from a real deficit — before this, the third partial leg on any receipt
-    /// tripped the invariant and the receipt could not be redeemed at all until the venue could pay
-    /// the whole remainder in one call.
+    /// A partial leg's flooring deficit is hard-bounded by `PARTIAL_LEG_BUDGET`; a larger shortfall
+    /// is recognized as a loss haircut instead of being accumulated into an unbounded allowance.
     ///
     /// Released from the running total when the receipt closes, so the slack never outlives the
     /// receipt that earned it.
@@ -69,6 +60,14 @@ pub enum DataKey {
     /// Count of open receipts, for the dashboard.
     OpenReceipts,
     Receipt(u64),
+    /// Lowest venue-value factor observed relative to the frozen PT index. Missing on old
+    /// instances, where the default is the loss-free factor.
+    LossFactor,
+    /// Cumulative USDC paid directly to a receipt owner by the incremental redemption path.
+    /// Kept separate from `Receipt` so existing serialized receipts remain upgrade-compatible.
+    Paid(u64),
+    /// Loss factor already applied to a receipt. Also separate from `Receipt` for upgrade safety.
+    ReceiptLossFactor(u64),
 }
 
 pub fn bump_instance(env: &Env) {
@@ -130,6 +129,14 @@ pub fn set_total_residue(env: &Env, v: i128) {
     env.storage().instance().set(&DataKey::TotalResidue, &v);
 }
 
+pub fn loss_factor(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::LossFactor).unwrap_or(SCALAR_12)
+}
+
+pub fn set_loss_factor(env: &Env, v: i128) {
+    env.storage().instance().set(&DataKey::LossFactor, &v);
+}
+
 pub fn open_receipts(env: &Env) -> u64 {
     env.storage().instance().get(&DataKey::OpenReceipts).unwrap_or(0)
 }
@@ -150,6 +157,31 @@ pub fn get_receipt(env: &Env, id: u64) -> Result<Receipt, Error> {
 pub fn save_receipt(env: &Env, id: u64, r: &Receipt) {
     let key = DataKey::Receipt(id);
     env.storage().persistent().set(&key, r);
+    let (lo, hi) = ttl::maturity_aware_bump(env, get_maturity(env));
+    env.storage().persistent().extend_ttl(&key, lo, hi);
+}
+
+pub fn paid(env: &Env, id: u64) -> i128 {
+    env.storage().persistent().get(&DataKey::Paid(id)).unwrap_or(0)
+}
+
+pub fn set_paid(env: &Env, id: u64, value: i128) {
+    let key = DataKey::Paid(id);
+    env.storage().persistent().set(&key, &value);
+    let (lo, hi) = ttl::maturity_aware_bump(env, get_maturity(env));
+    env.storage().persistent().extend_ttl(&key, lo, hi);
+}
+
+pub fn receipt_loss_factor(env: &Env, id: u64) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ReceiptLossFactor(id))
+        .unwrap_or(SCALAR_12)
+}
+
+pub fn set_receipt_loss_factor(env: &Env, id: u64, value: i128) {
+    let key = DataKey::ReceiptLossFactor(id);
+    env.storage().persistent().set(&key, &value);
     let (lo, hi) = ttl::maturity_aware_bump(env, get_maturity(env));
     env.storage().persistent().extend_ttl(&key, lo, hi);
 }

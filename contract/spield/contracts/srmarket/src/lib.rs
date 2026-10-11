@@ -54,6 +54,9 @@ use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, Env,
 use spield_shared::{
     governance,math, Error, SCALAR_12};
 
+/// Minimum liquidity permanently locked in pool on first deposit to prevent share price inflation.
+pub const MINIMUM_LIQUIDITY: i128 = 1_000;
+
 /// Hard ceiling on the treasury's share of swap fees. Governance can tune below this; it cannot
 /// starve LPs past half the fee.
 pub const MAX_TREASURY_FEE_SHARE_BPS: u32 = 5_000;
@@ -177,15 +180,16 @@ impl SrMarket {
         let sr_res = storage::sr_reserve(&env);
         let total = storage::total_shares(&env);
 
-        let shares = if total == 0 || pt_res == 0 || sr_res == 0 {
+        let (user_shares, total_shares_to_add, actual_pt, actual_sr) = if total == 0 || pt_res == 0 || sr_res == 0 {
             let s = isqrt(
                 math::mul_div_floor(&env, pt_in, sr_in, 1)
                     .unwrap_or_else(|e| panic_with_error!(&env, e)),
             );
-            if s <= 0 {
+            if s <= MINIMUM_LIQUIDITY {
                 panic_with_error!(&env, Error::InvalidAmount);
             }
-            s
+            let user_shares = s - MINIMUM_LIQUIDITY;
+            (user_shares, s, pt_in, sr_in)
         } else {
             let by_pt = math::mul_div_floor(&env, pt_in, total, pt_res)
                 .unwrap_or_else(|e| panic_with_error!(&env, e));
@@ -197,16 +201,25 @@ impl SrMarket {
             // the ratio and reverts an otherwise correct deposit, with nothing the LP can widen.
             //
             // `min_shares` is the standard AMM answer — the caller states the outcome they will
-            // accept and the contract mints `min(by_pt, by_sr)`, donating the over-supplied leg.
-            // So when the caller has given a bound, that bound *replaces* the band; when they have
-            // not (`min_shares == 0`), the band stays as the safe default, because a naive caller
-            // with no bound and no band could donate an arbitrarily large excess leg.
+            // accept and the contract mints `min(by_pt, by_sr)`. The actual token pulls below are
+            // proportional to those shares, so excess authorized input is never donated. When the
+            // caller has not provided a bound, the band remains the safe default because a naive
+            // caller with no bound and no band could otherwise submit a price-moving add.
             //
             // This keeps every existing zero-bound caller on exactly today's behaviour.
             if min_shares == 0 && hi - lo > (hi / 1000) + 1 {
                 panic_with_error!(&env, Error::ImbalancedLiquidity);
             }
-            lo
+            let shares = lo;
+            // Pull only the reserve-proportional amount of *both* legs. Using the caller's full
+            // amount for the limiting leg is also a donation when integer flooring leaves a
+            // remainder (and makes the safety property depend on which side happened to be
+            // limiting). Any unused input remains with the caller because transfers happen below.
+            let actual_pt = math::mul_div_floor(&env, shares, pt_res, total)
+                .unwrap_or_else(|e| panic_with_error!(&env, e));
+            let actual_sr = math::mul_div_floor(&env, shares, sr_res, total)
+                .unwrap_or_else(|e| panic_with_error!(&env, e));
+            (shares, shares, actual_pt, actual_sr)
         };
 
         // `tofix.md` #26b: the follow-on branch above can floor BOTH legs to zero once swap fees
@@ -214,30 +227,30 @@ impl SrMarket {
         // passes, and the deposit is consumed for no ownership at all. The first-LP branch has
         // always guarded its own result; this makes the two consistent. It must run before either
         // transfer.
-        if shares <= 0 {
+        if user_shares <= 0 || actual_pt <= 0 || actual_sr <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
         // `tofix.md` #26c: the ratio band above is the pool's, not the caller's. Any swap landing
         // between an LP's quote and their transaction moves the ratio and reverts an otherwise
         // correct add, with no argument to widen. `min_shares` is that argument.
-        if shares < min_shares {
+        if user_shares < min_shares {
             panic_with_error!(&env, Error::SlippageExceeded);
         }
 
         let me = env.current_contract_address();
-        token::Client::new(&env, &storage::get_pt(&env)).transfer(&lp, &me, &pt_in);
-        SrClient::new(&env, &storage::get_sr(&env)).transfer(&lp, &me, &sr_in);
+        token::Client::new(&env, &storage::get_pt(&env)).transfer(&lp, &me, &actual_pt);
+        SrClient::new(&env, &storage::get_sr(&env)).transfer(&lp, &me, &actual_sr);
 
-        storage::set_pt_reserve(&env, pt_res + pt_in);
-        storage::set_sr_reserve(&env, sr_res + sr_in);
-        storage::set_total_shares(&env, total + shares);
-        storage::save_shares(&env, &lp, storage::shares_of(&env, &lp) + shares);
+        storage::set_pt_reserve(&env, pt_res + actual_pt);
+        storage::set_sr_reserve(&env, sr_res + actual_sr);
+        storage::set_total_shares(&env, total + total_shares_to_add);
+        storage::save_shares(&env, &lp, storage::shares_of(&env, &lp) + user_shares);
         Self::sync_implied_rate(&env, pt_res, sr_res);
         storage::bump_instance(&env);
 
-        events::added(&env, &lp, pt_in, sr_in, shares);
+        events::added(&env, &lp, actual_pt, actual_sr, user_shares);
         Self::assert_sane(&env);
-        shares
+        user_shares
     }
 
     /// Burn `shares` and return the proportional PT + SR. Open even while paused and after expiry,

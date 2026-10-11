@@ -751,3 +751,70 @@ For a small test with a hard deposit cap, with the keys separated first and the 
 team before anyone else can reach it, the remaining exposure is bounded by the cap and is
 dominated by Blend's own risk. For anything larger, the vault redemption path and the AMM's first
 deposit need code changes, and the stack needs an external audit.
+
+## 12. Workspace remediation review — 2026-10-10
+
+This addendum records the review of the current checkout against the findings above. The source
+revision statement in the original report is no longer current: the working tree contains contract
+changes after that review, including the AMM/TTL remediation and the fixes below.
+
+### Contract findings addressed in the current working tree
+
+- **N-03:** first AMM liquidity now leaves `MINIMUM_LIQUIDITY = 1,000` shares permanently locked,
+  rejects a seed that cannot clear that lock, and the `min_shares` path transfers only the
+  proportional limiting amounts instead of accepting a donation.
+- **N-02 / H-02 / H-03:** vault redemption now pays each successful leg directly, converts the
+  SR-share liquidity ceiling into PT face using the frozen PY index, applies a bounded 64-stroop
+  per-receipt residue budget, and recognizes larger venue shortfalls as an observable lazy loss
+  haircut rather than reverting the receipt. Existing `Receipt` serialization is preserved;
+  direct-paid amounts and loss factors use appended storage keys.
+- **H-01:** the TTL bump threshold is now `extend_to - 17,280` ledgers, so live persistent entries
+  are refreshed before they approach archival instead of using threshold zero.
+- **M-03:** Yield stores the timestamp of the last pre-expiry index observation and interpolates the
+  maturity index on the first post-expiry touch. Pure views use the same interpolation before the
+  write-once stamp is finalized.
+- **N-04:** the governance timelock floor is now immutable at 24 hours and old stored values are
+  clamped on read for upgrade compatibility. A zero strategy APR bound is rejected, and a lower
+  Blend rate is recorded as a realized loss rather than freezing all strategy exits.
+
+### Incremental-upgrade compatibility
+
+The changes do not add constructor requirements or alter the serialized `Receipt` shape. New
+instance/persistent keys default safely when an existing contract instance is upgraded. The affected
+WASM instances can therefore be updated through their existing `schedule_upgrade` → timelock →
+`apply_upgrade` path. The AMM must still be seeded before public liquidity is opened, and any live
+series should be checked on chain after upgrade.
+
+### Items that remain operational prerequisites
+
+N-01 signer rotation, treasury/emissions destination rotation, legacy/demo deployment pausing, the
+SR deposit cap, keeper monitoring, and the new-series deployment cannot be completed by changing
+these contract methods. They remain mandatory before accepting external funds. The remediation
+build also requires the full Rust/Soroban test suites and a throwaway-series lifecycle rehearsal
+before release.
+
+## 13. Venue-loss release-candidate verification — 2026-10-11
+
+The release candidate now includes an end-to-end loss harness in `srvault/src/test.rs`. It runs the
+production SR, Yield, and Vault contracts against a controllable strategy that implements the same
+strategy interface as the Blend adapter, allowing a deterministic 25% venue loss that Blend's
+monotonic local fixture cannot manufacture.
+
+The suite proves that:
+
+- a first user deposit after seeded capacity has already lost value is rejected;
+- loss detection cannot become stale when the venue changes within one ledger sequence;
+- equal receipts receive the same pro-rata haircut in either redemption order;
+- the reduced receipts close, pay only their realized claim, and leave zero aggregate liability;
+- the vault-facing `Sr::deposit_checked` path rejects new fixed-rate exposure atomically without
+  changing ordinary SR deposit semantics.
+
+The clean workspace run for this candidate completed with **614 tests passed, 1 ignored, and 0
+failed**. All deployable WASMs also built successfully with `stellar contract build`. The reviewed
+release worktree contains only contract source/tests, deployment scripts, and this audit addendum;
+unrelated customer documents and generated snapshot churn remain outside the release commit.
+
+This verification does not replace an independent external audit or operational sign-off. Real-funds
+activation remains conditional on multisig signer rotation, treasury/emissions destination review,
+mainnet address/configuration verification, a throwaway-series deployment drill, monitoring/keeper
+coverage, and an explicit cap on initial TVL.

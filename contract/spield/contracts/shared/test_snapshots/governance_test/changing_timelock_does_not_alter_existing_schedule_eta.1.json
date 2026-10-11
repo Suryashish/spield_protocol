@@ -17,7 +17,7 @@
               "function_name": "schedule_upgrade",
               "args": [
                 {
-                  "bytes": "bc0a6720e4269613656b4ce02eb3b2c80eb036e440a92c0b3f53baeb3470abd4"
+                  "bytes": "f67df8c8452b9e6513d201c48de573432f6c2196479b1efd2f2de0b2a5d3228d"
                 }
               ]
             }
@@ -36,7 +36,7 @@
               "function_name": "set_timelock",
               "args": [
                 {
-                  "u64": "3600"
+                  "u64": "86400"
                 }
               ]
             }
@@ -133,7 +133,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "3600"
+                        "u64": "86400"
                       }
                     },
                     {
@@ -159,7 +159,7 @@
                               "symbol": "wasm_hash"
                             },
                             "val": {
-                              "bytes": "bc0a6720e4269613656b4ce02eb3b2c80eb036e440a92c0b3f53baeb3470abd4"
+                              "bytes": "f67df8c8452b9e6513d201c48de573432f6c2196479b1efd2f2de0b2a5d3228d"
                             }
                           }
                         ]

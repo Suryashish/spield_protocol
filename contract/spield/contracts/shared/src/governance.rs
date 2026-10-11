@@ -100,9 +100,9 @@ pub struct TimelockChanged {
 /// before an upgrade lands, short enough to ship real fixes promptly. Admin-settable within bounds.
 pub const DEFAULT_TIMELOCK_SECS: u64 = 24 * 60 * 60;
 
-/// Hard lower bound on the timelock (1 hour). The admin can shorten the window but never to a value
-/// that would make the exit window meaningless.
-pub const MIN_TIMELOCK_SECS: u64 = 60 * 60;
+/// Immutable lower bound on the timelock (24 hours). The delay promised to depositors cannot be
+/// shortened to an hour by an admin immediately before scheduling a malicious upgrade.
+pub const MIN_TIMELOCK_SECS: u64 = DEFAULT_TIMELOCK_SECS;
 
 /// Hard upper bound on the timelock (30 days). Stops the admin (or a typo) from setting a delay so
 /// long the upgrade path is effectively bricked.
@@ -215,10 +215,15 @@ pub fn cancel_admin_transfer(env: &Env, current_admin: &Address) {
 
 /// The current upgrade timelock delay (seconds).
 pub fn timelock(env: &Env) -> u64 {
-    env.storage()
+    let stored = env
+        .storage()
         .instance()
         .get(&GovKey::Timelock)
-        .unwrap_or(DEFAULT_TIMELOCK_SECS)
+        .unwrap_or(DEFAULT_TIMELOCK_SECS);
+    // An incremental upgrade may encounter an instance created by the previous version, whose
+    // stored value could be below the new floor. Clamp on read so schedule_upgrade is repaired
+    // without a constructor or a separate migration transaction.
+    stored.max(MIN_TIMELOCK_SECS).min(MAX_TIMELOCK_SECS)
 }
 
 /// Set the upgrade timelock delay (seconds), bounded to `[MIN_TIMELOCK_SECS, MAX_TIMELOCK_SECS]`.

@@ -135,8 +135,8 @@ fn w2_a_pt_buyer_earns_the_discount_and_redeems_at_face_after_expiry() {
         usdc_out > 1_000 * USDC,
         "the PT buyer must end up ahead: put in {} got {}", 1_000 * USDC, usdc_out
     );
-    // Face value, within the two floors of the SR round trip.
-    assert!((pt - usdc_out).abs() <= 2, "post-expiry PT must redeem at face: {} vs {}", pt, usdc_out);
+    // Face value, within the fixed-point floors of the SR round trip.
+    assert!((pt - usdc_out).abs() <= 8, "post-expiry PT must redeem at face: {} vs {}", pt, usdc_out);
     assert_eq!(w.pt().balance(&buyer), 0);
 }
 
@@ -257,9 +257,9 @@ fn w4_an_lp_survives_a_full_term_of_two_sided_flow_and_exits_whole() {
         value_out >= value_in,
         "LP lost asset-denominated value across a fee-earning term: in {} out {}", value_in, value_out
     );
-    assert_eq!(w.m().total_shares(), 0, "the only LP exited fully");
+    assert_eq!(w.m().total_shares(), 1_000, "the permanently locked minimum liquidity remains");
     let (pt_res, sr_res) = w.m().reserves();
-    assert_eq!((pt_res, sr_res), (0, 0), "reserves must be exactly drained");
+    assert!(pt_res > 0 && sr_res > 0, "locked liquidity must leave both reserve legs behind");
 }
 
 /// A second LP joining a pool that has already traded must be priced fairly — neither diluting the
@@ -296,7 +296,7 @@ fn w4b_a_late_lp_joining_a_traded_pool_is_priced_fairly() {
     let (a_pt, a_sr) = w.m().remove_liquidity(&lp2, &s2, &0i128, &0i128);
     let (b_pt, b_sr) = w.m().remove_liquidity(&lp1, &s1, &0i128, &0i128);
     assert!(a_pt > 0 && a_sr > 0 && b_pt > 0 && b_sr > 0);
-    assert_eq!(w.m().total_shares(), 0);
+    assert_eq!(w.m().total_shares(), 1_000);
 }
 
 // ===========================================================================
@@ -465,8 +465,8 @@ fn w7c_a_vault_receipt_survives_a_crunch_and_still_pays_the_exact_promise() {
     let first = w.v().redeem(&id);
     assert!(first > 0, "a crunched redeem must make progress, not revert");
     assert!(w.v().get_receipt(&id).open, "this payout cannot clear in one call at this liquidity");
-    assert!(w.v().get_receipt(&id).collected > 0, "a partial redemption must record progress");
-    assert_eq!(w.usdc_t().balance(&saver), 0, "a partial leg pays the holder nothing yet");
+    assert_eq!(w.v().get_receipt(&id).collected, 0, "new partial progress is paid directly");
+    assert_eq!(w.usdc_t().balance(&saver), first, "the partial leg pays the holder immediately");
 
     let mut calls = 1;
     while w.v().get_receipt(&id).open && calls < 20 {

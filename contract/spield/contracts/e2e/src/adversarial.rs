@@ -35,10 +35,15 @@ fn a1_donating_to_the_market_moves_nothing_and_is_not_recoverable() {
     assert_eq!(w.m().implied_apy(), apy_before, "a donation must not move the rate");
     assert_eq!(w.m().lp_position(&attacker), (0, 0, 0), "a donation must not mint shares");
 
-    // The incumbent LP still gets exactly the reserves, and the donation stays stuck.
+    // The incumbent LP gets the recorded reserves; the permanently locked minimum-liquidity
+    // shares leave their 1,000-unit reserve dust behind, and the donation stays stuck too.
     let (pt_out, sr_out) = w.m().remove_liquidity(&lp, &shares, &0i128, &0i128);
-    assert_eq!((pt_out, sr_out), (pt_res_before, sr_res_before));
-    assert_eq!(w.sr().balance(&w.market), sr, "the donation is stranded, not paid to the LP");
+    assert_eq!((pt_out, sr_out), (pt_res_before - 1_000, sr_res_before - 1_000));
+    assert_eq!(
+        w.sr().balance(&w.market),
+        sr + 1_000,
+        "the donation and locked minimum liquidity are stranded, not paid to the LP"
+    );
 }
 
 /// The first-LP share formula is `sqrt(pt * sr)`. A donation before the second LP arrives must not

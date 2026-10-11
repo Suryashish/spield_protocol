@@ -65,6 +65,7 @@ pub fn maturity_aware_bump(env: &Env, maturity: u64) -> (u32, u32) {
         extend_to = max_extend;
     }
 
-    // Re-extend on every call: threshold 0 means "always bump to extend_to".
-    (0, extend_to)
+    // Re-extend when TTL decays by 1 day (17,280 ledgers @ 5s/ledger) below extend_to.
+    let threshold = extend_to.saturating_sub(17_280);
+    (threshold, extend_to)
 }

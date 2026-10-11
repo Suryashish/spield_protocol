@@ -10,9 +10,9 @@
 #
 # ── Run this against a THROWAWAY deployment ──────────────────────────────────────────────────────
 #
-# Drills 1 and 5 deliberately break the protocol — they pause every contract and freeze the rate
-# oracle. Pointed at the live testnet stack they would take down the dApp and the SDK's CI. The
-# script refuses to touch a deployment whose state file is the live one; override only if you mean it.
+# Drill 1 deliberately pauses the protocol. Pointed at the live testnet stack it would take down the
+# dApp and the SDK's CI. The script refuses to touch a deployment whose state file is the live one;
+# override only if you mean it.
 #
 # ── The drills ───────────────────────────────────────────────────────────────────────────────────
 #
@@ -20,15 +20,15 @@
 #   2  multisig_rotation_dress_rehearsal  delegated to rotate_admins.sh (its own test suite)
 #   3  upgrade_drill_with_live_positions  schedule -> apply early MUST fail -> wait -> apply
 #   4  cancel_a_scheduled_upgrade         the abort path, timed
-#   5  set_max_apr_bps_unstick_drill      freeze the rate oracle for real, then unstick it
+#   5  zero_max_apr_is_rejected            reject the exit-trapdoor configuration
 #   6  deploy_script_fresh_run_repro      two FRESH=1 runs, identical code hashes and wiring
 #   7  frontend_against_unseeded          every view answers on an EMPTY deployment (no panic/NaN)
 #   8  ttl_upkeep_cron_rehearsal          the permissionless bump sweep, within budget
 #
-# Drill 3's timelock is the long pole: `MIN_TIMELOCK_SECS` is 3600, so a real wait-then-apply takes
-# an hour. `UPGRADE_WAIT=0` (default) runs the half that matters for safety — schedule, observe,
+# Drill 3's timelock is the long pole: `MIN_TIMELOCK_SECS` is 86400, so a real wait-then-apply takes
+# a day. `UPGRADE_WAIT=0` (default) runs the half that matters for safety — schedule, observe,
 # and prove `apply_upgrade` REFUSES before the eta — and skips the wait. `UPGRADE_WAIT=1` does the
-# full hour.
+# full day.
 # =================================================================================================
 set -uo pipefail
 
@@ -158,11 +158,11 @@ hdr "DRILL 3 — upgrade_drill_with_live_positions"
 before_sr=$(v "$SR" total_supply); before_ta=$(v "$SR" total_assets)
 note "state before: total_supply=$before_sr total_assets=$before_ta"
 tl=$(v "$SR" timelock); note "timelock is ${tl}s"
-# The default 24h timelock makes a real wait-then-apply a day long. `MIN_TIMELOCK_SECS` is 3600, and
+# The default 24h timelock makes a real wait-then-apply a day long. `MIN_TIMELOCK_SECS` is 86400, and
 # lowering to it is itself part of the procedure being rehearsed (`set_timelock` is admin-gated and
 # bounded). Only ever do this on a throwaway stack — on a live one it shortens users' exit window.
-if [ "$UPGRADE_WAIT" = "1" ] && [ "$tl" -gt 3600 ] 2>/dev/null; then
-  if tx "$SR" set_timelock --secs 3600; then
+if [ "$UPGRADE_WAIT" = "1" ] && [ "$tl" -gt 86400 ] 2>/dev/null; then
+  if tx "$SR" set_timelock --secs 86400; then
     tl=$(v "$SR" timelock); ok "timelock lowered to the ${tl}s floor for the drill"
   else bad "set_timelock to the floor failed"; fi
 fi
@@ -207,36 +207,19 @@ if tx "$SR" schedule_upgrade --wasm_hash "$HASH"; then
 else bad "schedule_upgrade failed"; fi
 fi
 
-# ── 5. set_max_apr_bps_unstick_drill ─────────────────────────────────────────────────────────────
+# ── 5. zero max APR is rejected ──────────────────────────────────────────────────────────────────
 if want 5; then
-hdr "DRILL 5 — set_max_apr_bps_unstick_drill"
-orig=$(v "$STRATEGY" rate_bound); note "rate_bound before: $orig"
-r0=$(v "$STRATEGY" current_rate); note "current_rate: $r0"
-if tx "$STRATEGY" set_max_apr_bps --max_apr_bps 0; then
-  ok "max_apr_bps set to 0 — any rate rise beyond 16 stroops now trips the bound"
-  note "letting Blend's b_rate move…"
-  sleep 45
-  t0=$(now)
-  if v_reverts "$STRATEGY" current_rate; then
-    ok "PROTOCOL FROZEN — strategy.current_rate reverts (RateOutOfBounds), as designed"
-    v_reverts "$SR" exchange_rate && ok "sr.exchange_rate frozen too (the freeze propagates)" \
-                                  || note "sr.exchange_rate still answers (it reads a stored high-water mark)"
-    tx_fails "$SR" deposit --from "$ADDR" --receiver "$ADDR" --amount 1000000 --min_shares_out 0 \
-      && ok "deposits refused during the freeze" || bad "deposit SUCCEEDED during the freeze"
-    if tx "$STRATEGY" set_max_apr_bps --max_apr_bps 30000; then
-      t_fix=$(( $(now) - t0 ))
-      ok "unstuck with ONE admin call in ${t_fix}s"
-      record "5. detect freeze -> set_max_apr_bps -> recovered" "${t_fix}s"
-      r1=$(v "$STRATEGY" current_rate)
-      [ -n "$r1" ] && ok "current_rate answers again ($r1)" || bad "still frozen after the fix"
-      tx "$SR" deposit --from "$ADDR" --receiver "$ADDR" --amount 1000000 --min_shares_out 0 \
-        && ok "deposits work again" || bad "deposits still refused"
-    else bad "set_max_apr_bps recovery call failed"; fi
-  else
-    tx "$STRATEGY" set_max_apr_bps --max_apr_bps 30000 >/dev/null 2>&1
-    skip "the bound did not trip in 45s (b_rate moved <16 stroops); restored max_apr_bps"
-  fi
-else bad "set_max_apr_bps failed"; fi
+ hdr "DRILL 5 — zero_max_apr_is_rejected_and_rate_reads_stay_live"
+ orig=$(v "$STRATEGY" rate_bound); note "rate_bound before: $orig"
+ r0=$(v "$STRATEGY" current_rate); note "current_rate: $r0"
+ if tx_fails "$STRATEGY" set_max_apr_bps --max_apr_bps 0; then
+   ok "zero max_apr_bps rejected — the exit trapdoor is closed"
+   r1=$(v "$STRATEGY" current_rate)
+   [ -n "$r1" ] && ok "current_rate still answers ($r1)" || bad "current_rate returned NOTHING"
+   record "5. zero cap rejected without a liveness change" "$(now)s"
+ else
+   bad "set_max_apr_bps(0) was accepted — this would reintroduce the exit trapdoor"
+ fi
 fi
 
 # ── 7. every view answers on an unseeded deployment ──────────────────────────────────────────────

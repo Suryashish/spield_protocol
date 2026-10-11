@@ -190,6 +190,20 @@ impl Sr {
         shares
     }
 
+    /// Vault-facing deposit entry point. Ordinary SR deposits remain available during a dip, but
+    /// fixed-rate products use this atomic guard so they cannot mint a new promise against a venue
+    /// loss that has not yet been haircut.
+    pub fn deposit_checked(
+        env: Env,
+        from: Address,
+        receiver: Address,
+        amount: i128,
+        min_shares_out: i128,
+    ) -> i128 {
+        Self::ensure_no_realizable_loss(&env);
+        Self::deposit(env, from, receiver, amount, min_shares_out)
+    }
+
     /// **Unwrap.** Burn `shares` SR from `from` and send the released underlying to `receiver`.
     /// Returns the underlying actually paid out.
     ///
@@ -567,6 +581,15 @@ impl Sr {
         math::mul_div_floor(&env, assets, SCALAR_12, supply).unwrap_or(0)
     }
 
+    /// The stored high-water rate and the venue value that can actually be redeemed, sampled in
+    /// one cross-contract call. Consumers that must detect a loss on every entry point should use
+    /// this pair rather than calling `exchange_rate` and `realizable_rate` separately: the latter
+    /// doubles the cross-contract footprint on the hot path and can push otherwise valid vault
+    /// deposits over Soroban's budget.
+    pub fn rate_snapshot(env: Env) -> (i128, i128) {
+        (storage::rate_high_water(&env), Self::realizable_rate(env))
+    }
+
     /// What `shares` are **actually** worth right now — the pro-rata claim, not the high-water
     /// quote. See [`Self::realizable_rate`]. Panic-free (`0` = no quote).
     pub fn realizable_value(env: Env, shares: i128) -> i128 {
@@ -718,6 +741,23 @@ impl Sr {
         Self::ensure_initialized(env);
         if storage::is_paused(env) {
             panic_with_error!(env, Error::Paused);
+        }
+    }
+
+    /// Atomic guard for callers that create a fixed promise against freshly minted SR/PY. Keeping
+    /// the check inside SR's existing deposit call avoids a separate vault valuation call and
+    /// prevents the venue state from changing between the check and the mint.
+    fn ensure_no_realizable_loss(env: &Env) {
+        let supply = tok::total_supply(env);
+        if supply <= 0 {
+            return;
+        }
+        let strategy = YieldStrategyClient::new(env, &storage::get_strategy(env));
+        let assets = strategy.position_value_unguarded();
+        let realizable = math::mul_div_floor(env, assets, SCALAR_12, supply).unwrap_or(0);
+        let high_water = storage::rate_high_water(env);
+        if realizable.saturating_add(1_000) < high_water {
+            panic_with_error!(env, Error::VenueLossRecognized);
         }
     }
 

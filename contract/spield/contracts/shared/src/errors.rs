@@ -87,7 +87,6 @@ pub enum Error {
     /// Deposit rejected because the market has already matured (no time left to earn the coupon,
     /// and PT can no longer be accumulated). Vault maturity is inherited from the wrapper.
     VaultExpired = 66,
-
     // --- Market / Yield AMM (80–99) ---
     /// A swap/liquidity op would empty a pool reserve (proportion must stay strictly in (0,1)).
     InsufficientLiquidity = 80,
@@ -132,4 +131,9 @@ pub enum Error {
     DustAmount = 106,
     /// A deposit would push deployed assets past the configured launch TVL cap (`tofix.md` #3).
     DepositCapExceeded = 107,
+    /// A venue loss has been recognized by the vault; new fixed-rate deposits are disabled while
+    /// existing receipts redeem under the loss haircut.
+    VaultLossRecognized = 108,
+    /// New exposure was attempted after the underlying venue fell below SR's high-water mark.
+    VenueLossRecognized = 109,
 }

@@ -345,7 +345,7 @@ for k in "${CONTRACT_KEYS[@]}"; do
   case " ${ADMINS_SEEN[*]:-} " in *" $a "*) ;; *) ADMINS_SEEN+=("$a") ;; esac
 done
 
-if [ "${#ADMINS_SEEN[@]:-0}" -ne 1 ]; then
+if [ "${#ADMINS_SEEN[@]}" -ne 1 ]; then
   printf '\n\033[31m  SPLIT-BRAIN: the six contracts do NOT share one admin:\033[0m\n'
   for a in "${ADMINS_SEEN[@]}"; do printf '    %s\n' "$a"; done
   [ "$ALLOW_MIXED" = "1" ] || die "refusing to act on a split-brain deployment. Investigate, then re-run with ALLOW_MIXED=1."

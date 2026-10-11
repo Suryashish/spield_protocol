@@ -289,7 +289,7 @@ fn shortening_the_timelock_does_not_accelerate_a_pending_upgrade() {
     let hash = w.env.deployer().upload_contract_wasm(upgrade_fixture::WASM);
     let eta = w.m().schedule_upgrade(&hash);
 
-    w.m().set_timelock(&HOUR); // try to pull it forward
+    w.m().set_timelock(&(2 * DAY)); // allowed reduction; it still cannot pull this schedule forward
     assert_eq!(w.m().pending_upgrade().unwrap().eta, eta, "eta is fixed at schedule time");
     w.env.ledger().set_timestamp(eta - 1);
     assert!(

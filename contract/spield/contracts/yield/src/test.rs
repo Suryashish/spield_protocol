@@ -558,6 +558,25 @@ fn the_expiry_index_is_stamped_once_and_never_moves() {
     assert_eq!(w.y().expiry_index(), Some(first));
 }
 
+/// A keeper that arrives late must not assign the entire post-expiry rate increase to YT holders.
+/// The frozen value should lie between the last pre-expiry observation and the first live
+/// post-expiry rate.
+#[test]
+fn a_late_expiry_stamp_interpolates_to_maturity() {
+    let w = setup(90 * DAY, 0);
+    let (_u, _) = w.user_with_py(10_000 * USDC);
+    let before = w.y().py_index();
+
+    // No interaction at expiry; arrive a full term later.
+    w.advance(180 * DAY);
+    let live = w.sr().realizable_rate();
+    let frozen = w.y().stamp_expiry_index();
+
+    assert!(live > before, "the fixture must accrue a meaningful rate change");
+    assert!(frozen > before, "maturity must include pre-expiry growth");
+    assert!(frozen < live, "late post-expiry growth must not all be assigned to YT");
+}
+
 #[test]
 #[should_panic(expected = "Error(Contract, #102)")] // SeriesNotExpired
 fn the_expiry_index_cannot_be_stamped_early() {

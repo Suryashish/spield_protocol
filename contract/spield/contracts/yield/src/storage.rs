@@ -54,6 +54,9 @@ pub enum DataKey {
     YieldFeeBps,
     /// Per-holder interest state.
     Interest(Address),
+    /// Timestamp at which `IndexStored` was last observed before expiry. Appended so an upgraded
+    /// instance keeps every existing key and gets a safe default of zero.
+    IndexStoredAt,
 }
 
 pub fn bump_instance(env: &Env) {
@@ -120,6 +123,14 @@ pub fn index_stored(env: &Env) -> i128 {
 
 pub fn set_index_stored(env: &Env, i: i128) {
     env.storage().instance().set(&DataKey::IndexStored, &i);
+}
+
+pub fn index_stored_at(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::IndexStoredAt).unwrap_or(0)
+}
+
+pub fn set_index_stored_at(env: &Env, timestamp: u64) {
+    env.storage().instance().set(&DataKey::IndexStoredAt, &timestamp);
 }
 
 pub fn init_index(env: &Env) -> i128 {
