@@ -477,7 +477,7 @@ const SrTradePanel = () => {
         )}
 
         <AmountField
-          label={mode === 'buyYt' ? 'You spend (USDC)' : `You pay (${payToken})`}
+          label={mode === 'buyYt' ? 'You spend (USDC max budget)' : `You pay (${payToken})`}
           value={amount}
           onChange={setAmount}
           balance={String(payBalanceHuman)}
@@ -502,12 +502,29 @@ const SrTradePanel = () => {
           </div>
 
           {mode === 'buyYt' && leverage > 0 && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-500">
-              <TrendingUp className="h-3.5 w-3.5" aria-hidden />
-              <span>
-                {leverage.toFixed(1)}× leverage — {fmtTok(ytFaceHuman)} of yield exposure for{' '}
-                {fmtTok(quoteHuman ?? 0)} USDC
-              </span>
+            <div className="mt-2.5 space-y-2 text-xs">
+              <div className="flex items-center gap-1.5 font-medium text-emerald-500">
+                <TrendingUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span>
+                  {leverage.toFixed(1)}× notional yield multiplier (0 liquidation risk)
+                </span>
+              </div>
+              <p className="text-muted-foreground leading-normal">
+                Receiving <strong className="text-foreground">{fmtTok(ytFaceHuman)} YT</strong>: collects 100% of floating yield on <strong className="text-foreground">${fmtTok(ytFaceHuman)}</strong> of underlying collateral for {stats ? daysToExpiry(stats) : 15} days.
+              </p>
+              <div className="rounded-md border border-primary/20 bg-primary/5 p-2 text-foreground">
+                <div className="flex items-center justify-between font-medium">
+                  <span>Actual cost to your wallet:</span>
+                  <span className="tabular-nums font-semibold text-emerald-600 dark:text-emerald-400">
+                    {fmtTok(quoteHuman ?? 0)} USDC
+                  </span>
+                </div>
+                {parsed > (quoteHuman ?? 0) && (
+                  <p className="mt-1 text-[11px] text-muted-foreground leading-tight">
+                    💡 <strong>Pool liquidity limit:</strong> The pool can currently fill only {fmtTok(quoteHuman ?? 0)} of your {parsed} USDC budget. Your wallet will only be charged {fmtTok(quoteHuman ?? 0)} USDC; the remaining {(parsed - (quoteHuman ?? 0)).toFixed(4)} USDC stays in your wallet.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -620,7 +637,9 @@ const SrTradePanel = () => {
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
               {busy && ytStep
                 ? `Signature ${ytStep}…`
-                : `${side === 'buy' ? 'Buy' : 'Sell'} ${asset.toUpperCase()}`}
+                : mode === 'buyYt' && quoteHuman !== null && quoteHuman > 0
+                  ? `Buy ${fmtTok(ytFaceHuman)} YT for ${fmtTok(quoteHuman)} USDC`
+                  : `${side === 'buy' ? 'Buy' : 'Sell'} ${asset.toUpperCase()}`}
             </Button>
           )}
         </div>
