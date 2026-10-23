@@ -4,6 +4,7 @@ import { NAV_ITEMS } from '@/components/dashboard/data';
 
 import DashboardPage from '@/pages/DashboardPage';
 import { WalletProvider } from '@/context/WalletContext';
+import { SeriesProvider } from '@/context/SeriesContext';
 import { ProtocolProvider } from '@/context/ProtocolContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { ShareCardProvider } from '@/context/ShareCardContext';
@@ -59,7 +60,8 @@ export default function DashboardApp() {
       <WalletProvider>
         <ShareCardProvider>
           <ToastProvider>
-            <ProtocolProvider>
+            <SeriesProvider>
+              <ProtocolProvider>
               <Routes>
                 <Route path="/" element={<RedirectPreservingQuery to="/overview" />} />
 
@@ -82,7 +84,8 @@ export default function DashboardApp() {
                 <Route path="*" element={<RedirectPreservingQuery to="/overview" />} />
               </Routes>
             </ProtocolProvider>
-          </ToastProvider>
+          </SeriesProvider>
+        </ToastProvider>
         </ShareCardProvider>
       </WalletProvider>
     </ReownProvider>

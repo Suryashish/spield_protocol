@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, ArrowRight, TrendingUp } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
+import { useSeries } from '@/context/SeriesContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { buildMintSteps, redeemPt } from '@/lib/v2adapters';
@@ -49,22 +50,23 @@ type Mode = 'deposit' | 'redeem';
 const DepositPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, paused, trustlines, maturity, lastUpdated } = useProtocol();
+  const { isCurrentEnded, activeSeries } = useSeries();
   const { navigate } = useNav();
   const { run, runSteps, busy } = useTxAction();
-  const [mode, setMode] = useState<Mode>('deposit');
+  const [mode, setMode] = useState<Mode>(() => isCurrentEnded ? 'redeem' : 'deposit');
   const [amount, setAmount] = useState('');
 
   const usdcBalance = fromBaseUnits(balances.usdc);
   const parsed = Number(amount);
   const entered = amount !== '' && !Number.isNaN(parsed) && parsed > 0;
 
-  // Derived from the context's last successful read rather than from `Date.now()`, which is impure
-  // during render. It also gets the refresh for free: the context already polls, so this flips over
-  // on the next poll after expiry without a second timer of its own.
-  //
-  // (`PositionsPanel` computes the same thing through a module-level helper. That silences the
-  // linter without fixing the impurity — worth aligning if it is touched again.)
-  const matured = maturity !== null && lastUpdated !== null && lastUpdated / 1000 >= maturity;
+  const matured = (maturity !== null && lastUpdated !== null && lastUpdated / 1000 >= maturity) || isCurrentEnded;
+
+  useEffect(() => {
+    if (matured) {
+      setMode('redeem');
+    }
+  }, [matured]);
   // A pre-maturity redeem burns BOTH legs, so it is capped by whichever the wallet has less of.
   // After maturity only PT is burned, so PT alone is the cap.
   const redeemCapUnits = matured
@@ -98,11 +100,15 @@ const DepositPanel = () => {
       if (overBalance) return matured ? 'Insufficient PT' : 'Insufficient PT + YT';
       return matured ? 'Redeem at par' : 'Combine PT + YT';
     }
-    if (needsTrustlines) return 'Enable PT';
-    if (paused) return 'Protocol Paused';
-    if (belowMinimum) return 'Amount too small';
-    if (!amountValid) return 'Enter an amount';
-    if (overBalance) return 'Insufficient USDC';
+    if (mode === 'deposit') {
+      if (matured) return 'Series Matured (Minting Closed)';
+      if (needsTrustlines) return 'Enable PT';
+      if (paused) return 'Protocol Paused';
+      if (belowMinimum) return 'Amount too small';
+      if (!amountValid) return 'Enter an amount';
+      if (overBalance) return 'Insufficient USDC';
+      return 'Deposit & Mint';
+    }
     return 'Deposit & Mint';
   }, [
     mode,
@@ -123,7 +129,7 @@ const DepositPanel = () => {
       (mode === 'redeem'
         ? // No pause gate: exits stay open.
           !onCorrectNetwork || !amountValid || overBalance
-        : !needsTrustlines && (!onCorrectNetwork || paused || !amountValid || overBalance)));
+        : matured || !needsTrustlines && (!onCorrectNetwork || paused || !amountValid || overBalance)));
 
   const handleClick = async () => {
     if (!isConnected || !address) {
@@ -200,11 +206,19 @@ const DepositPanel = () => {
               )}
             >
               <span className="block">
-                {m === 'deposit' ? 'Deposit' : matured ? 'Redeem' : 'Combine'}
+                {m === 'deposit'
+                  ? matured
+                    ? 'Deposit (Closed)'
+                    : 'Deposit'
+                  : matured
+                    ? 'Redeem'
+                    : 'Combine'}
               </span>
               <span className="block text-[10px] opacity-70">
                 {m === 'deposit'
-                  ? 'USDC → PT + YT'
+                  ? matured
+                    ? 'Series Matured'
+                    : 'USDC → PT + YT'
                   : matured
                     ? 'PT → USDC'
                     : 'PT + YT → USDC'}
@@ -212,6 +226,20 @@ const DepositPanel = () => {
             </button>
           ))}
         </div>
+
+        {/* Notice if deposit selected while matured */}
+        {mode === 'deposit' && matured && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
+            <div>
+              <p className="font-semibold text-amber-100">Minting is closed for {activeSeries.name}</p>
+              <p className="mt-0.5 text-amber-200/90 leading-relaxed">
+                This series reached maturity on {activeSeries.maturityDate}. New deposits and mints are disabled on chain.
+                Switch to the <strong>Redeem</strong> tab to redeem PT at par, or select a live series above.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Pay */}
         {mode === 'deposit' ? (

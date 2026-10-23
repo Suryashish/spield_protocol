@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 
 import { IS_MAINNET_DEMO, SR_CONTRACTS } from '@/lib/config';
 import { useProtocol } from '@/context/ProtocolContext';
+import { useSeries } from '@/context/SeriesContext';
 
 const fmt = (unix: number): string =>
   new Date(unix * 1000).toLocaleString(undefined, {
@@ -34,7 +35,10 @@ const DemoBanner = () => {
     return () => clearInterval(t);
   }, []);
 
-  if (!IS_MAINNET_DEMO) return null;
+  const { activeSeries } = useSeries();
+  const isDemoActive = IS_MAINNET_DEMO || activeSeries.id === 'mainnet-demo';
+
+  if (!isDemoActive) return null;
 
   const expired = maturity != null && maturity * 1000 <= now;
 

@@ -3,6 +3,7 @@ import { Percent, CalendarClock, Gauge, Wallet2 } from 'lucide-react';
 import StatTile from './StatTile';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
+import { useSeries } from '@/context/SeriesContext';
 import { formatUsd } from '@/lib/soroban';
 import { VAULT_DEPLOYED } from '@/lib/config';
 
@@ -33,10 +34,11 @@ const maturityLabel = (maturity: number | null): { value: string; sub: string } 
 const VaultStatsStrip = () => {
   const { isConnected } = useWallet();
   const { vaultStats, receipts, loading } = useProtocol();
+  const { activeSeries } = useSeries();
 
-  const mat = maturityLabel(vaultStats?.maturity ?? null);
+  const mat = maturityLabel(vaultStats?.maturity ?? activeSeries.expiry);
   const yoursTotal = receipts.reduce((sum, r) => sum + r.payout, 0n);
-  const rateBps = vaultStats?.rateBps ?? 0;
+  const rateBps = vaultStats?.rateBps ?? Math.round(activeSeries.fixedAprPct * 100);
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

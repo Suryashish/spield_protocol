@@ -8,6 +8,7 @@ import { SITE_ORIGIN } from '@/lib/site';
 
 import BrandMark from './BrandMark';
 import ThemeToggle from './ThemeToggle';
+import SeriesHeaderControl from './SeriesHeaderControl';
 
 /**
  * The wallet control. Both states are the same pill — hairline, surface, the
@@ -171,6 +172,7 @@ const Header = ({ section = 'Overview' }: HeaderProps) => {
       </nav>
 
       <div className="flex items-center gap-2">
+        <SeriesHeaderControl />
         <ThemeToggle />
         <WalletMenu />
       </div>

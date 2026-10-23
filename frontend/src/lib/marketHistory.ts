@@ -5,10 +5,9 @@ import { CONTRACTS, SR_CONTRACTS } from './config';
 /**
  * The market whose swap history backfills the price chart.
  *
- * Points at the PT/SR pool. Its `swap` event keeps the same topic name as v1's, so the decoder
- * below is unchanged — only the source moved.
+ * Sourced dynamically from the active series market.
  */
-const MARKET_HISTORY_CONTRACT: string = SR_CONTRACTS?.market ?? CONTRACTS.market;
+const getMarketHistoryContract = (): string => SR_CONTRACTS?.market ?? CONTRACTS.market;
 import { server } from './soroban';
 
 /**
@@ -37,7 +36,8 @@ import { server } from './soroban';
 
 const SCALE_12 = 10n ** 12n;
 
-const LS_KEY = 'spield.marketHistory.v1';
+const getMarketHistoryStorageKey = (): string =>
+  `spield.marketHistory.v1.${getMarketHistoryContract()}`;
 
 /** Same lookback tiers as the activity / yield feeds — testnet RPC retains a bounded window. */
 const LOOKBACK_TIERS = [9000, 4000, 1000];
@@ -88,7 +88,7 @@ type StoredSample = { t: number; ptPrice: string; impliedApy: string };
 
 const loadStored = (): MarketSample[] => {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(getMarketHistoryStorageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredSample[];
     if (!Array.isArray(parsed)) return [];
@@ -116,7 +116,7 @@ const saveStored = (samples: MarketSample[]) => {
       ptPrice: s.ptPrice.toString(),
       impliedApy: s.impliedApy.toString(),
     }));
-    localStorage.setItem(LS_KEY, JSON.stringify(serializable));
+    localStorage.setItem(getMarketHistoryStorageKey(), JSON.stringify(serializable));
   } catch {
     // Storage unavailable / quota — non-fatal; the chart still renders this session.
   }
@@ -163,7 +163,7 @@ const sampleFromEvents = async (): Promise<MarketSample[]> => {
     try {
       const raw = await server.getEvents({
         startLedger,
-        filters: [{ type: 'contract', contractIds: [MARKET_HISTORY_CONTRACT] }],
+        filters: [{ type: 'contract', contractIds: [getMarketHistoryContract()] }],
         limit: 100,
       });
       events = raw.events ?? [];

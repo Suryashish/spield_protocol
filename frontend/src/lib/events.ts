@@ -11,29 +11,24 @@ import {
 /**
  * The contracts whose events make up the feed — the ones that actually hold or move user funds.
  *
- * Falls back to an empty list where the SR stack is not deployed, which makes every fetch below a
- * no-op rather than a crash, and the feed renders its empty state.
+ * Computed dynamically from active series contracts so switching series updates the feed.
  */
-const ACTIVITY_CONTRACTS: string[] = SR_CONTRACTS
-  ? [SR_CONTRACTS.sr, SR_CONTRACTS.yieldEngine, SR_CONTRACTS.market, SR_CONTRACTS.vault].filter(
-      (c): c is string => Boolean(c) && !c.startsWith('__'),
-    )
-  : [];
+export const getActivityContracts = (): string[] =>
+  SR_CONTRACTS
+    ? [SR_CONTRACTS.sr, SR_CONTRACTS.yieldEngine, SR_CONTRACTS.market, SR_CONTRACTS.vault].filter(
+        (c): c is string => Boolean(c) && !c.startsWith('__'),
+      )
+    : [];
 
 /**
  * Everything the feed READS: the fund-holding contracts above, plus the router.
- *
- * The router holds nothing, but it is the only contract that knows what a routed call was *for*: it
- * names the wallet behind it and states the amounts in USDC. The contracts underneath see only the
- * router and its SR. See {@link toActivities} for how the two are reconciled.
- *
- * Five ids, which is also the most one `getEvents` filter accepts. A sixth contract needs a second
- * filter, not a longer list.
  */
-const EVENT_CONTRACTS: string[] =
-  SR_CONTRACTS?.router && !SR_CONTRACTS.router.startsWith('__')
-    ? [...ACTIVITY_CONTRACTS, SR_CONTRACTS.router]
-    : ACTIVITY_CONTRACTS;
+export const getEventContracts = (): string[] => {
+  const base = getActivityContracts();
+  return SR_CONTRACTS?.router && !SR_CONTRACTS.router.startsWith('__')
+    ? [...base, SR_CONTRACTS.router]
+    : base;
+};
 import { server } from './soroban';
 
 /**
@@ -218,11 +213,13 @@ const readBody = (body: Record<string, unknown>) => ({
 const fetchRpcEvents = async (): Promise<RawEvent[]> => {
   // Discover the oldest ledger the RPC still retains by deliberately asking for one
   // that's too old and reading the range out of the error.
+  const eventContracts = getEventContracts();
+  if (eventContracts.length === 0) return [];
   let startLedger = 1;
   try {
     await server.getEvents({
       startLedger: 1,
-      filters: [{ type: 'contract', contractIds: EVENT_CONTRACTS }],
+      filters: [{ type: 'contract', contractIds: eventContracts }],
       limit: 1,
     });
     // No error → ledger 1 is somehow in range (fresh network); start from 1.
@@ -249,13 +246,13 @@ const fetchRpcEvents = async (): Promise<RawEvent[]> => {
       raw = await server.getEvents(
         cursor
           ? {
-              filters: [{ type: 'contract', contractIds: EVENT_CONTRACTS }],
+              filters: [{ type: 'contract', contractIds: eventContracts }],
               cursor,
               limit: 100,
             }
           : {
               startLedger,
-              filters: [{ type: 'contract', contractIds: EVENT_CONTRACTS }],
+              filters: [{ type: 'contract', contractIds: eventContracts }],
               limit: 100,
             },
       );
@@ -306,8 +303,9 @@ const fetchExplorerEvents = async (): Promise<RawEvent[]> => {
     // Always the proxy's maximum, whatever the feed goes on to show. One user action is several
     // events across several contracts, and a short page can cut a transaction in half — leaving its
     // plumbing on screen without the router event that explains it.
+    const eventContracts = getEventContracts();
     const res = await fetch(
-      `${BACKEND_URL}/activity?contract=${EVENT_CONTRACTS.join(',')}&network=${network}&limit=100`,
+      `${BACKEND_URL}/activity?contract=${eventContracts.join(',')}&network=${network}&limit=100`,
     );
     if (!res.ok) return [];
     const json = (await res.json()) as { records?: ExplorerEvent[] };
@@ -343,7 +341,7 @@ const fetchExplorerEvents = async (): Promise<RawEvent[]> => {
       body,
       at: rec.ts,
       // Explorer events don't carry a tx hash here — link to the contract page.
-      explorerUrl: explorerContract(ACTIVITY_CONTRACTS[0] ?? ''),
+      explorerUrl: explorerContract(getActivityContracts()[0] ?? ''),
       // Use the timestamp as a monotonic sort key (newest-first).
       ledger: rec.ts,
     });

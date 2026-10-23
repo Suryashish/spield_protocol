@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from 'react';
 
 import { useWallet } from '@/context/WalletContext';
+import { useSeries } from '@/context/SeriesContext';
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // SOURCED FROM v2 (the SR stack), 2026-08-25.
 //
@@ -89,6 +90,7 @@ const ProtocolContext = createContext<ProtocolContextValue | undefined>(undefine
 
 export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   const { address, isConnected } = useWallet();
+  const { activeSeriesId } = useSeries();
 
   const [positions, setPositions] = useState<PositionValue[]>([]);
   const [balances, setBalances] = useState<Balances>(EMPTY_BALANCES);
@@ -195,14 +197,19 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
     [address, isConnected],
   );
 
-  // Initial load + reload whenever the connected account changes. This is a
-  // legitimate data-fetch effect (loading state is set inside the async `load`).
+  // Initial load + reload whenever the connected account or active series changes.
   useEffect(() => {
-    const key = isConnected && address ? address : '__disconnected__';
+    const key = `${isConnected && address ? address : '__disconnected__'}:${activeSeriesId}`;
     if (initialLoadKey.current === key) return;
     initialLoadKey.current = key;
+    // Clear previous series state so old values don't flicker
+    setPositions([]);
+    setReceipts([]);
+    setVaultStats(null);
+    setMarketStats(null);
+    setLpPosition(null);
     void load(true, true);
-  }, [address, isConnected, load]);
+  }, [address, isConnected, activeSeriesId, load]);
 
   // Explicit/user-initiated refreshes (including post-transaction refreshes)
   // include wallet details. The background poll below deliberately does not:

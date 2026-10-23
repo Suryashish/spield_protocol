@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
+import { useSeries } from '@/context/SeriesContext';
 import { useNav } from '@/context/NavContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { type Quote } from '@/lib/vault';
@@ -34,11 +35,14 @@ const fmtMaturity = (unix: number): string =>
 const VaultPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, paused, vaultStats } = useProtocol();
+  const { isCurrentEnded, activeSeries } = useSeries();
   const { navigate } = useNav();
   const { run, busy } = useTxAction();
   const [amount, setAmount] = useState('');
   const [liveQuote, setLiveQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
+
+  const matured = isCurrentEnded || (vaultStats?.maturity !== undefined && (Date.now() / 1000) >= vaultStats.maturity);
 
   const usdcBalance = fromBaseUnits(balances.usdc);
   const parsed = Number(amount);
@@ -96,13 +100,14 @@ const VaultPanel = () => {
     if (!VAULT_DEPLOYED) return 'Vault not deployed';
     if (!isConnected) return 'Connect Wallet';
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
+    if (matured) return 'Vault Matured (Deposits Closed)';
     if (paused) return 'Protocol Paused';
     if (noCapacity) return 'Not accepting deposits';
     if (!amountValid) return 'Enter an amount';
     if (overBalance) return 'Insufficient USDC';
     if (overCapacity) return 'Exceeds vault capacity';
     return 'Lock Fixed Rate';
-  }, [isConnected, onCorrectNetwork, paused, noCapacity, amountValid, overBalance, overCapacity]);
+  }, [isConnected, onCorrectNetwork, matured, paused, noCapacity, amountValid, overBalance, overCapacity]);
 
   // The trustline step needs no amount, so it stays enabled regardless of amount/capacity;
   // every other deposit precondition only applies once trustlines are in place.
@@ -110,6 +115,7 @@ const VaultPanel = () => {
     !VAULT_DEPLOYED ||
     busy ||
     connecting ||
+    matured ||
     noCapacity ||
     (isConnected && (!onCorrectNetwork || paused || !amountValid || overBalance || overCapacity));
 
@@ -151,6 +157,17 @@ const VaultPanel = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {matured && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
+            <div>
+              <p className="font-semibold text-amber-100">{activeSeries.name} Vault is Matured</p>
+              <p className="mt-0.5 text-amber-200/90 leading-relaxed">
+                This vault reached maturity on {activeSeries.maturityDate}. New deposits are closed. If you have an open receipt, you can redeem your payout in full in the Open Receipts section.
+              </p>
+            </div>
+          </div>
+        )}
         {/* Deposit: USDC */}
         <AmountField
           label="Deposit"

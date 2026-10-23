@@ -3,6 +3,7 @@ import { Wallet2, Layers, Sparkles, CalendarClock } from 'lucide-react';
 import StatTile from './StatTile';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useWallet } from '@/context/WalletContext';
+import { useSeries } from '@/context/SeriesContext';
 import { formatUsd, formatAmount } from '@/lib/soroban';
 
 /** Days until (or since) maturity, formatted as a short countdown + date. */
@@ -33,7 +34,8 @@ const maturityLabel = (maturity: number | null): { value: string; sub: string } 
 const DepositStatsStrip = () => {
   const { isConnected } = useWallet();
   const { balances, maturity, loading } = useProtocol();
-  const mat = maturityLabel(maturity);
+  const { activeSeries } = useSeries();
+  const mat = maturityLabel(maturity ?? activeSeries.expiry);
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

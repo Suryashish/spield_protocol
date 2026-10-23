@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, useEffect, type CSSProperties } from 'react';
 import { Loader2, Wallet, AlertTriangle, Droplets, Plus, Minus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
+import { useSeries } from '@/context/SeriesContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { buildAddLiquiditySteps, removeLiquidity } from '@/lib/v2adapters';
 import { setupSrPtTrustline } from '@/lib/horizon';
@@ -27,11 +28,18 @@ type Mode = 'add' | 'remove';
 const LpPanel = () => {
   const { address, isConnected, openWalletPicker, connecting, onCorrectNetwork } = useWallet();
   const { balances, marketStats: m, lpPosition, trustlines, maturity } = useProtocol();
+  const { isCurrentEnded, activeSeries } = useSeries();
   const { run, runSteps, busy } = useTxAction();
 
-  const [mode, setMode] = useState<Mode>('add');
+  const matured = isCurrentEnded || (maturity !== null && (Date.now() / 1000) >= maturity);
+
+  const [mode, setMode] = useState<Mode>(() => matured ? 'remove' : 'add');
   const [ptAmount, setPtAmount] = useState('');
   const [removePct, setRemovePct] = useState(100);
+
+  useEffect(() => {
+    if (matured) setMode('remove');
+  }, [matured]);
 
   // Current pool ratio (USDC per PT). Used to mirror the add-liquidity USDC side.
   const ratio = useMemo(() => {
@@ -60,6 +68,7 @@ const LpPanel = () => {
     if (!onCorrectNetwork) return `Switch to ${NETWORK.name}`;
     if (needsTrustlines) return 'Enable PT';
     if (mode === 'add') {
+      if (matured) return 'Series Matured (Pool Closed)';
       if (!ptValid) return 'Enter an amount';
       if (overPt) return 'Insufficient PT';
       if (overUsdc) return 'Insufficient USDC';
@@ -67,7 +76,7 @@ const LpPanel = () => {
     }
     if (!hasShares) return 'No liquidity to remove';
     return 'Remove Liquidity';
-  }, [isConnected, onCorrectNetwork, needsTrustlines, mode, ptValid, overPt, overUsdc, hasShares]);
+  }, [isConnected, onCorrectNetwork, needsTrustlines, mode, matured, ptValid, overPt, overUsdc, hasShares]);
 
   const disabled =
     !MARKET_DEPLOYED ||
@@ -76,7 +85,7 @@ const LpPanel = () => {
     (isConnected &&
       !needsTrustlines &&
       (!onCorrectNetwork ||
-        (mode === 'add' ? !ptValid || overPt || overUsdc : !hasShares || removePct <= 0)));
+        (mode === 'add' ? matured || !ptValid || overPt || overUsdc : !hasShares || removePct <= 0)));
 
   const handleClick = async () => {
     if (!isConnected || !address) {
@@ -128,6 +137,18 @@ const LpPanel = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {matured && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
+            <div>
+              <p className="font-semibold text-amber-100">{activeSeries.name} Pool is Matured</p>
+              <p className="mt-0.5 text-amber-200/90 leading-relaxed">
+                Trading on this market has ended. You can withdraw your full LP shares in the Remove tab below.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Mode toggle */}
         <div className="grid grid-cols-2 gap-1 well rounded-lg p-1">
           <button

@@ -1,3 +1,17 @@
+import {
+  ALL_SERIES,
+  getDefaultSeriesId,
+  getSeriesById,
+  getSeriesForNetwork,
+  getSeriesStatus,
+  isSeriesEnded,
+  type SeriesConfig,
+  type SeriesStatus,
+  type SrContractSet,
+} from './series';
+export type { SrContractSet, SeriesConfig, SeriesStatus };
+export { ALL_SERIES, getDefaultSeriesId, getSeriesById, getSeriesForNetwork, getSeriesStatus, isSeriesEnded };
+
 // The two Stellar network passphrases, inlined as literals rather than imported
 // from `@stellar/stellar-sdk`. These are canonical, immutable constants (see
 // .env.example / SEP-0002), and importing them from the SDK would pull the entire
@@ -67,47 +81,9 @@ type ContractSet = {
   usdc: string;
 };
 
-/**
- * The **SR stack** — Spield v2's Pendle-shaped contracts (`srstack.md`).
- *
- * Deployed alongside v1, not replacing it, so both can be pointed at from one build. The shape
- * differs from `ContractSet` in ways the UI has to respect:
- *
- * * `sr` is a **share token** over the Blend strategy — users wrap USDC into SR first, and the
- *   PT/YT engine and the AMM speak only SR. It is NOT 1:1 with USDC.
- * * `yieldEngine` **is the YT token**. There is no YT SAC and no YT trustline. Its address is what
- *   you call for `balance`, `transfer`, `claimable_interest` and `redeem_due_interest`.
- * * `pt` is still a classic-asset SAC, so a holder **does** need a PT trustline before they can
- *   receive PT. `ptAsset` carries the exact `CODE:ISSUER` pair to trust — never reconstruct it.
- */
-type SrContractSet = {
-  /** SR token (Standardized Return) — the share token users wrap USDC into. */
-  sr: string;
-  /** Blend strategy adapter behind SR. */
-  strategy: string;
-  /** PT/YT engine. **This address is also the YT token.** */
-  yieldEngine: string;
-  /** PT/SR AMM. */
-  market: string;
-  /** Fixed-Rate Vault — deposit USDC, get a guaranteed payout at maturity, backed by PT. */
-  vault: string;
-  /**
-   * SR Router — the one-transaction USDC front door. Every USDC↔PT/YT flow in the UI goes through
-   * this; the SR hop still exists underneath and stays separately callable for users who want to
-   * hold the wrapper itself. The router holds no funds and has no privileges over the contracts it
-   * composes, so a UI that routed around it would still work — it would just cost three signatures.
-   */
-  router: string;
-  /** PT Stellar Asset Contract. */
-  pt: string;
-  /** PT classic asset as `CODE:ISSUER` — required verbatim to open a trustline. */
-  ptAsset: string;
-  usdc: string;
-};
-
 type NetworkProfile = NetworkMeta & {
   contracts: ContractSet;
-  /** The v2 SR stack. `null` where it is not deployed yet (mainnet). */
+  /** The v2 SR stack. `null` where it is not deployed yet. */
   sr: SrContractSet | null;
 };
 
@@ -223,7 +199,7 @@ export const NETWORK_KEY: NetworkKey =
  * Deployed 2026-09-01 04:44:32 UTC expiry (`1788237872`), vault 300bps, cap 20 USDC,
  * vault seed 0.1 USDC, AMM 0.25/side. Set `VITE_MAINNET_DEMO=true` to point a build at it.
  */
-const MAINNET_DEMO_SR: SrContractSet | null = {
+export const MAINNET_DEMO_SR: SrContractSet | null = {
   sr: 'CAC5KUVAJENSRWLXH56JYKATIPLQPBYPABRGQERYQWZD4LNAHJZCRFQA',
   strategy: 'CDWLAKWQ3OEIBRHNUN3KHS2WS7SCJF7RY372ZLUQFKJKU4H7XTJKKWTI',
   yieldEngine: 'CDAQBKP2AAJJPHAHAUDDLNHIWIVTTWAE3VOKPAWLS3LJCIZHHH6D7P7P',
@@ -240,25 +216,65 @@ const MAINNET_DEMO_SR: SrContractSet | null = {
 /**
  * Is this build pointed at the throwaway demo series?
  *
- * Only meaningful on mainnet — on testnet the flag is ignored rather than being an error, so a
- * stray env var cannot silently repoint a testnet build at nothing.
+ * Only meaningful on mainnet — on testnet the flag is ignored rather than being an error.
  */
 export const IS_MAINNET_DEMO: boolean =
   NETWORK_KEY === 'mainnet' &&
-  env('VITE_MAINNET_DEMO', '').toLowerCase() === 'true' &&
-  MAINNET_DEMO_SR !== null;
+  env('VITE_MAINNET_DEMO', '').toLowerCase() === 'true';
 
 const baseProfile = PROFILES[NETWORK_KEY];
+const profile = baseProfile;
 
-/**
- * The active profile, with the demo SR addresses swapped in when the flag is set.
- *
- * Only `sr` changes. Passphrase, RPC, explorer and the v1 `contracts` set are all still real
- * mainnet, because the demo series *is* on real mainnet — it is a different set of contracts, not a
- * different network.
- */
-const profile: NetworkProfile =
-  IS_MAINNET_DEMO && MAINNET_DEMO_SR ? { ...baseProfile, sr: MAINNET_DEMO_SR } : baseProfile;
+/** Active series tracking with localStorage persistence. */
+const initialSeriesId = (() => {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('spield.activeSeries');
+      if (saved) {
+        const s = getSeriesById(saved);
+        if (s && s.network === NETWORK_KEY) return s.id;
+      }
+    } catch {}
+  }
+  return getDefaultSeriesId(NETWORK_KEY, IS_MAINNET_DEMO);
+})();
+
+let currentActiveSeriesId: string = initialSeriesId;
+
+export const getActiveSeriesId = (): string => currentActiveSeriesId;
+
+export const setActiveSeriesId = (id: string): void => {
+  const s = getSeriesById(id);
+  if (s) {
+    currentActiveSeriesId = id;
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('spield.activeSeries', id);
+      } catch {}
+    }
+  }
+};
+
+export const getActiveSeries = (): SeriesConfig => {
+  const s = getSeriesById(currentActiveSeriesId);
+  if (s) return s;
+  return getSeriesById(getDefaultSeriesId(NETWORK_KEY, IS_MAINNET_DEMO))!;
+};
+
+export const getActiveSrContracts = (): SrContractSet => {
+  const series = getActiveSeries();
+  return {
+    sr: env('VITE_SR', series.contracts.sr),
+    strategy: env('VITE_SR_STRATEGY', series.contracts.strategy),
+    yieldEngine: env('VITE_SR_YIELD', series.contracts.yieldEngine),
+    market: env('VITE_SR_MARKET', series.contracts.market),
+    vault: env('VITE_SR_VAULT', series.contracts.vault),
+    router: env('VITE_SR_ROUTER', series.contracts.router),
+    pt: env('VITE_SR_PT', series.contracts.pt),
+    ptAsset: env('VITE_SR_PT_ASSET', series.contracts.ptAsset),
+    usdc: env('VITE_SR_USDC', series.contracts.usdc),
+  };
+};
 
 /** Active network metadata (passphrase, RPC, Horizon, explorer, wallet name). */
 export const NETWORK = {
@@ -271,14 +287,6 @@ export const NETWORK = {
 
 /**
  * Every Soroban RPC endpoint for this network, primary first.
- *
- * `lib/soroban.ts` walks this list on transport failures. Fallbacks are **mainnet only** and come
- * from `VITE_RPC_URL_FALLBACK` (comma-separated), because provider URLs normally embed an API key
- * and the tracked `.env` deliberately holds only public values — put it in `.env.local`.
- *
- * A `VITE_*` value is inlined into the built bundle by Vite, so anyone loading the app can read it.
- * That is unavoidable for a browser-side RPC; restrict the key by domain at the provider instead of
- * expecting it to stay secret.
  */
 export const RPC_URLS: readonly string[] = [
   ...new Set(
@@ -296,52 +304,43 @@ export const RPC_URLS: readonly string[] = [
 
 /**
  * RPC endpoints for **writes**, in preference order — the dedicated endpoint first.
- *
- * Reads and writes want different things from an endpoint. A read only needs an answer; a write
- * needs *read-your-writes* consistency, because a multi-transaction flow (wrap → mint, wrap → add
- * liquidity) fetches the account sequence for step 2 immediately after step 1 lands.
- *
- * A public endpoint like `mainnet.sorobanrpc.com` load-balances across nodes with independent
- * ingestion, so `getTransaction` can be answered by a node that has applied the transaction while
- * `getAccount` is answered by one that has not. Step 2 then builds on a stale sequence and is
- * rejected — the "fails the first time, works if I try again two seconds later" report. A dedicated
- * endpoint does not fan out that way, so putting it first removes the race at its source.
- *
- * Falls back to the same list as reads, so a build with no dedicated endpoint still works.
  */
 export const RPC_WRITE_URLS: readonly string[] = [
   ...new Set([...RPC_URLS.slice(1), ...RPC_URLS]),
 ];
 
 /**
- * The v2 **SR stack** addresses for the active network, or `null` where it is not deployed.
- * Live on testnet and, since 2026-09-01, on mainnet.
- *
- * Guard every use with {@link SR_DEPLOYED}. It is non-null on **both** networks as of the
- * 2026-09-01 mainnet launch, but keep the guard: a future network, or an env override that blanks
- * an address, brings the null branch back, and the SR client (`lib/srstack.ts`) turns every call
- * into a safe no-op so the UI renders an unavailable state instead of throwing.
+ * The v2 **SR stack** addresses for the active network.
+ * Uses a Proxy over `getActiveSrContracts()` so every module importing `SR_CONTRACTS`
+ * transparently accesses the currently selected series!
  */
-export const SR_CONTRACTS = profile.sr
-  ? {
-      sr: env('VITE_SR', profile.sr.sr),
-      strategy: env('VITE_SR_STRATEGY', profile.sr.strategy),
-      /** The PT/YT engine. **This same address is the YT token** — there is no separate YT SAC. */
-      yieldEngine: env('VITE_SR_YIELD', profile.sr.yieldEngine),
-      market: env('VITE_SR_MARKET', profile.sr.market),
-      /** Fixed-Rate Vault. */
-      vault: env('VITE_SR_VAULT', profile.sr.vault),
-      /** SR Router — the one-transaction USDC front door for every PT/YT trade. */
-      router: env('VITE_SR_ROUTER', profile.sr.router),
-      pt: env('VITE_SR_PT', profile.sr.pt),
-      /** `CODE:ISSUER` for the PT trustline. Use verbatim; do not rebuild it from parts. */
-      ptAsset: env('VITE_SR_PT_ASSET', profile.sr.ptAsset),
-      usdc: env('VITE_SR_USDC', profile.sr.usdc),
-    }
-  : null;
+export const SR_CONTRACTS: SrContractSet = new Proxy({} as SrContractSet, {
+  get(_target, prop) {
+    const active = getActiveSrContracts();
+    return (active as Record<string | symbol, any>)[prop];
+  },
+  has(_target, prop) {
+    const active = getActiveSrContracts();
+    return prop in active;
+  },
+  ownKeys(_target) {
+    const active = getActiveSrContracts();
+    return Reflect.ownKeys(active);
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const active = getActiveSrContracts();
+    if (!active || !(prop in active)) return undefined;
+    return {
+      value: (active as Record<string | symbol, any>)[prop],
+      writable: false,
+      enumerable: true,
+      configurable: true,
+    };
+  },
+});
 
 /** Whether the v2 SR stack is available on this network. */
-export const SR_DEPLOYED: boolean = SR_CONTRACTS !== null;
+export const SR_DEPLOYED: boolean = true;
 
 /** Deployed Spield contract + asset addresses for the active network. */
 export const CONTRACTS = {

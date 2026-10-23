@@ -5,12 +5,9 @@ import { CONTRACTS, NETWORK_KEY, SR_CONTRACTS } from './config';
 /**
  * The contract whose rate history drives the yield chart.
  *
- * v2's yield oracle is the SR wrapper — its `exchange_rate` is the monotonic high-water mark every
- * other contract prices against — so that is what the series is read from. Falls back to the v1
- * wrapper only where the SR stack is not deployed, which keeps the chart working on a network that
- * has one and not the other rather than rendering blank.
+ * Sourced dynamically from the active series SR wrapper.
  */
-const YIELD_HISTORY_CONTRACT: string = SR_CONTRACTS?.sr ?? CONTRACTS.wrapper;
+const getYieldHistoryContract = (): string => SR_CONTRACTS?.sr ?? CONTRACTS.wrapper;
 import { server } from './soroban';
 import { getCurrentRate } from './spield';
 
@@ -42,17 +39,9 @@ import { getCurrentRate } from './spield';
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
 /**
- * Storage key — namespaced by **network and contract**, which v2 was not.
- *
- * v2 used one global bucket, so a browser that had opened both testnet and mainnet merged two
- * unrelated rate series into a single array. The two chains have different `b_rate` bases, so the
- * seam between them looks like an enormous instantaneous jump, and every statistic taken across it
- * is nonsense. That is the main reason the same dashboard showed a different realized APY on every
- * machine: the number was a function of which networks that particular browser had visited.
- *
- * The `v3` bump abandons every poisoned v2 bucket rather than trying to repair it.
+ * Storage key — namespaced by **network and contract**, per series.
  */
-const LS_KEY = `spield.rateHistory.v3.${NETWORK_KEY}.${YIELD_HISTORY_CONTRACT}`;
+const getRateStorageKey = (): string => `spield.rateHistory.v3.${NETWORK_KEY}.${getYieldHistoryContract()}`;
 
 /** Same lookback tiers as the activity feed — testnet RPC retains a bounded window. */
 const LOOKBACK_TIERS = [9000, 4000, 1000];
@@ -111,7 +100,7 @@ type StoredSample = { t: number; rate: string };
 
 const loadStored = (): RateSample[] => {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(getRateStorageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredSample[];
     if (!Array.isArray(parsed)) return [];
@@ -134,7 +123,7 @@ const loadStored = (): RateSample[] => {
 const saveStored = (samples: RateSample[]) => {
   try {
     const serializable: StoredSample[] = samples.map((s) => ({ t: s.t, rate: s.rate.toString() }));
-    localStorage.setItem(LS_KEY, JSON.stringify(serializable));
+    localStorage.setItem(getRateStorageKey(), JSON.stringify(serializable));
   } catch {
     // Storage unavailable / quota — non-fatal; the chart still renders this session.
   }
@@ -175,7 +164,7 @@ const sampleFromEvents = async (): Promise<RateSample[]> => {
     try {
       const raw = await server.getEvents({
         startLedger,
-        filters: [{ type: 'contract', contractIds: [YIELD_HISTORY_CONTRACT] }],
+        filters: [{ type: 'contract', contractIds: [getYieldHistoryContract()] }],
         limit: 100,
       });
       events = raw.events ?? [];
