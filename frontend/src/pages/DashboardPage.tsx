@@ -15,6 +15,9 @@ import BottomNav from '@/components/dashboard/layout/BottomNav';
 import DemoBanner from '@/components/dashboard/layout/DemoBanner';
 import Header from '@/components/dashboard/layout/Header';
 import HowItWorksModal from '@/components/dashboard/layout/HowItWorksModal';
+import InteractiveAppTour from '@/components/dashboard/guide/InteractiveAppTour';
+import { useTutorial } from '@/context/TutorialContext';
+import { APP_TOUR_STEPS } from '@/components/dashboard/guide/tourSteps';
 import StatsGrid from '@/components/dashboard/sections/StatsGrid';
 import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
 import YieldChart from '@/components/dashboard/sections/YieldChart';
@@ -164,7 +167,9 @@ const LastUpdated = () => {
 
 const OverviewSection = () => (
   <div className="space-y-6">
-    <StatsGrid />
+    <div data-tour="overview-stats">
+      <StatsGrid />
+    </div>
     <YieldChart />
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
       <div className="lg:col-span-8">
@@ -181,7 +186,7 @@ const DepositSection = () => (
   <div className="space-y-6">
     <DepositStatsStrip />
     <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
-      <div className="lg:col-span-5">
+      <div className="lg:col-span-5" data-tour="deposit-panel">
         <DepositPanel />
       </div>
       <div className="lg:col-span-7">
@@ -195,7 +200,7 @@ const VaultSection = () => (
   <div className="space-y-6">
     <VaultStatsStrip />
     <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
-      <div className="lg:col-span-5">
+      <div className="lg:col-span-5" data-tour="vault-panel">
         <VaultPanel />
       </div>
       <div className="lg:col-span-7">
@@ -211,7 +216,7 @@ const MarketsSection = () => (
       <div className="lg:col-span-8">
         <MarketChart />
       </div>
-      <div className="lg:col-span-4">
+      <div className="lg:col-span-4" data-tour="markets-panel">
         <SrTradePanel />
       </div>
     </div>
@@ -222,7 +227,7 @@ const LiquiditySection = () => (
   <div className="space-y-6">
     <LpStatsStrip />
     <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
-      <div className="lg:col-span-5">
+      <div className="lg:col-span-5" data-tour="liquidity-panel">
         <LpPanel />
       </div>
       <div className="lg:col-span-7">
@@ -233,7 +238,7 @@ const LiquiditySection = () => (
 );
 
 const SolvencySection = () => (
-  <div className="space-y-6">
+  <div className="space-y-6" data-tour="solvency-panel">
     <SolvencyCard />
     {/* Solvency proof and risk disclosure belong on the same page: one says what holds today, the
         other says what would break it. Showing the first without the second is the shape of most
@@ -251,7 +256,11 @@ const SolvencySection = () => (
  * claimable figure and the Solvency page's numbers. What is left is the job nothing else covers:
  * seeing accrued yield and taking it, without giving up the position.
  */
-const YieldSection = () => <SrYieldPanel />;
+const YieldSection = () => (
+  <div data-tour="yield-panel">
+    <SrYieldPanel />
+  </div>
+);
 
 /**
  * The SR wrapper, on its own page. Separate from trading on purpose: it is a different job (hold a
@@ -259,7 +268,7 @@ const YieldSection = () => <SrYieldPanel />;
  * what made v2 read as a two-step protocol when it is not.
  */
 const SrWrapSection = () => (
-  <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+  <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12" data-tour="srwrap-panel">
     <div className="lg:col-span-5">
       <SrWrapPanel />
     </div>
@@ -294,6 +303,12 @@ const DashboardPage = () => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const { refresh, refreshing, stale } = useProtocol();
+  const { startTour } = useTutorial();
+
+  const handleHowItWorksClick = () => {
+    const idx = APP_TOUR_STEPS.findIndex((s) => s.route === `/${nav.id}`);
+    startTour(idx !== -1 ? idx : 0);
+  };
 
   // Derive the active section from the URL path segment (e.g. /vault -> vault)
   const activeNav = useMemo(() => {
@@ -385,7 +400,7 @@ const DashboardPage = () => {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setHowItWorksOpen(true)}
+                      onClick={handleHowItWorksClick}
                       className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-card/60 px-3 text-[12px] font-medium text-foreground shadow-float-sm backdrop-blur transition-all duration-200 hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:text-brand-text active:scale-95"
                     >
                       <HelpCircle size={13} className="text-brand-text" />
@@ -440,6 +455,9 @@ const DashboardPage = () => {
           onOpenChange={setHowItWorksOpen}
           sectionId={nav.id}
         />
+
+        {/* Real in-app interactive tour with spotlight and contextual pop-up models */}
+        <InteractiveAppTour />
       </div>
     </NavProvider>
   );

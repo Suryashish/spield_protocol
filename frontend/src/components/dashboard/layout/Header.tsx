@@ -1,14 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2 } from 'lucide-react';
+import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2, Compass } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
+import { useTutorial } from '@/context/TutorialContext';
 import { shortenAddress } from '@/lib/stellar';
 import { SITE_ORIGIN } from '@/lib/site';
 
 import BrandMark from './BrandMark';
 import ThemeToggle from './ThemeToggle';
 import SeriesHeaderControl from './SeriesHeaderControl';
+
+/**
+ * Restart tutorial / App guide button in the top bar.
+ */
+const TutorialHeaderButton = () => {
+  const { restartTutorial } = useTutorial();
+  return (
+    <button
+      type="button"
+      onClick={restartTutorial}
+      title="Restart App Tutorial & Walkthrough"
+      aria-label="Restart App Tutorial"
+      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-medium text-foreground shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:text-brand-text active:scale-95"
+    >
+      <Compass size={14} className="text-brand-text" />
+      <span className="hidden sm:inline">Guide</span>
+    </button>
+  );
+};
 
 /**
  * The wallet control. Both states are the same pill — hairline, surface, the
@@ -65,7 +85,7 @@ const WalletMenu = () => {
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-col items-end gap-1" data-tour="wallet-menu">
         <button type="button" onClick={openWalletPicker} disabled={connecting} className={pill}>
           {connecting ? (
             <Loader2 size={14} className="animate-spin text-brand-text" />
@@ -88,7 +108,7 @@ const WalletMenu = () => {
   }
 
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={menuRef} className="relative" data-tour="wallet-menu">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -172,6 +192,7 @@ const Header = ({ section = 'Overview' }: HeaderProps) => {
       </nav>
 
       <div className="flex items-center gap-2">
+        <TutorialHeaderButton />
         <SeriesHeaderControl />
         <ThemeToggle />
         <WalletMenu />

@@ -9,6 +9,7 @@ import { ProtocolProvider } from '@/context/ProtocolContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { ShareCardProvider } from '@/context/ShareCardContext';
 import { ReownProvider } from '@/context/ReownContext';
+import { TutorialProvider } from '@/context/TutorialContext';
 
 /**
  * `<Navigate>` that carries the query string across.
@@ -62,29 +63,31 @@ export default function DashboardApp() {
           <ToastProvider>
             <SeriesProvider>
               <ProtocolProvider>
-              <Routes>
-                <Route path="/" element={<RedirectPreservingQuery to="/overview" />} />
+                <TutorialProvider>
+                  <Routes>
+                    <Route path="/" element={<RedirectPreservingQuery to="/overview" />} />
 
-                {/* Derived from NAV_ITEMS, not hand-listed.
-                    These were nine literal <Route> lines, which meant a new nav entry needed an edit
-                    in two files. Adding "SR Wrapper" and forgetting this one made the sidebar link
-                    bounce straight back to Overview via the catch-all below — a dead nav item with no
-                    error to explain it. Generating them removes the second edit, so the sidebar and
-                    the router cannot disagree again. */}
-                {NAV_ITEMS.map((item) => (
-                  <Route key={item.id} path={`/${item.id}`} element={<DashboardPage />} />
-                ))}
+                    {/* Derived from NAV_ITEMS, not hand-listed.
+                        These were nine literal <Route> lines, which meant a new nav entry needed an edit
+                        in two files. Adding "SR Wrapper" and forgetting this one made the sidebar link
+                        bounce straight back to Overview via the catch-all below — a dead nav item with no
+                        error to explain it. Generating them removes the second edit, so the sidebar and
+                        the router cannot disagree again. */}
+                    {NAV_ITEMS.map((item) => (
+                      <Route key={item.id} path={`/${item.id}`} element={<DashboardPage />} />
+                    ))}
 
-                {/* Legacy links from when the app lived at spield.live/dashboard. */}
-                <Route path="/dashboard/*" element={<LegacyDashboardRedirect />} />
+                    {/* Legacy links from when the app lived at spield.live/dashboard. */}
+                    <Route path="/dashboard/*" element={<LegacyDashboardRedirect />} />
 
-                {/* Anything else (including the marketing paths this build no
-                    longer serves) falls back to the overview rather than a blank
-                    screen — the SPA rewrite means unknown URLs reach React. */}
-                <Route path="*" element={<RedirectPreservingQuery to="/overview" />} />
-              </Routes>
-            </ProtocolProvider>
-          </SeriesProvider>
+                    {/* Anything else (including the marketing paths this build no
+                        longer serves) falls back to the overview rather than a blank
+                        screen — the SPA rewrite means unknown URLs reach React. */}
+                    <Route path="*" element={<RedirectPreservingQuery to="/overview" />} />
+                  </Routes>
+                </TutorialProvider>
+              </ProtocolProvider>
+            </SeriesProvider>
         </ToastProvider>
         </ShareCardProvider>
       </WalletProvider>

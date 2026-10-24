@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MoreHorizontal, X, ArrowUpRight } from 'lucide-react';
+import { MoreHorizontal, X, ArrowUpRight, Compass } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { NETWORK } from '@/lib/config';
 import { SITE_ORIGIN } from '@/lib/site';
+import { useTutorial } from '@/context/TutorialContext';
 
 import { NAV_ITEMS, NAV_GROUPS, type NavItem } from '../data';
 
@@ -82,6 +83,7 @@ type BottomNavProps = {
 };
 
 const BottomNav = ({ activeNav, onNavChange, moreOpen, onMoreOpenChange }: BottomNavProps) => {
+  const { restartTutorial } = useTutorial();
   const primary = PRIMARY_IDS.map((id) => NAV_ITEMS.find((n) => n.id === id)).filter(
     (n): n is NavItem => Boolean(n),
   );
@@ -200,9 +202,27 @@ const BottomNav = ({ activeNav, onNavChange, moreOpen, onMoreOpenChange }: Botto
                   );
                 })}
 
+                {/* Restart Tutorial Guide button */}
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onMoreOpenChange(false);
+                      restartTutorial();
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-border/80 bg-sunken/60 px-3.5 py-2.5 text-left text-xs font-medium text-foreground transition-all hover:border-brand/40 active:scale-[0.99]"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Compass size={15} className="text-brand-text" />
+                      <span>App Tutorial & Interactive Guide</span>
+                    </span>
+                    <span className="text-[11px] font-semibold text-brand-text">Open Guide →</span>
+                  </button>
+                </div>
+
                 {/* The rail's footer had to go somewhere: the live network and
                     the way back to the marketing site. */}
-                <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
+                <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
                   <span className="flex items-center gap-2">
                     <span className="pulse-dot" />
                     <span className="eyebrow text-muted-foreground">

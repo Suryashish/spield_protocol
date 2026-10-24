@@ -1,10 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronsLeft, ArrowUpRight } from 'lucide-react';
+import { ChevronsLeft, ArrowUpRight, Compass } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { NETWORK } from '@/lib/config';
 import { SITE_ORIGIN } from '@/lib/site';
+import { useTutorial } from '@/context/TutorialContext';
 
 import BrandMark from './BrandMark';
 import { NAV_ITEMS, NAV_GROUPS, type NavItem } from '../data';
@@ -85,6 +86,7 @@ type SidebarProps = {
 };
 
 const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) => {
+  const { restartTutorial } = useTutorial();
   return (
     <>
       {/* ----------------------------------------------------- desktop (lg+) */}
@@ -186,13 +188,28 @@ const Sidebar = ({ collapsed, onToggle, activeNav, onNavChange }: SidebarProps) 
           })}
         </nav>
 
-        {/* Footer: the live network badge, and the way back to the site */}
+        {/* Footer: tutorial guide, live network badge, and the way back to the site */}
         <div
           className={cn(
             'flex shrink-0 flex-col gap-1 border-t border-border py-3',
             collapsed ? 'items-center px-2' : 'px-3',
           )}
         >
+          <button
+            type="button"
+            onClick={restartTutorial}
+            title={collapsed ? 'Restart App Tutorial & Guide' : undefined}
+            className={cn(
+              'group flex items-center rounded-lg text-xs font-medium text-muted-foreground transition-all duration-200 hover:text-foreground hover:bg-accent/60',
+              collapsed ? 'h-9 w-9 justify-center' : 'w-full gap-2 px-2.5 py-1.5',
+            )}
+          >
+            <Compass
+              size={15}
+              className="shrink-0 text-brand-text transition-transform duration-200 group-hover:rotate-45"
+            />
+            {!collapsed && <span>Tutorial & Guide</span>}
+          </button>
           <NetworkBadge collapsed={collapsed} />
           {!collapsed && (
             <a
