@@ -138,11 +138,11 @@ const LpPanel = () => {
       </CardHeader>
       <CardContent className="space-y-4">
         {matured && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex items-start gap-2">
-            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
+          <div className="rounded-xl border border-ember/30 bg-ember/8 p-3 text-xs text-foreground flex items-start gap-2.5">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-ember-text" />
             <div>
-              <p className="font-semibold text-amber-100">{activeSeries.name} Pool is Matured</p>
-              <p className="mt-0.5 text-amber-200/90 leading-relaxed">
+              <p className="font-semibold text-ember-text">{activeSeries.name} Pool is Matured</p>
+              <p className="mt-0.5 text-ink-muted leading-relaxed">
                 Trading on this market has ended. You can withdraw your full LP shares in the Remove tab below.
               </p>
             </div>

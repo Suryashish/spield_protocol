@@ -229,13 +229,13 @@ const DepositPanel = () => {
 
         {/* Notice if deposit selected while matured */}
         {mode === 'deposit' && matured && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200 flex items-start gap-2">
-            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
+          <div className="rounded-xl border border-ember/30 bg-ember/8 p-3 text-xs text-foreground flex items-start gap-2.5">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-ember-text" />
             <div>
-              <p className="font-semibold text-amber-100">Minting is closed for {activeSeries.name}</p>
-              <p className="mt-0.5 text-amber-200/90 leading-relaxed">
+              <p className="font-semibold text-ember-text">Minting is closed for {activeSeries.name}</p>
+              <p className="mt-0.5 text-ink-muted leading-relaxed">
                 This series reached maturity on {activeSeries.maturityDate}. New deposits and mints are disabled on chain.
-                Switch to the <strong>Redeem</strong> tab to redeem PT at par, or select a live series above.
+                Switch to the <strong className="text-foreground">Redeem</strong> tab to redeem PT at par, or select a live series in the top navbar.
               </p>
             </div>
           </div>
