@@ -6,6 +6,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Wallet,
+  LayoutDashboard,
+  Lock,
+  Coins,
+  TrendingUp,
+  Sparkles,
+  Droplets,
+  ShieldCheck,
+  type LucideIcon,
 } from 'lucide-react';
 
 import { useTutorial } from '@/context/TutorialContext';
@@ -26,19 +35,30 @@ interface CardCoords {
   y: number;
 }
 
+const STEP_ICONS: Record<string, LucideIcon> = {
+  wallet: Wallet,
+  'overview-stats': LayoutDashboard,
+  'vault-panel': Lock,
+  'deposit-panel': Coins,
+  'markets-panel': TrendingUp,
+  'yield-panel': Sparkles,
+  'liquidity-panel': Droplets,
+  'solvency-panel': ShieldCheck,
+};
+
 const computeCardCoords = (
   target: TargetRect | null,
   winW: number,
   winH: number,
   isMobile: boolean,
 ): CardCoords => {
-  const cardW = isMobile ? Math.min(340, winW - 24) : 340;
-  const cardH = 160;
+  const cardW = isMobile ? Math.min(360, winW - 24) : 360;
+  const cardH = 175;
   const gap = 14;
 
-  const minX = 12;
-  const maxX = winW - cardW - 12;
-  const minY = 64; // Below header
+  const minX = 14;
+  const maxX = winW - cardW - 14;
+  const minY = 68; // Below sticky header
   const maxY = winH - cardH - 16;
 
   if (!target) {
@@ -75,7 +95,6 @@ const computeCardCoords = (
   // 1. If target is in the top bar or a wide top banner (e.g. Wallet button, or Stats grid):
   if (target.top < 150 && target.bottom + cardH + gap < maxY) {
     let x = target.left;
-    // If target is near the right edge (like the wallet menu in the header):
     if (target.right > winW - cardW) {
       x = target.right - cardW;
     }
@@ -265,8 +284,8 @@ export const InteractiveAppTour: React.FC = () => {
 
   const paddingBox = 8;
   const isMobile = windowSize.width < 768;
-
-  const cardWidth = isMobile ? Math.min(340, windowSize.width - 24) : 340;
+  const cardWidth = isMobile ? Math.min(360, windowSize.width - 24) : 360;
+  const IconComponent = STEP_ICONS[currentStep.id] || Sparkles;
 
   return createPortal(
     <div className="fixed inset-0 z-[75] pointer-events-auto">
@@ -293,8 +312,8 @@ export const InteractiveAppTour: React.FC = () => {
                 damping: 30,
                 mass: 0.8,
               }}
-              rx="14"
-              ry="14"
+              rx="16"
+              ry="16"
               fill="black"
             />
           </mask>
@@ -303,7 +322,7 @@ export const InteractiveAppTour: React.FC = () => {
         <rect
           width="100%"
           height="100%"
-          fill="rgba(0, 0, 0, 0.52)"
+          fill="rgba(0, 0, 0, 0.55)"
           mask="url(#app-tour-spotlight-mask)"
         />
       </svg>
@@ -324,10 +343,10 @@ export const InteractiveAppTour: React.FC = () => {
           damping: 30,
           mass: 0.8,
         }}
-        className="pointer-events-none fixed top-0 left-0 z-[76] rounded-2xl border border-brand/50 shadow-[0_0_22px_rgba(34,197,94,0.22)]"
+        className="pointer-events-none fixed top-0 left-0 z-[76] rounded-2xl border border-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
       />
 
-      {/* 3. Fluid card that moves and anchors directly to the highlighted section */}
+      {/* 3. Redesigned, elevated glassmorphic tour card */}
       <motion.div
         initial={false}
         animate={{
@@ -349,18 +368,16 @@ export const InteractiveAppTour: React.FC = () => {
           zIndex: 80,
         }}
       >
-        <div className="panel relative overflow-hidden rounded-2xl border border-border/80 bg-card/95 p-4 shadow-lift backdrop-blur-xl">
+        <div className="panel relative overflow-hidden rounded-2xl border border-border/80 bg-card/95 p-4.5 shadow-lift backdrop-blur-2xl before:pointer-events-none before:absolute before:-right-12 before:-top-12 before:size-28 before:rounded-full before:bg-brand/10 before:blur-2xl after:pointer-events-none after:absolute after:inset-x-0 after:top-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-brand/40 after:to-transparent">
           {/* Header */}
-          <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2.5">
+          <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-3">
             <div className="flex items-center gap-2">
-              <span className="mono rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10.5px] font-bold text-brand-text">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 font-mono text-[10.5px] font-semibold text-brand-text">
+                <span className="size-1.5 rounded-full bg-brand shadow-[0_0_6px_var(--brand)]" />
                 {currentStep.stepNumber}
               </span>
-              <span className="text-[12px] font-medium text-foreground">
+              <span className="text-[12px] font-semibold tracking-wide text-foreground">
                 {currentStep.sectionName}
-              </span>
-              <span className="hidden rounded-full border border-border/70 bg-accent/60 px-2 py-0.5 text-[10px] text-muted-foreground sm:inline">
-                {currentStep.tag}
               </span>
             </div>
 
@@ -368,7 +385,7 @@ export const InteractiveAppTour: React.FC = () => {
               <button
                 type="button"
                 onClick={skipTour}
-                className="rounded px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                className="rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
               >
                 Skip
               </button>
@@ -376,15 +393,15 @@ export const InteractiveAppTour: React.FC = () => {
                 type="button"
                 onClick={skipTour}
                 aria-label="Close tour"
-                className="grid size-6 place-items-center rounded-md text-subtle transition-colors hover:bg-accent hover:text-foreground"
+                className="grid size-6 place-items-center rounded-full text-subtle transition-colors hover:bg-accent/60 hover:text-foreground"
               >
                 <X size={13} />
               </button>
             </div>
           </div>
 
-          {/* Simple, clear body text */}
-          <div className="py-2.5">
+          {/* Body: icon well + title + tag + description */}
+          <div className="py-3">
             <AnimatePresence mode="wait">
               <motion.div
                 key={currentStep.id}
@@ -392,22 +409,35 @@ export const InteractiveAppTour: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.16, ease: 'easeOut' }}
-                className="space-y-1.5"
+                className="flex items-start gap-3"
               >
-                <h4 className="font-display text-[15px] font-bold tracking-tight text-foreground">
-                  {currentStep.title}
-                </h4>
-                <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-                  {currentStep.text}
-                </p>
+                {/* Visual Icon Well */}
+                <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-brand/25 bg-brand/10 text-brand-text shadow-sm">
+                  <IconComponent size={17} />
+                </div>
+
+                {/* Text Block */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <h4 className="font-display text-[15.5px] font-bold tracking-tight text-foreground">
+                      {currentStep.title}
+                    </h4>
+                    <span className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-sunken/80 px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
+                      {currentStep.tag}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                    {currentStep.text}
+                  </p>
+                </div>
               </motion.div>
             </AnimatePresence>
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between border-t border-border/70 pt-2.5">
-            {/* Step indicator dots */}
-            <div className="flex items-center gap-1">
+          {/* Footer: Segmented Story Progress Bars + Action Buttons */}
+          <div className="flex items-center justify-between border-t border-border/60 pt-3">
+            {/* Segmented Progress Bars */}
+            <div className="flex max-w-[120px] flex-1 items-center gap-1">
               {Array.from({ length: totalSteps }).map((_, idx) => (
                 <button
                   key={idx}
@@ -415,18 +445,18 @@ export const InteractiveAppTour: React.FC = () => {
                   onClick={() => goToStep(idx)}
                   title={`Step ${idx + 1}`}
                   className={cn(
-                    'size-1.5 rounded-full transition-all duration-200',
+                    'h-1 flex-1 rounded-full transition-all duration-300',
                     idx === currentStepIndex
-                      ? 'w-3.5 bg-brand'
+                      ? 'bg-brand shadow-[0_0_8px_var(--brand)]'
                       : idx < currentStepIndex
-                        ? 'bg-brand/40 hover:bg-brand/70'
-                        : 'bg-border hover:bg-muted-foreground',
+                        ? 'bg-brand/50 hover:bg-brand/70'
+                        : 'bg-border/70 hover:bg-muted-foreground/40',
                   )}
                 />
               ))}
             </div>
 
-            {/* Buttons */}
+            {/* Navigation Buttons */}
             <div className="flex items-center gap-1.5">
               <Button
                 type="button"
@@ -434,7 +464,7 @@ export const InteractiveAppTour: React.FC = () => {
                 size="sm"
                 onClick={prevStep}
                 disabled={isFirstStep}
-                className="h-7 gap-1 px-2.5 text-[11px]"
+                className="h-7.5 gap-1 rounded-full border-border/80 bg-card/60 px-2.5 text-[11px] font-medium transition-all hover:bg-accent/60 disabled:opacity-30"
               >
                 <ChevronLeft size={12} />
                 <span>Back</span>
@@ -446,9 +476,9 @@ export const InteractiveAppTour: React.FC = () => {
                   variant="default"
                   size="sm"
                   onClick={completeTour}
-                  className="h-7 gap-1 px-3 text-[11px] font-semibold"
+                  className="h-7.5 gap-1 rounded-full bg-brand px-3 text-[11px] font-semibold text-brand-contrast shadow-float transition-all hover:brightness-105 active:scale-95"
                 >
-                  <span>Done</span>
+                  <span>Finish</span>
                   <Check size={12} />
                 </Button>
               ) : (
@@ -457,7 +487,7 @@ export const InteractiveAppTour: React.FC = () => {
                   variant="default"
                   size="sm"
                   onClick={nextStep}
-                  className="h-7 gap-1 px-3 text-[11px] font-semibold"
+                  className="h-7.5 gap-1 rounded-full bg-brand px-3 text-[11px] font-semibold text-brand-contrast shadow-float transition-all hover:brightness-105 active:scale-95"
                 >
                   <span>Next</span>
                   <ChevronRight size={12} />
