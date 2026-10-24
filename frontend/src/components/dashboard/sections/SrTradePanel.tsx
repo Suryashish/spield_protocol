@@ -7,11 +7,11 @@ import {
   ShieldCheck,
   TrendingUp,
   Layers,
-  Zap,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
@@ -347,9 +347,21 @@ const SrTradePanel = () => {
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Layers className="h-4 w-4" aria-hidden />
-          Trade — PT / YT
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Layers className="h-4 w-4" aria-hidden />
+            Trade — PT / YT
+          </span>
+          <InfoTooltip
+            title="Trade Guidance"
+            content={
+              asset === 'pt'
+                ? 'One signature, straight from USDC — the SR wrap happens inside the transaction.'
+                : side === 'buy'
+                  ? 'Two signatures: wrap, then buy. A Blend deposit and a curve trade do not fit in one transaction — if you already hold SR, it is just one.'
+                  : 'Two signatures: sell, then unwrap. A curve trade and a Blend withdrawal do not fit in one transaction.'
+            }
+          />
         </CardTitle>
         <CardDescription>
           {stats ? (
@@ -364,21 +376,6 @@ const SrTradePanel = () => {
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-4">
-        {/* Signature count, per mode.
-            This used to promise "one signature" unconditionally, which is true for the PT legs and
-            false for both YT legs — a Blend call plus a mint_py-bearing curve trade does not fit in
-            one Soroban transaction (see `budget.md`). Promising one and prompting twice is the
-            moment a user assumes something went wrong and cancels, so the banner tracks the mode. */}
-        <div className="flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-1.5 text-xs">
-          <Zap className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="text-muted-foreground">
-            {asset === 'pt'
-              ? 'One signature, straight from USDC — the SR wrap happens inside the transaction.'
-              : side === 'buy'
-                ? 'Two signatures: wrap, then buy. A Blend deposit and a curve trade do not fit in one transaction — if you already hold SR, it is just one.'
-                : 'Two signatures: sell, then unwrap. A curve trade and a Blend withdrawal do not fit in one transaction.'}
-          </span>
-        </div>
 
         {/* ── Asset ─────────────────────────────────────────────────────────────────────────
             The primary question, because PT and YT are different products — a fixed-rate bond and
@@ -491,7 +488,15 @@ const SrTradePanel = () => {
         {/* Output preview */}
         <div className="rounded-lg border bg-muted/30 p-3 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">You receive ({getToken})</span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span>You receive ({getToken})</span>
+              {mode === 'sellYt' && (
+                <InfoTooltip
+                  content="Selling credits the yield you have already earned rather than paying it out — it stays claimable in the Yield card, and the sale cannot strand it."
+                  size={12}
+                />
+              )}
+            </span>
             <span className="font-medium tabular-nums">
               {quoting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -535,12 +540,7 @@ const SrTradePanel = () => {
           )}
 
 
-          {mode === 'sellYt' && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Selling credits the yield you have already earned rather than paying it out — it stays
-              claimable in the Yield card, and the sale cannot strand it.
-            </p>
-          )}
+
 
           {noFill && (
             <p className="mt-2 text-xs text-muted-foreground">
@@ -580,12 +580,13 @@ const SrTradePanel = () => {
 
         {/* ── Slippage: the user's only protection between simulation and execution ───────────── */}
         <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <span className="text-muted-foreground">
-            Max slippage
-            <span className="ml-1 text-[11px]">
-              (the trade reverts rather than filling worse)
-            </span>
-          </span>
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <span>Max slippage</span>
+            <InfoTooltip
+              content="The transaction will automatically revert rather than executing if the execution price drifts beyond this threshold."
+              size={11}
+            />
+          </div>
           <div className="flex flex-wrap gap-1">
             {SLIPPAGE_CHOICES_BPS.map((bps) => (
               <button

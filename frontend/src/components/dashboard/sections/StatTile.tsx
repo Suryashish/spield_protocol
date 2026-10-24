@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { InfoTooltip } from '@/components/ui/tooltip';
 
 /**
  * The figure tile — the unit every summary strip on the dashboard is built
@@ -41,12 +42,16 @@ export type StatTileProps = {
   tone?: StatTone;
   icon: LucideIcon;
   loading?: boolean;
+  info?: string;
 };
 
-const StatTile = ({ label, value, sub, tone = 'default', icon: Icon, loading }: StatTileProps) => (
+const StatTile = ({ label, value, sub, tone = 'default', icon: Icon, loading, info }: StatTileProps) => (
   <div className="panel panel-hover flex flex-col rounded-xl p-4">
     <div className="flex flex-1 items-start justify-between gap-2">
-      <span className="eyebrow pt-1 leading-tight">{label}</span>
+      <div className="flex items-center gap-1.5 pt-1">
+        <span className="eyebrow leading-tight">{label}</span>
+        {info && <InfoTooltip content={info} size={11} />}
+      </div>
       <div
         className={cn(
           'grid size-8 shrink-0 place-items-center rounded-lg transition-colors duration-300',

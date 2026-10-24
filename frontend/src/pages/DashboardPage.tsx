@@ -4,13 +4,7 @@ import { useSEO } from '@/hooks/useSEO';
 import {
   AlertTriangle,
   RefreshCw,
-  ShieldCheck,
-  Coins,
-  TrendingUp,
-  Lock,
-  Droplets,
-  ChevronDown,
-  type LucideIcon,
+  HelpCircle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -20,6 +14,7 @@ import Sidebar from '@/components/dashboard/layout/Sidebar';
 import BottomNav from '@/components/dashboard/layout/BottomNav';
 import DemoBanner from '@/components/dashboard/layout/DemoBanner';
 import Header from '@/components/dashboard/layout/Header';
+import HowItWorksModal from '@/components/dashboard/layout/HowItWorksModal';
 import StatsGrid from '@/components/dashboard/sections/StatsGrid';
 import PortfolioChart from '@/components/dashboard/sections/PortfolioChart';
 import YieldChart from '@/components/dashboard/sections/YieldChart';
@@ -193,7 +188,6 @@ const DepositSection = () => (
         <PositionsPanel />
       </div>
     </div>
-    <HowItWorks />
   </div>
 );
 
@@ -208,7 +202,6 @@ const VaultSection = () => (
         <ReceiptsPanel />
       </div>
     </div>
-    <HowVaultWorks />
   </div>
 );
 
@@ -222,7 +215,6 @@ const MarketsSection = () => (
         <SrTradePanel />
       </div>
     </div>
-    <HowMarketWorks />
   </div>
 );
 
@@ -237,7 +229,6 @@ const LiquiditySection = () => (
         <LpPositionPanel />
       </div>
     </div>
-    <HowLiquidityWorks />
   </div>
 );
 
@@ -248,7 +239,6 @@ const SolvencySection = () => (
         other says what would break it. Showing the first without the second is the shape of most
         DeFi dashboards, and it is why people are surprised later. */}
     <RiskDisclosure />
-    <WhySolvency />
   </div>
 );
 
@@ -294,177 +284,6 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
   activity: ActivitySection,
 };
 
-/* -------------------------------------------------------- explainer cards */
-
-type ExplainerStep = { icon: LucideIcon; title: string; body: string };
-
-/**
- * The disclosure that closes a section.
- *
- * Five of these used to be five near-identical 45-line components; they are
- * one now, because the only things that ever differed were the title, the
- * blurb and the rows. Closed it is a single hairline row; open, the steps lay
- * out as a two-up grid, each with its beat in the accent and its own icon
- * well.
- *
- * The open/close is a `grid-template-rows: 0fr -> 1fr` transition with the
- * padding on an inner element — padding on a 0fr grid item still renders and
- * the row never closes — so the prose stays in the document when collapsed
- * (good for find-in-page) and is marked `inert` so it stays out of the tab
- * order.
- */
-const Explainer = ({
-  title,
-  blurb,
-  icon: TitleIcon,
-  steps,
-  children,
-}: {
-  title: string;
-  blurb: string;
-  icon?: LucideIcon;
-  steps?: ExplainerStep[];
-  children?: React.ReactNode;
-}) => {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="panel overflow-hidden rounded-xl">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="group flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-200 hover:bg-accent/50"
-      >
-        <div className="min-w-0">
-          <h3 className="flex items-center gap-2 font-display text-[15px] font-medium tracking-[-0.015em]">
-            {TitleIcon && <TitleIcon size={16} className="shrink-0 text-brand-text" />}
-            {title}
-          </h3>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{blurb}</p>
-        </div>
-        <span
-          className={cn(
-            'mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-border text-subtle transition-all duration-300 ease-vault',
-            open ? 'rotate-180 bg-accent text-foreground' : 'group-hover:text-foreground',
-          )}
-        >
-          <ChevronDown size={15} />
-        </span>
-      </button>
-
-      <div
-        className={cn(
-          'grid transition-[grid-template-rows] duration-400 ease-vault',
-          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-        )}
-      >
-        <div className="overflow-hidden" inert={!open || undefined}>
-          <div className="rule-soft mx-5" />
-          {steps ? (
-            <div className="grid gap-5 px-5 py-5 sm:grid-cols-2">
-              {steps.map((s) => {
-                const Icon = s.icon;
-                return (
-                  <div key={s.title} className="flex items-start gap-3">
-                    <div className="well mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground">
-                      <Icon size={14} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[13.5px] font-medium">{s.title}</p>
-                      <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{s.body}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="space-y-3 px-5 py-5 text-[13px] leading-relaxed text-muted-foreground">
-              {children}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const HowItWorks = () => (
-  <Explainer
-    title="How a deposit works"
-    blurb="Spield splits a yield-bearing deposit into a fixed-rate bond and a yield token."
-    steps={[
-      { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC. It is wrapped into SR \u2014 a yield-bearing share \u2014 and lent into the Blend pool, where it earns real on-chain interest.' },
-      { icon: Lock, title: '2 · Get PT + YT', body: 'You receive equal PT (your principal, redeemable 1:1 at maturity) and YT (the yield claim).' },
-      { icon: TrendingUp, title: '3 · Earn & claim', body: "As Blend's bRate rises, claim accrued yield against your YT — anytime, without burning it." },
-      { icon: ShieldCheck, title: '4 · Redeem', body: 'Redeem PT 1:1 at maturity, or recombine PT + YT to exit early at face. Backing is checked on every single state change.' },
-    ]}
-  />
-);
-
-const HowVaultWorks = () => (
-  <Explainer
-    title="How the Fixed-Rate Vault works"
-    blurb="The simplest way to use Spield: deposit USDC, earn a fixed, known return — the PT/YT machinery is hidden underneath."
-    steps={[
-      { icon: Coins, title: '1 · Deposit USDC', body: 'Supply USDC to the Fixed-Rate Vault — no need to understand PT or YT.' },
-      { icon: Lock, title: '2 · Lock the rate', body: 'You get a receipt for a fixed payout (principal + a fixed coupon) at maturity.' },
-      { icon: ShieldCheck, title: '3 · Backed by PT', body: 'The vault holds PT 1:1 against every payout, so the vault itself is never over-committed. PT redeems from the Blend position \u2014 see the risks below.' },
-      { icon: TrendingUp, title: '4 · Redeem at maturity', body: 'Redeem the receipt for your exact locked payout. The coupon is funded by the vault\u2019s real Blend yield.' },
-    ]}
-  />
-);
-
-const HowMarketWorks = () => (
-  <Explainer
-    title="How the Market works"
-    blurb="A real yield AMM: PT prices are market-discovered and an implied APY falls out of the curve."
-    steps={[
-      { icon: TrendingUp, title: 'Time-decay curve', body: 'PT trades below par and drifts to 1.0 as maturity nears — the discount is the yield. The curve makes that march automatic.' },
-      { icon: Coins, title: 'Earn Fixed', body: 'Buy PT now with USDC and hold to maturity to lock the implied APY. The cheaper you buy, the higher your fixed return.' },
-      { icon: Lock, title: 'Sell anytime', body: 'Need to exit early? Sell PT back to USDC at the live market price — no waiting for maturity.' },
-      { icon: TrendingUp, title: 'Long Yield', body: 'Bet that real Blend yield beats the implied rate. Buy YT straight from the pool for a fraction of its face \u2014 the pool funds the rest and keeps the PT, so you never touch it.' },
-    ]}
-  />
-);
-
-const HowLiquidityWorks = () => (
-  <Explainer
-    title="How liquidity works"
-    blurb="Provide the two sides of the pool, earn fees on every PT trade, and exit on your terms."
-    steps={[
-      { icon: Droplets, title: '1 \u00b7 Supply PT + USDC', body: 'Add liquidity in the pool\u2019s current ratio. The pool\u2019s second leg is SR, so the panel wraps your USDC for you \u2014 that is the extra signature.' },
-      { icon: Coins, title: '2 \u00b7 Earn the swap fee', body: 'Every trade pays a fee that shrinks as maturity nears \u2014 wide when there is term risk to price, near zero at expiry. LPs keep 80% of it; your shares grow as volume flows.' },
-      { icon: ShieldCheck, title: '3 · Low impermanent loss', body: 'Because the time-decay curve tracks PT\u2019s march to par, an LP who holds to maturity sees ~no IL on the predictable price move.' },
-      { icon: Lock, title: '4 · Withdraw anytime', body: 'Burn your LP shares to take back a proportional slice of PT + SR \u2014 including fees earned \u2014 whenever you like. Unwrap the SR in the SR Wrapper section.' },
-    ]}
-  />
-);
-
-const WhySolvency = () => (
-  <Explainer
-    title="Solvent by construction"
-    blurb="Why backing can never fall below principal — and how anyone can verify it."
-    icon={ShieldCheck}
-  >
-    <p>
-      Every deposit is supplied to <span className="font-medium text-foreground">Blend</span>,
-      Stellar&apos;s lending protocol. The escrowed asset grows on-chain via Blend&apos;s rising{' '}
-      <span className="font-medium text-foreground">bRate</span> — so yield is real, not an IOU.
-    </p>
-    <p>
-      The engine asserts the invariant{' '}
-      <span className="mono text-xs text-foreground">backing ≥ principal</span> after every
-      mutation. The figures above are read live from the contract&apos;s{' '}
-      <span className="mono text-xs text-foreground">solvency()</span> view — anyone can verify
-      them.
-    </p>
-    <p>
-      This is the core difference from the earlier design: there is no off-chain yield index and no
-      trusted relayer. The first claimant can never drain the vault.
-    </p>
-  </Explainer>
-);
-
 /* ----------------------------------------------------------------- page */
 
 const DashboardPage = () => {
@@ -473,6 +292,7 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const { refresh, refreshing, stale } = useProtocol();
 
   // Derive the active section from the URL path segment (e.g. /vault -> vault)
@@ -557,9 +377,21 @@ const DashboardPage = () => {
                   separates the blocks below it. */}
               <div className="flex flex-col gap-3 pb-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
                 <div className="min-w-0">
-                  <h1 className="font-display text-[26px] leading-[1.1] font-bold tracking-[-0.03em] sm:text-[32px]">
-                    {nav.title}
-                  </h1>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <h1 className="font-display text-[26px] leading-[1.1] font-bold tracking-[-0.03em] sm:text-[32px]">
+                      {nav.title}
+                    </h1>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setHowItWorksOpen(true)}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-card/60 px-3 text-[12px] font-medium text-foreground shadow-float-sm backdrop-blur transition-all duration-200 hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:text-brand-text active:scale-95"
+                    >
+                      <HelpCircle size={13} className="text-brand-text" />
+                      <span>How it works</span>
+                    </Button>
+                  </div>
                   <p className="mt-2 max-w-[62ch] text-[13.5px] leading-relaxed text-muted-foreground">
                     {nav.subtitle}
                   </p>
@@ -600,6 +432,13 @@ const DashboardPage = () => {
           onNavChange={navValue.navigate}
           moreOpen={moreOpen}
           onMoreOpenChange={setMoreOpen}
+        />
+
+        {/* Section explainer modal */}
+        <HowItWorksModal
+          open={howItWorksOpen}
+          onOpenChange={setHowItWorksOpen}
+          sectionId={nav.id}
         />
       </div>
     </NavProvider>

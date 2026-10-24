@@ -42,6 +42,7 @@ const LpStatsStrip = () => {
         tone="usdc"
         icon={Droplets}
         loading={loading}
+        info="Combined value of PT and USDC reserves deposited into the automated market maker pool."
       />
       <StatTile
         label="Swap Fee"
@@ -49,6 +50,7 @@ const LpStatsStrip = () => {
         sub="LPs keep 80% · shrinks toward expiry"
         icon={Percent}
         loading={loading}
+        info="Current dynamic swap fee rate. Liquidity providers receive 80% of all generated fees."
       />
       <StatTile
         label="Your Liquidity"
@@ -57,6 +59,7 @@ const LpStatsStrip = () => {
         tone={isConnected && hasPosition ? 'positive' : 'default'}
         icon={Wallet2}
         loading={loading}
+        info="Current estimated value of your LP position, redeemable for underlying PT + USDC."
       />
       <StatTile
         label="Implied APY"
@@ -65,6 +68,7 @@ const LpStatsStrip = () => {
         tone="ember"
         icon={TrendingUp}
         loading={loading}
+        info="Annualized yield rate implied by the current market discount of PT below par."
       />
     </div>
   );

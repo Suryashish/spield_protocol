@@ -3,6 +3,7 @@ import { Loader2, Wallet, AlertTriangle, Droplets, Plus, Minus } from 'lucide-re
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
@@ -128,9 +129,15 @@ const LpPanel = () => {
   return (
     <Card className="h-full rounded-xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Droplets size={16} className="text-usdc-text" />
-          Provide Liquidity
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Droplets size={16} className="text-usdc-text" />
+            Provide Liquidity
+          </span>
+          <InfoTooltip
+            title="AMM Liquidity"
+            content="Supply PT and USDC in the current pool ratio. Earn an 80% share of swap fees on every trade. Minimal impermanent loss if held to maturity."
+          />
         </CardTitle>
         <CardDescription>
           Supply PT + USDC to earn the swap fee. Hold to maturity for minimal impermanent loss.

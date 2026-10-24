@@ -80,7 +80,7 @@ export const NAV_ITEMS: NavItem[] = [
     id: 'vault',
     title: 'Fixed-Rate Vault',
     subtitle:
-      'Deposit USDC and lock a fixed rate until maturity, backed by PT the vault already holds.',
+      'Deposit USDC and lock a fixed rate until maturity — backed 1:1 by PT.',
     group: 'earn',
   },
   {

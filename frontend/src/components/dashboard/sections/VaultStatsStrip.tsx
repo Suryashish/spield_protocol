@@ -49,6 +49,7 @@ const VaultStatsStrip = () => {
         tone="brand"
         icon={Percent}
         loading={loading}
+        info="The fixed annual percentage return locked for the entire term, funded 1:1 by PT backing."
       />
       <StatTile
         label="Maturity"
@@ -56,6 +57,7 @@ const VaultStatsStrip = () => {
         sub={VAULT_DEPLOYED ? mat.sub : 'Not deployed'}
         icon={CalendarClock}
         loading={loading}
+        info="The date and countdown until the vault matures and fixed payouts become redeemable at par."
       />
       <StatTile
         label="Capacity Left"
@@ -63,6 +65,7 @@ const VaultStatsStrip = () => {
         sub="Available to lock now"
         icon={Gauge}
         loading={loading}
+        info="Current spare PT capacity available in the vault to fund fixed coupons for new deposits."
       />
       <StatTile
         label="Your Locked"
@@ -75,6 +78,7 @@ const VaultStatsStrip = () => {
         tone={isConnected && yoursTotal > 0n ? 'positive' : 'default'}
         icon={Wallet2}
         loading={loading}
+        info="Total locked USDC payout across all your open fixed-rate receipts at maturity."
       />
     </div>
   );

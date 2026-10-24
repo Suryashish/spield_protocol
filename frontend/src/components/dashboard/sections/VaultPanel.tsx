@@ -3,6 +3,7 @@ import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, Coins, Ar
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
@@ -148,9 +149,15 @@ const VaultPanel = () => {
   return (
     <Card className="h-full rounded-xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Lock size={16} className="text-brand-text" />
-          Fixed-Rate Vault
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Lock size={16} className="text-brand-text" />
+            Fixed-Rate Vault
+          </span>
+          <InfoTooltip
+            title="Zero Setup Required"
+            content="No setup needed. The vault holds the principal tokens backing your payout itself, so your wallet needs no trustlines — deposit and your rate is locked."
+          />
         </CardTitle>
         <CardDescription>
           Deposit USDC and lock a fixed rate until maturity — backed 1:1 by PT.
@@ -260,15 +267,6 @@ const VaultPanel = () => {
           </div>
         )}
 
-        {/* No trustline notice: the vault keeps the PT itself and hands you a receipt, so there is
-            nothing for your wallet to trust. This is one fewer step than v1 required. */}
-        <div className="flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/10 p-2.5 text-xs text-foreground">
-          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-brand-text" />
-          <span>
-            No setup needed. The vault holds the principal tokens backing your payout itself, so
-            your wallet needs no trustlines — deposit and your rate is locked.
-          </span>
-        </div>
 
         <Button
           onClick={handleClick}

@@ -45,6 +45,7 @@ const DepositStatsStrip = () => {
         sub={isConnected ? 'Available to deposit' : 'Connect your wallet'}
         icon={Wallet2}
         loading={loading}
+        info="USDC in your connected Stellar wallet available to mint or deposit."
       />
       <StatTile
         label="PT Held"
@@ -52,6 +53,7 @@ const DepositStatsStrip = () => {
         sub="Redeems 1:1 at maturity"
         icon={Layers}
         loading={loading}
+        info="Principal Tokens held by your wallet. Each PT redeems 1:1 for USDC at maturity."
       />
       <StatTile
         label="YT Held"
@@ -59,6 +61,7 @@ const DepositStatsStrip = () => {
         sub="Earns the variable rate"
         icon={Sparkles}
         loading={loading}
+        info="Yield Tokens held by your wallet, collecting 100% of variable Blend lending interest."
       />
       <StatTile
         label="Maturity"
@@ -66,6 +69,7 @@ const DepositStatsStrip = () => {
         sub={mat.sub}
         icon={CalendarClock}
         loading={loading}
+        info="Maturity date for this active series, at which point PT redeems at par."
       />
     </div>
   );

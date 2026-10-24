@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, Loader2, Wallet, Package, TrendingUp } from 'lucide-react';
+import { ArrowDown, Loader2, Wallet, Package } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
@@ -136,9 +137,15 @@ const SrWrapPanel = () => {
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Package className="h-4 w-4" aria-hidden />
-          SR Wrapper — hold the yield-bearing dollar
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Package className="h-4 w-4" aria-hidden />
+            SR Wrapper — hold the yield-bearing dollar
+          </span>
+          <InfoTooltip
+            title="SR Share Token"
+            content="SR is a share, not a receipt — your balance stays flat and the redemption rate climbs. You do not need this to trade PT or YT; those wrap for you in one transaction. Come here to hold SR itself."
+          />
         </CardTitle>
         <CardDescription>
           1 SR = {rateNum.toFixed(6)} USDC · the rate only ever rises
@@ -146,14 +153,6 @@ const SrWrapPanel = () => {
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-4">
-        <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2 text-xs">
-          <TrendingUp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
-          <span className="text-muted-foreground">
-            SR is a <strong className="text-foreground">share</strong>, not a receipt — your balance
-            stays flat and the redemption rate climbs. You do not need this to trade PT or YT; those
-            wrap for you in one transaction. Come here to hold SR itself.
-          </span>
-        </div>
 
         <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1">
           {(['wrap', 'unwrap'] as const).map((m) => (

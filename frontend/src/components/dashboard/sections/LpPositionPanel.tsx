@@ -1,8 +1,9 @@
-import { AlertTriangle, Droplets, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Droplets, Wallet } from 'lucide-react';
 
 import EmptyState from './EmptyState';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { formatAmount, formatUsd, fromBaseUnits } from '@/lib/soroban';
@@ -94,14 +95,7 @@ const LpPositionPanel = () => {
           </p>
         </div>
 
-        {/* IL reassurance — the pool's main selling point */}
-        <div className="flex items-start gap-2 rounded-lg border border-usdc/20 bg-usdc/5 p-3 text-xs text-muted-foreground">
-          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-usdc-text" />
-          <span>
-            Hold to maturity and PT marches to par along the time-decay curve, so you get principal
-            + accrued fees back with <span className="font-semibold text-foreground">~no impermanent loss</span>.
-          </span>
-        </div>
+
       </div>
     );
   };
@@ -109,9 +103,15 @@ const LpPositionPanel = () => {
   return (
     <Card className="flex h-full flex-col rounded-xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Droplets size={16} className="text-usdc-text" />
-          Your Liquidity
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Droplets size={16} className="text-usdc-text" />
+            Your Liquidity
+          </span>
+          <InfoTooltip
+            title="Minimal Impermanent Loss"
+            content="Hold to maturity and PT marches to par along the time-decay curve, so you get principal + accrued fees back with ~no impermanent loss."
+          />
         </CardTitle>
         <CardDescription>
           What your LP shares hold and redeem for right now.

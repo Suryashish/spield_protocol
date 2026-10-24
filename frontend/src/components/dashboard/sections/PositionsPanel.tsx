@@ -11,6 +11,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import EmptyState from './EmptyState';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
@@ -156,6 +157,10 @@ const PositionsPanel = () => {
                 {positions.length}
               </span>
             )}
+            <InfoTooltip
+              title="Raw PT / YT Positions"
+              content="These are your raw PT/YT positions from depositing above. Fixed Vault deposits appear under Fixed Vault as receipts."
+            />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Manage your tranches — claim yield, redeem principal, or exit early.
@@ -172,24 +177,6 @@ const PositionsPanel = () => {
           <RefreshCw size={14} className={cn((refreshing || manualRefresh) && 'animate-spin')} />
         </Button>
       </div>
-
-      {/* Clarify scope: this list is the RAW PT/YT door only. Fixed Vault deposits are held by the
-          vault contract (not your wallet), so they never appear here — they live under their own
-          tab as receipts. Stated up-front so a vault depositor isn't confused by an empty list. */}
-      {VAULT_DEPLOYED && (
-        <div className="border-b border-border bg-accent/40 px-5 py-3 text-[12.5px] leading-relaxed text-muted-foreground">
-          These are your raw <span className="font-semibold text-foreground">PT/YT positions</span>{' '}
-          from depositing above. Fixed Vault deposits appear under{' '}
-          <button
-            type="button"
-            onClick={() => navigate('vault')}
-            className="inline-flex items-center gap-0.5 font-semibold text-brand-text hover:underline"
-          >
-            Fixed Vault <ArrowRight size={11} />
-          </button>{' '}
-          as receipts.
-        </div>
-      )}
 
       {/* Scrollable list: `flex-1` fills the card when it's short (matching the Deposit
           panel's height via the row's items-stretch), while `max-h` caps it so a long list

@@ -4,6 +4,7 @@ import { ArrowDown, Loader2, Wallet, AlertTriangle, ShieldCheck, Lock, ArrowRigh
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import AmountField from './AmountField';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
@@ -175,7 +176,19 @@ const DepositPanel = () => {
   return (
     <Card className="h-full rounded-xl">
       <CardHeader>
-        <CardTitle>{mode === 'deposit' ? 'Deposit' : matured ? 'Redeem' : 'Combine'}</CardTitle>
+        <CardTitle className="flex items-center justify-between">
+          <span>{mode === 'deposit' ? 'Deposit' : matured ? 'Redeem' : 'Combine'}</span>
+          <InfoTooltip
+            title={mode === 'deposit' ? 'Deposit & Mint' : matured ? 'Redeem at Par' : 'Combine & Exit'}
+            content={
+              mode === 'deposit'
+                ? 'Supply USDC at par (1:1) to mint equal PT (fixed-rate bond) and YT (floating yield claim). No curve, no spread.'
+                : matured
+                  ? 'Burn PT for its face value in USDC — par, no curve, no slippage.'
+                  : 'Before maturity this burns equal PT and YT and returns face value — par, no spread. Holding only PT? Sell on the market instead.'
+            }
+          />
+        </CardTitle>
         <CardDescription>
           {mode === 'deposit'
             ? 'Supply USDC to mint a fixed-rate bond (PT) + a yield token (YT)'

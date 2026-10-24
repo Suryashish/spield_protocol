@@ -35,6 +35,7 @@ const StatsGrid = () => {
         tone="usdc"
         icon={Wallet2}
         loading={loading}
+        info="USDC in your connected Stellar wallet available to deposit or trade."
       />
       <StatTile
         label="Principal Locked"
@@ -42,6 +43,7 @@ const StatsGrid = () => {
         sub={isConnected ? 'Across your positions' : 'Connect your wallet'}
         icon={Layers}
         loading={loading}
+        info="Total principal value of all your active positions in the protocol."
       />
       <StatTile
         label="Claimable Yield"
@@ -50,8 +52,16 @@ const StatsGrid = () => {
         tone={isConnected && totalClaimable > 0n ? 'positive' : 'default'}
         icon={TrendingUp}
         loading={loading}
+        info="Accrued interest ready to be claimed to USDC in one signature without burning your tokens."
       />
-      <StatTile label="Maturity" value={mat.value} sub={mat.sub} icon={CalendarClock} loading={loading} />
+      <StatTile
+        label="Maturity"
+        value={mat.value}
+        sub={mat.sub}
+        icon={CalendarClock}
+        loading={loading}
+        info="Countdown to maturity date when principal tokens become redeemable 1:1 at par."
+      />
     </div>
   );
 };

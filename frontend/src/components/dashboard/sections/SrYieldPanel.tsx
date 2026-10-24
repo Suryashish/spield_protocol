@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Coins, Loader2, Wallet, Sparkles, Info } from 'lucide-react';
+import { Coins, Loader2, Wallet, Sparkles } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { useWallet } from '@/context/WalletContext';
 import { useTxAction } from '@/lib/useTxAction';
 import { fromBaseUnits, formatAmount } from '@/lib/soroban';
@@ -26,10 +27,23 @@ import {
 
 const fmtTok = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
 
-const Row = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
+const Row = ({
+  label,
+  value,
+  hint,
+  info,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  info?: string;
+}) => (
   <div className="flex items-baseline justify-between gap-3 border-b py-2 last:border-b-0">
     <div>
-      <div className="text-sm">{label}</div>
+      <div className="flex items-center gap-1.5 text-sm">
+        <span>{label}</span>
+        {info && <InfoTooltip content={info} size={12} />}
+      </div>
       {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
     </div>
     <div className="shrink-0 font-medium tabular-nums">{value}</div>
@@ -116,9 +130,15 @@ const SrYieldPanel = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4" aria-hidden />
-          Yield
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4" aria-hidden />
+            Yield
+          </span>
+          <InfoTooltip
+            title="Yield & Claiming"
+            content="Claiming accrued yield leaves your YT untouched — your position keeps earning. Selling YT credits earned yield without paying it out, so it stays claimable here."
+          />
         </CardTitle>
         <CardDescription>
           What your YT has earned — claimable to USDC in one signature, without giving up the
@@ -131,27 +151,32 @@ const SrYieldPanel = () => {
           <Row
             label="Claimable now"
             hint={ROUTER_AVAILABLE ? 'net of the protocol fee' : 'paid in SR'}
+            info="Net claimable USDC after protocol yield fees. Claiming does not burn or reduce your YT tokens."
             value={`${formatAmount(netUsdc)} USDC`}
           />
           <Row
             label="YT face held"
             hint="the notional earning yield for you"
+            info="The principal notional earning floating Blend yield for your wallet."
             value={`${fmtTok(fromBaseUnits(ytFace))} YT`}
           />
           <Row
             label="Protocol yield fee"
             hint={`${(feeBps / 100).toFixed(2)}% of interest`}
+            info="Protocol performance fee applied only to accrued interest, never to principal."
             value={feeUsdc > 0n ? `${formatAmount(feeUsdc)} USDC` : `${(feeBps / 100).toFixed(2)}%`}
           />
           <Row
             label="Already withdrawn"
             hint="lifetime, in SR"
+            info="Total historical yield claimed by this wallet, measured in SR shares."
             value={fmtTok(fromBaseUnits(portfolio?.withdrawn ?? 0n))}
           />
           {solvency && (
             <Row
               label="Yield index"
               hint="rises every ledger — this is where yield comes from"
+              info="Blend pool bRate index. As borrow interest accumulates on-chain, this index climbs."
               value={fromScalar12(solvency.index).toFixed(8)}
             />
           )}
@@ -159,38 +184,15 @@ const SrYieldPanel = () => {
             <Row
               label="Accruing until"
               hint={matured ? 'this series has matured' : 'maturity'}
+              info={
+                matured
+                  ? 'This series has matured. The yield index is frozen at expiry. All accrued yield remains claimable with no deadline.'
+                  : 'Floating yield continues to accrue until the series reaches maturity.'
+              }
               value={matured ? 'matured' : `${daysToExpiry(stats)} days`}
             />
           )}
         </div>
-
-        {matured && (
-          <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2 text-xs">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="text-muted-foreground">
-              A matured YT earns nothing further — the index is frozen at expiry. Anything you
-              accrued before then is still claimable, with no deadline.
-            </span>
-          </div>
-        )}
-
-        {!hasClaim && ytFace === 0n && (
-          <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2 text-xs">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="text-muted-foreground">
-              No YT yet. Buy some from the Trade card to start earning the variable rate — or if you
-              just sold, note that a sale credits earned yield without paying it, so anything owed
-              would still show here.
-            </span>
-          </div>
-        )}
-
-        {hasClaim && (
-          <p className="text-xs text-muted-foreground">
-            Claiming leaves your {fmtTok(fromBaseUnits(ytFace))} YT untouched — the position keeps
-            earning.
-          </p>
-        )}
 
         {!isConnected ? (
           <Button className="w-full" onClick={openWalletPicker} disabled={connecting}>

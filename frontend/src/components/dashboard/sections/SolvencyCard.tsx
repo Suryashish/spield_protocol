@@ -1,6 +1,7 @@
 import { ShieldCheck, ShieldAlert, ExternalLink, Code2 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useProtocol } from '@/context/ProtocolContext';
 import { formatUsd, fromBaseUnits } from '@/lib/soroban';
@@ -74,9 +75,15 @@ const SolvencyCard = () => {
               {healthy ? <ShieldCheck className="size-6 @md:size-7" /> : <ShieldAlert className="size-6 @md:size-7" />}
             </div>
             <div className="min-w-0">
-              <h3 className="font-display text-[19px] font-medium tracking-[-0.02em] @md:text-[21px]">
-                {healthy ? 'Solvent' : 'Under-backed'}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-[19px] font-medium tracking-[-0.02em] @md:text-[21px]">
+                  {healthy ? 'Solvent' : 'Under-backed'}
+                </h3>
+                <InfoTooltip
+                  title="Solvent by Construction"
+                  content="The engine asserts backing ≥ principal on every mutation. Backing is the live value of the Blend lending position, and principal is outstanding PT face value."
+                />
+              </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground @md:text-[13px]">
                 Live Blend-backed value vs. outstanding principal, read on-chain.
               </p>
@@ -108,17 +115,24 @@ const SolvencyCard = () => {
 
         {/* Figures — also serve as the bar legend via the colored dots. */}
         <div className="grid grid-cols-3 gap-2 max-[359px]:grid-cols-1 @md:gap-3">
-          <Metric label="Backing" value={formatUsd(solvency?.backing ?? 0n)} accent="positive" />
+          <Metric
+            label="Backing"
+            value={formatUsd(solvency?.backing ?? 0n)}
+            accent="positive"
+            info="Total underlying value of collateral escrowed in the Blend pool."
+          />
           <Metric
             label="Principal"
             value={formatUsd(solvency?.principal ?? 0n)}
             dot={healthy ? 'bg-brand' : 'bg-danger'}
+            info="Total par value of all outstanding PT tokens redeemable 1:1 at maturity."
           />
           <Metric
             label="Surplus"
             value={`+${formatSurplus(solvency?.unclaimed ?? 0n)}`}
             accent="positive"
             dot="bg-brand/30"
+            info="Unclaimed yield buffer over and above outstanding principal."
           />
         </div>
 
@@ -150,18 +164,23 @@ const Metric = ({
   value,
   accent = 'default',
   dot,
+  info,
 }: {
   label: string;
   value: string;
   accent?: 'default' | 'positive';
   /** Optional Tailwind bg-class for a small legend swatch beside the label. */
   dot?: string;
+  info?: string;
 }) => (
   <div className="min-w-0 well rounded-lg p-2 @md:p-3">
-    <p className="flex items-center gap-1 eyebrow @md:gap-1.5">
-      {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
-      <span className="truncate">{label}</span>
-    </p>
+    <div className="flex items-center justify-between gap-1">
+      <p className="flex items-center gap-1 eyebrow @md:gap-1.5">
+        {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
+        <span className="truncate">{label}</span>
+      </p>
+      {info && <InfoTooltip content={info} size={11} />}
+    </div>
     <p
       className={cn(
         'num mt-1 truncate font-display text-[15px] leading-tight font-medium tracking-[-0.015em] sm:text-[17px]',

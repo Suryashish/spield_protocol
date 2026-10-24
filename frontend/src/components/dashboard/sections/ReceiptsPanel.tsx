@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { useWallet } from '@/context/WalletContext';
 import { useProtocol } from '@/context/ProtocolContext';
 import { useShareCard } from '@/context/ShareCardContext';
@@ -242,7 +243,13 @@ const ReceiptsPanel = () => {
     <Card className="flex h-full flex-col rounded-xl">
       <CardHeader className="flex flex-row items-start justify-between">
         <div>
-          <CardTitle>Your fixed-rate receipts</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Your fixed-rate receipts</CardTitle>
+            <InfoTooltip
+              title="Fixed-Rate Receipts"
+              content="Each receipt guarantees your exact locked payout at maturity. Backed 1:1 by PT held in the vault contract, with coupon funded by real Blend yield."
+            />
+          </div>
           <CardDescription>
             Each receipt redeems for its fixed payout once the vault matures, subject to the risks below.
           </CardDescription>
