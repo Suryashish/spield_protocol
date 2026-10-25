@@ -11,7 +11,9 @@
     "keeper": "node ttl_keeper.mjs",
     "keeper:dry": "node ttl_keeper.mjs --dry-run",
     "calibrate": "node calibrate_vault_rate.mjs",
-    "test": "node --test calibrate_vault_rate.test.mjs"
+    "probe:ustry-oracle": "node probe_ustry_oracle.mjs",
+    "test:ustry-oracle": "node --test ustry_oracle.test.mjs",
+    "test": "node --test calibrate_vault_rate.test.mjs ustry_oracle.test.mjs"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.0.1"

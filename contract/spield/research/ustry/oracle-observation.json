@@ -1,0 +1,671 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-10-25T13:50:28.155Z",
+  "network": "Public Global Stellar Network ; September 2015",
+  "rpcUrl": "https://mainnet.sorobanrpc.com",
+  "addresses": {
+    "issuer": "GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+    "token": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+    "feed": "CAEGYZFAJ3HLSDBUIVJ77SK5HLLS4MPE4LO5OB2W3L2TEDMAS6RCTMZ4",
+    "adapter": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+    "sep40": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF"
+  },
+  "policy": {
+    "expectedDecimals": 8,
+    "maxAgeSeconds": 46800,
+    "maxFutureSeconds": 60,
+    "maxNavDeviationBps": 10
+  },
+  "sources": [
+    {
+      "url": "https://api.github.com/repos/redstone-finance/redstone-oracles-monorepo/commits/main",
+      "retrievedAt": "2026-10-25T13:50:37.696Z",
+      "sha256": "90430f066b896f955bbd34b2b9f908adbce8c645ba900d41d5f1e15d2384eff8"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/redstone-finance/redstone-oracles-monorepo/1c2c0da53ea8607f6dc1caa8cd95dc8f0fe3c8be/packages/stellar-connector/deployments/stellarMultiFeed/redstone_adapter-id.mainnet",
+      "retrievedAt": "2026-10-25T13:50:39.139Z",
+      "sha256": "8bec5bb90731998cbe3c4e623ecd3b93c3eb90b49085db73ee784578b5cc15eb"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/redstone-finance/redstone-oracles-monorepo/1c2c0da53ea8607f6dc1caa8cd95dc8f0fe3c8be/packages/relayer-remote-config/main/relayer-manifests-non-evm/stellarSep40.json",
+      "retrievedAt": "2026-10-25T13:50:39.139Z",
+      "sha256": "2b112f00e1f4f175b51beea664abbf0414d2caec660c5d7d7be5a3c0db02fb37"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/redstone-finance/redstone-oracles-monorepo/1c2c0da53ea8607f6dc1caa8cd95dc8f0fe3c8be/packages/stellar-connector/deployments/stellarMultiFeed/redstone_sep_40-id.mainnet",
+      "retrievedAt": "2026-10-25T13:50:39.139Z",
+      "sha256": "7f59a20ac4e0a78784e1110f81bfdfccd052bfd7a84d79eace1a4fd15a0a0624"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/redstone-finance/redstone-oracles-monorepo/1c2c0da53ea8607f6dc1caa8cd95dc8f0fe3c8be/packages/relayer-remote-config/main/relayer-manifests-non-evm/stellarMultiFeed.json",
+      "retrievedAt": "2026-10-25T13:50:39.139Z",
+      "sha256": "268c7a7338f18633f8dab747bb589bf794d01546cdd60146917c677d4484dd47"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/redstone-finance/redstone-oracles-monorepo/1c2c0da53ea8607f6dc1caa8cd95dc8f0fe3c8be/packages/stellar-connector/deployments/stellarMultiFeed/redstone_price_feed-USTRY-id.mainnet",
+      "retrievedAt": "2026-10-25T13:50:39.175Z",
+      "sha256": "cd376009ba82c22c211fb63a436fe8e098c04b09f83f77b2b1a0fb09341c2f9b"
+    },
+    {
+      "url": "https://api.etherfuse.com/lookup/tokens/cost/ustry",
+      "retrievedAt": "2026-10-25T13:50:53.141Z",
+      "sha256": "f117d5bd79b8dd76e5a6a59960e03e522cd5aec8800052904d3d77120482c528"
+    },
+    {
+      "url": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+      "retrievedAt": "2026-10-25T13:50:56.795Z",
+      "sha256": "bb6f39dc34d7d5d770386e1d40c1deda1842942ec2b869558f20c17b49741f47"
+    },
+    {
+      "url": "https://horizon.stellar.org/assets?asset_code=USTRY&asset_issuer=GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+      "retrievedAt": "2026-10-25T13:50:58.026Z",
+      "sha256": "331f9dfb92cb72377f05deedf5055464c9bca9fcbf6853a4b56ec0ef7909ff2f"
+    },
+    {
+      "url": "https://horizon.stellar.org/ledgers/65130092",
+      "retrievedAt": "2026-10-25T13:50:58.842Z",
+      "sha256": "ad49ba387f2f6269e818041b630251f9b650f799721b633a39b0a2f51e98c844"
+    }
+  ],
+  "calls": [
+    {
+      "contractId": "CAEGYZFAJ3HLSDBUIVJ77SK5HLLS4MPE4LO5OB2W3L2TEDMAS6RCTMZ4",
+      "method": "read_price_data",
+      "argsXdr": [],
+      "latestLedger": 65130091,
+      "retrievedAt": "2026-10-25T13:50:43.757Z",
+      "resultXdr": "AAAAEQAAAAEAAAADAAAADwAAABFwYWNrYWdlX3RpbWVzdGFtcAAAAAAAAAUAAAGhcvh9EAAAAA8AAAAFcHJpY2UAAAAAAAALAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZtIegAAAAPAAAAD3dyaXRlX3RpbWVzdGFtcAAAAAAFAAABoXL4nFA=",
+      "value": {
+        "package_timestamp": "1792930250000",
+        "price": "107815400",
+        "write_timestamp": "1792930258000"
+      }
+    },
+    {
+      "contractId": "CAEGYZFAJ3HLSDBUIVJ77SK5HLLS4MPE4LO5OB2W3L2TEDMAS6RCTMZ4",
+      "method": "decimals",
+      "argsXdr": [],
+      "latestLedger": 65130091,
+      "retrievedAt": "2026-10-25T13:50:44.060Z",
+      "resultXdr": "AAAABQAAAAAAAAAI",
+      "value": "8"
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "base",
+      "argsXdr": [],
+      "latestLedger": 65130091,
+      "retrievedAt": "2026-10-25T13:50:44.363Z",
+      "resultXdr": "AAAAEAAAAAEAAAACAAAADwAAAAVPdGhlcgAAAAAAAA8AAAADVVNEAA==",
+      "value": [
+        "Other",
+        "USD"
+      ]
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "decimals",
+      "argsXdr": [],
+      "latestLedger": 65130092,
+      "retrievedAt": "2026-10-25T13:50:44.917Z",
+      "resultXdr": "AAAAAwAAAAg=",
+      "value": 8
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "assets",
+      "argsXdr": [],
+      "latestLedger": 65130092,
+      "retrievedAt": "2026-10-25T13:50:45.947Z",
+      "resultXdr": "AAAAEAAAAAEAAAAVAAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABJbT82FmuwvpjSEOMSJs8PBDJi20hvk/TyzDLaJU++XcAAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAGt785ZruUpaPdgYdSUwlJbdWWfpClqZfSZ7ynlZHfklgAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAean2et1IwBqRpqnSDrREHJHRDwNguYnY95nCEjE6XyQAAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABF+JHU0eFOIMeCW9m2B+08XpecBHoESA067ymbOkpvZ8AAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAFXXgJyRanviLKFNNrFSGwQqmdOHLIaJmnm6prGQZ5w5wAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAYUbH9DZWv2jSO/CNbOgKCf3ecXxlQcL0pJaMFY57+TzAAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAAB/M5HW9aDgWNLbZn+PIGAIe3IGx0StG181rtOZqJbJCAAAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAFAQVfUqOXsqewXtspjHK/htUzx+1dCmrUyvq2CE+f7CQAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAR9vpunx/SMnrKs13ffFBh1Z7QLNEZjPijZOujWTs1lEAAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABj3cfSTL8oLu1cePrD5mF0eEViel929ZZ8/n8fVXMoIcAAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAGg0gTX7FMDNXDXRe+PK3SazjSwCBtJbBICy6v3ugyRDwAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAXeAe752EHp3/u/R1RpBicnUbdmnKlFrT8AcBpcnJZuDAAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABUJCNuWl5ffQp4UubCGGQlOf1oePWbkmkbFiwPwbj+lYAAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAEo/7SgDcnZpivZVTey0Vi+gF8DFM8IlkJcezYZR3Og7wAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAbUQmw0RQiqRqBr6EobPPx1Ms1QG3D0rTe8MtlhC4qz6AAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABZJyRDui+oWpF2xUm3umVum3WbQ34CbFURsOmR4lTOR0AAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAG9ywRml6EH61Cc0AFhF57sX4QwJh0Hrm/5pqxj78/5DAAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAVH6CP1RpVhF3T8lQWaTyAIkTyuJ4QzOy9TVyOf6mCPkAAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABmur69Uad0Mpg3rejIjSFFjIGv0WMpnoKR5COuQiE6a4AAAAQAAAAAQAAAAIAAAAPAAAAB1N0ZWxsYXIAAAAAEgAAAAEFJVhf7uFTC4n2HjCiOgkOWtkAJ8QZS2d1cMb7W3ARDAAAABAAAAABAAAAAgAAAA8AAAAHU3RlbGxhcgAAAAASAAAAAZe7InYpboPXSO6IKvRvQRxZTpt4Xx7tC3rLpD+qOQV4",
+      "value": [
+        [
+          "Stellar",
+          "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+        ],
+        [
+          "Stellar",
+          "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+        ],
+        [
+          "Stellar",
+          "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV"
+        ],
+        [
+          "Stellar",
+          "CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV"
+        ],
+        [
+          "Stellar",
+          "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR"
+        ],
+        [
+          "Stellar",
+          "CCCRWH6Q3FNP3I2I57BDLM5AFAT7O6OF6GKQOC6SSJNDAVRZ57SPHGU2"
+        ],
+        [
+          "Stellar",
+          "CD6M4R2322BYCY2LNWM74PEBQAQ63SA3DUJLI3L4225U4ZVCLMSCBCIS"
+        ],
+        [
+          "Stellar",
+          "CBAECV6UVDS6ZKPMC63MUYY4V7Q3KTHR7NLUFGVVGK7K3AQT475QTETP"
+        ],
+        [
+          "Stellar",
+          "CAPW7JXJ6H6SGJ5MVM25356FAYOVT3ICZUIZRT4KGZHLUNMTWNMUI3RM"
+        ],
+        [
+          "Stellar",
+          "CCHXOH2JGL6KBO5VOHR6WD4ZQXI6CFMJ5F65XVSZ6P47Y7KVZSQIPN6J"
+        ],
+        [
+          "Stellar",
+          "CCQNEBGX5RJQGNLQ25C67DZLOSNM4NFQBANUS3ASALF2X552BSIQ6XCE"
+        ],
+        [
+          "Stellar",
+          "CB3YA656OYIHU57657I5KGSBRHE5I3OZU4VFC22PYAOANFZHEWNYGAGP"
+        ],
+        [
+          "Stellar",
+          "CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN"
+        ],
+        [
+          "Stellar",
+          "CAUP7NFABXE5TJRL3FKTPMWRLC7IAXYDCTHQRFSCLR5TMGKHOOQO772J"
+        ],
+        [
+          "Stellar",
+          "CC2RBGYNCFBCVENIDL5BFBWPH4OUZM2UA3OD2K2N54GLMWCC4KWPVAGO"
+        ],
+        [
+          "Stellar",
+          "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF"
+        ],
+        [
+          "Stellar",
+          "CC64WBDGS6QQP22QTTIACYIXT3WF7BBQEYOQPLTP7GTKYY7PZ74QYGSL"
+        ],
+        [
+          "Stellar",
+          "CBI7UCH5KGSVQRO5H4SUCZUTZABCITZLRHQQZTWL2TK4RZ72TAR6IHRV"
+        ],
+        [
+          "Stellar",
+          "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN"
+        ],
+        [
+          "Stellar",
+          "CACSKWC753QVGC4J6YPDBIR2BEHFVWIAE7CBSS3HOVYMN623OAIQYE2M"
+        ],
+        [
+          "Stellar",
+          "CCL3WITWFFXIHV2I52ECV5DPIEOFSTU3PBPR53ILPLF2IP5KHECXRUTY"
+        ]
+      ]
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "resolution",
+      "argsXdr": [],
+      "latestLedger": 65130092,
+      "retrievedAt": "2026-10-25T13:50:46.237Z",
+      "resultXdr": "AAAAAwAAqMA=",
+      "value": 43200
+    },
+    {
+      "contractId": "CAEGYZFAJ3HLSDBUIVJ77SK5HLLS4MPE4LO5OB2W3L2TEDMAS6RCTMZ4",
+      "method": "feed_id",
+      "argsXdr": [],
+      "latestLedger": 65130092,
+      "retrievedAt": "2026-10-25T13:50:46.537Z",
+      "resultXdr": "AAAADgAAAAVVU1RSWQAAAA==",
+      "value": "USTRY"
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "lastprice",
+      "argsXdr": [
+        "AAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABV14CckWp74iyhTTaxUhsEKpnThyyGiZp5uqaxkGecOc="
+      ],
+      "latestLedger": 65130092,
+      "retrievedAt": "2026-10-25T13:50:46.718Z",
+      "resultXdr": "AAAAEQAAAAEAAAACAAAADwAAAAVwcmljZQAAAAAAAAoAAAAAAAAAAAAAAAAGbSHoAAAADwAAAAl0aW1lc3RhbXAAAAAAAAAFAAAAAGrd8co=",
+      "value": {
+        "price": "107815400",
+        "timestamp": "1792930250"
+      }
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "prices",
+      "argsXdr": [
+        "AAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABV14CckWp74iyhTTaxUhsEKpnThyyGiZp5uqaxkGecOc=",
+        "AAAAAwAAABQ="
+      ],
+      "latestLedger": 65130092,
+      "retrievedAt": "2026-10-25T13:50:47.153Z",
+      "resultXdr": "AAAAEAAAAAEAAAAKAAAAEQAAAAEAAAACAAAADwAAAAVwcmljZQAAAAAAAAoAAAAAAAAAAAAAAAAGbKHIAAAADwAAAAl0aW1lc3RhbXAAAAAAAAAFAAAAAGrZ2aAAAAARAAAAAQAAAAIAAAAPAAAABXByaWNlAAAAAAAACgAAAAAAAAAAAAAAAAZsoiwAAAAPAAAACXRpbWVzdGFtcAAAAAAAAAUAAAAAatna1gAAABEAAAABAAAAAgAAAA8AAAAFcHJpY2UAAAAAAAAKAAAAAAAAAAAAAAAABmy2GAAAAA8AAAAJdGltZXN0YW1wAAAAAAAABQAAAABq2oOgAAAAEQAAAAEAAAACAAAADwAAAAVwcmljZQAAAAAAAAoAAAAAAAAAAAAAAAAGbMrMAAAADwAAAAl0aW1lc3RhbXAAAAAAAAAFAAAAAGrbLGoAAAARAAAAAQAAAAIAAAAPAAAABXByaWNlAAAAAAAACgAAAAAAAAAAAAAAAAZszrQAAAAPAAAACXRpbWVzdGFtcAAAAAAAAAUAAAAAattNWAAAABEAAAABAAAAAgAAAA8AAAAFcHJpY2UAAAAAAAAKAAAAAAAAAAAAAAAABmzOtAAAAA8AAAAJdGltZXN0YW1wAAAAAAAABQAAAABq206iAAAAEQAAAAEAAAACAAAADwAAAAVwcmljZQAAAAAAAAoAAAAAAAAAAAAAAAAGbOPMAAAADwAAAAl0aW1lc3RhbXAAAAAAAAAFAAAAAGrb92wAAAARAAAAAQAAAAIAAAAPAAAABXByaWNlAAAAAAAACgAAAAAAAAAAAAAAAAZs+IAAAAAPAAAACXRpbWVzdGFtcAAAAAAAAAUAAAAAatygNgAAABEAAAABAAAAAgAAAA8AAAAFcHJpY2UAAAAAAAAKAAAAAAAAAAAAAAAABm0NNAAAAA8AAAAJdGltZXN0YW1wAAAAAAAABQAAAABq3UkAAAAAEQAAAAEAAAACAAAADwAAAAVwcmljZQAAAAAAAAoAAAAAAAAAAAAAAAAGbSHoAAAADwAAAAl0aW1lc3RhbXAAAAAAAAAFAAAAAGrd8co=",
+      "value": [
+        {
+          "price": "107782600",
+          "timestamp": "1792661920"
+        },
+        {
+          "price": "107782700",
+          "timestamp": "1792662230"
+        },
+        {
+          "price": "107787800",
+          "timestamp": "1792705440"
+        },
+        {
+          "price": "107793100",
+          "timestamp": "1792748650"
+        },
+        {
+          "price": "107794100",
+          "timestamp": "1792757080"
+        },
+        {
+          "price": "107794100",
+          "timestamp": "1792757410"
+        },
+        {
+          "price": "107799500",
+          "timestamp": "1792800620"
+        },
+        {
+          "price": "107804800",
+          "timestamp": "1792843830"
+        },
+        {
+          "price": "107810100",
+          "timestamp": "1792887040"
+        },
+        {
+          "price": "107815400",
+          "timestamp": "1792930250"
+        }
+      ]
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "method": "price",
+      "argsXdr": [
+        "AAAAEAAAAAEAAAACAAAADwAAAAdTdGVsbGFyAAAAABIAAAABV14CckWp74iyhTTaxUhsEKpnThyyGiZp5uqaxkGecOc=",
+        "AAAABQAAAABq3fHK"
+      ],
+      "latestLedger": 65130095,
+      "retrievedAt": "2026-10-25T13:51:00.820Z",
+      "resultXdr": "AAAAEQAAAAEAAAACAAAADwAAAAVwcmljZQAAAAAAAAoAAAAAAAAAAAAAAAAGbSHoAAAADwAAAAl0aW1lc3RhbXAAAAAAAAAFAAAAAGrd8co=",
+      "value": {
+        "price": "107815400",
+        "timestamp": "1792930250"
+      }
+    }
+  ],
+  "limitations": [
+    "Separate simulations are not an atomic ledger snapshot.",
+    "Issuer API response time and FX source timestamps do not establish an independently audited NAV effective time.",
+    "Source commit and on-chain WASM hashes are recorded; reproducible bytecode/source matching is not established.",
+    "Current observation and bounded history do not establish future liveness or a redemption guarantee.",
+    "Exact upstream USTRY price methodology and issuer/PT-YT access require provider confirmation."
+  ],
+  "networkConfiguration": {
+    "passphrase": "Public Global Stellar Network ; September 2015",
+    "protocolVersion": 29
+  },
+  "providerSourceCommit": "1c2c0da53ea8607f6dc1caa8cd95dc8f0fe3c8be",
+  "providerConfiguration": {
+    "direct": {
+      "priceFeedAddress": "CAEGYZFAJ3HLSDBUIVJ77SK5HLLS4MPE4LO5OB2W3L2TEDMAS6RCTMZ4",
+      "updateTriggersOverrides": {
+        "deviationPercentage": 0.1,
+        "timeSinceLastUpdateInMilliseconds": 43200000
+      }
+    },
+    "sep40": {
+      "priceFeedAddress": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "updateTriggersOverrides": {
+        "deviationPercentage": 0.1,
+        "timeSinceLastUpdateInMilliseconds": 43200000
+      }
+    },
+    "dataServiceId": "redstone-primary-prod",
+    "note": "Published relayer configuration is evidence of intended updates, not a contractual service guarantee."
+  },
+  "issuerAccount": {
+    "_links": {
+      "self": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC"
+      },
+      "transactions": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/transactions{?cursor,limit,order}",
+        "templated": true
+      },
+      "operations": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/operations{?cursor,limit,order}",
+        "templated": true
+      },
+      "payments": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/payments{?cursor,limit,order}",
+        "templated": true
+      },
+      "effects": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/effects{?cursor,limit,order}",
+        "templated": true
+      },
+      "offers": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/offers{?cursor,limit,order}",
+        "templated": true
+      },
+      "trades": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/trades{?cursor,limit,order}",
+        "templated": true
+      },
+      "data": {
+        "href": "https://horizon.stellar.org/accounts/GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC/data/{key}",
+        "templated": true
+      }
+    },
+    "id": "GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+    "account_id": "GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+    "sequence": "235853241387058733",
+    "sequence_ledger": 65080283,
+    "sequence_time": "1792687198",
+    "subentry_count": 5,
+    "home_domain": "etherfuse.com",
+    "last_modified_ledger": 65122044,
+    "last_modified_time": "2026-10-25T02:40:03Z",
+    "thresholds": {
+      "low_threshold": 3,
+      "med_threshold": 3,
+      "high_threshold": 3
+    },
+    "flags": {
+      "auth_required": false,
+      "auth_revocable": true,
+      "auth_immutable": false,
+      "auth_clawback_enabled": true
+    },
+    "balances": [
+      {
+        "balance": "30.0717592",
+        "buying_liabilities": "0.0000000",
+        "selling_liabilities": "0.0000000",
+        "asset_type": "native"
+      }
+    ],
+    "signers": [
+      {
+        "weight": 1,
+        "key": "GAENTBJOHXAUUERDKE242SIVUJYDQEUDACHN4MNNTUDZKC6JI6TY4ELZ",
+        "type": "ed25519_public_key"
+      },
+      {
+        "weight": 1,
+        "key": "GAQW5UGB7IFES4R4HZ7PGEX5ZJ336QYX5LKQ6N7K7DPXMJZGKNXB4UHG",
+        "type": "ed25519_public_key"
+      },
+      {
+        "weight": 1,
+        "key": "GAWR6H5ICMJFHGWX6FQSVMDCZAZAMDZX75YGJGXDMR7K4DVNSGP73VIP",
+        "type": "ed25519_public_key"
+      },
+      {
+        "weight": 1,
+        "key": "GBRQNIKZWPD23DUAPI6T6SZNYRHD3TKOGJSMPJ55VVZWIS65SDPZEQFF",
+        "type": "ed25519_public_key"
+      },
+      {
+        "weight": 1,
+        "key": "GBY2SK3RV643AJSHHML2M42HHC6OHO6ACKSLTSOY4REZXDN75OSEANVV",
+        "type": "ed25519_public_key"
+      },
+      {
+        "weight": 0,
+        "key": "GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+        "type": "ed25519_public_key"
+      }
+    ],
+    "data": {},
+    "num_sponsoring": 0,
+    "num_sponsored": 0,
+    "paging_token": "GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC"
+  },
+  "assetRecord": [
+    {
+      "_links": {
+        "toml": {
+          "href": "https://etherfuse.com/.well-known/stellar.toml"
+        }
+      },
+      "asset_type": "credit_alphanum12",
+      "asset_code": "USTRY",
+      "asset_issuer": "GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC",
+      "paging_token": "USTRY_GCRYUGD5NVARGXT56XEZI5CIFCQETYHAPQQTHO2O3IQZTHDH4LATMYWC_credit_alphanum12",
+      "contract_id": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+      "num_claimable_balances": 1,
+      "num_liquidity_pools": 42,
+      "num_contracts": 43,
+      "accounts": {
+        "authorized": 1012,
+        "authorized_to_maintain_liabilities": 0,
+        "unauthorized": 0
+      },
+      "claimable_balances_amount": "0.0954426",
+      "liquidity_pools_amount": "836.6916262",
+      "contracts_amount": "1070891.0807183",
+      "balances": {
+        "authorized": "10441503.0013111",
+        "authorized_to_maintain_liabilities": "0.0000000",
+        "unauthorized": "0.0000000"
+      },
+      "flags": {
+        "auth_required": false,
+        "auth_revocable": true,
+        "auth_immutable": false,
+        "auth_clawback_enabled": true
+      }
+    }
+  ],
+  "contractInstances": [
+    {
+      "contractId": "CAEGYZFAJ3HLSDBUIVJ77SK5HLLS4MPE4LO5OB2W3L2TEDMAS6RCTMZ4",
+      "wasmHash": "3e464b6dda26a8d5b0bf13d2cb7781a6142bf2c2e4b64edcba093911fa16df5c",
+      "lastModifiedLedgerSeq": 61093626,
+      "liveUntilLedgerSeq": 65565597,
+      "storage": [
+        {
+          "key": "owner",
+          "value": "GCXYXZHRDYGY56JTAQX4EKURGGJLIW2RSIMFADVS5BDK3AT6GZWPLUFY"
+        },
+        {
+          "key": [
+            "FeedId"
+          ],
+          "value": "USTRY"
+        }
+      ],
+      "ledgerEntryXdr": "AAAABgAAAAAAAAABCGxkoE7OuQw0RVP/yV061y4x5OLd1wdW2vUyDYCXoikAAAAUAAAAAQAAABMAAAAAPkZLbdomqNWwvxPSy3eBphQr8sLktk7cugk5EfoW31wAAAABAAAAAgAAAA4AAAAFb3duZXIAAAAAAAASAAAAAAAAAACvi+TxHg2O+TMEL8IqkTGStFtRkhhQDrLoRq2CfjZs9QAAABAAAAABAAAAAQAAAA8AAAAGRmVlZElkAAAAAAAOAAAABVVTVFJZAAAA"
+    },
+    {
+      "contractId": "CA526Y2NQWGWVVQ7RFFPGAZMU66PSYJ3UC2MTVAV4ZU7OM5BOPHDXUSG",
+      "wasmHash": "f0ccdffc29931abed6d77eef359450b183584103a3665be1f080f5f712b1542e",
+      "lastModifiedLedgerSeq": 62520450,
+      "liveUntilLedgerSeq": 65308700,
+      "storage": [
+        {
+          "key": "owner",
+          "value": "GCXYXZHRDYGY56JTAQX4EKURGGJLIW2RSIMFADVS5BDK3AT6GZWPLUFY"
+        }
+      ],
+      "ledgerEntryXdr": "AAAABgAAAAAAAAABO69jTYWNatYfiUrzAyynvPlhO6C0ydQV5mn3M6FzzjsAAAAUAAAAAQAAABMAAAAA8Mzf/CmTGr7W137vNZRQsYNYQQOjZlvh8ID19xKxVC4AAAABAAAAAQAAAA4AAAAFb3duZXIAAAAAAAASAAAAAAAAAACvi+TxHg2O+TMEL8IqkTGStFtRkhhQDrLoRq2CfjZs9Q=="
+    },
+    {
+      "contractId": "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      "wasmHash": "5700be217a7b5d91324bdc529fd1e8047c275647c9c576aaa5a2ca46f64fd04a",
+      "lastModifiedLedgerSeq": 64972960,
+      "liveUntilLedgerSeq": 65310717,
+      "storage": [
+        {
+          "key": "owner",
+          "value": "GCXYXZHRDYGY56JTAQX4EKURGGJLIW2RSIMFADVS5BDK3AT6GZWPLUFY"
+        },
+        {
+          "key": [
+            "BaseAsset"
+          ],
+          "value": [
+            "Other",
+            "USD"
+          ]
+        },
+        {
+          "key": [
+            "MaxDecimals"
+          ],
+          "value": 8
+        },
+        {
+          "key": [
+            "Resolution"
+          ],
+          "value": 43200
+        }
+      ],
+      "ledgerEntryXdr": "AAAABgAAAAAAAAABWGWqkM1kBC+ieMYLSpj7AKuiR2OySq2BpYLCmPFMo8sAAAAUAAAAAQAAABMAAAAAVwC+IXp7XZEyS9xSn9HoBHwnVkfJxXaqpaLKRvZP0EoAAAABAAAABAAAAA4AAAAFb3duZXIAAAAAAAASAAAAAAAAAACvi+TxHg2O+TMEL8IqkTGStFtRkhhQDrLoRq2CfjZs9QAAABAAAAABAAAAAQAAAA8AAAAJQmFzZUFzc2V0AAAAAAAAEAAAAAEAAAACAAAADwAAAAVPdGhlcgAAAAAAAA8AAAADVVNEAAAAABAAAAABAAAAAQAAAA8AAAALTWF4RGVjaW1hbHMAAAAAAwAAAAgAAAAQAAAAAQAAAAEAAAAPAAAAClJlc29sdXRpb24AAAAAAAMAAKjA"
+    }
+  ],
+  "ledger": {
+    "sequence": 65130092,
+    "closedAt": "2026-10-25T13:50:43Z",
+    "hash": "7d443f1a3cccfadcc467a138fccfd35cd3605f6ae596b7c33a788a55ad380edb"
+  },
+  "historicalLookup": {
+    "price": "107815400",
+    "timestamp": "1792930250"
+  },
+  "observation": {
+    "identity": {
+      "feedId": "USTRY",
+      "directDecimals": "8",
+      "sep40Decimals": 8,
+      "base": [
+        "Other",
+        "USD"
+      ],
+      "resolution": 43200,
+      "token": "CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR",
+      "mappedFeed": "USTRY",
+      "assetListed": true
+    },
+    "direct": {
+      "package_timestamp": "1792930250000",
+      "price": "107815400",
+      "write_timestamp": "1792930258000"
+    },
+    "sep40": {
+      "price": "107815400",
+      "timestamp": "1792930250"
+    },
+    "history": [
+      {
+        "price": "107782600",
+        "timestamp": "1792661920"
+      },
+      {
+        "price": "107782700",
+        "timestamp": "1792662230"
+      },
+      {
+        "price": "107787800",
+        "timestamp": "1792705440"
+      },
+      {
+        "price": "107793100",
+        "timestamp": "1792748650"
+      },
+      {
+        "price": "107794100",
+        "timestamp": "1792757080"
+      },
+      {
+        "price": "107794100",
+        "timestamp": "1792757410"
+      },
+      {
+        "price": "107799500",
+        "timestamp": "1792800620"
+      },
+      {
+        "price": "107804800",
+        "timestamp": "1792843830"
+      },
+      {
+        "price": "107810100",
+        "timestamp": "1792887040"
+      },
+      {
+        "price": "107815400",
+        "timestamp": "1792930250"
+      }
+    ],
+    "issuerCost": {
+      "token_symbol": "USTRY",
+      "token_mint": "USTRYnGgcHAhdWsanv8BG6vHGd4p7UGgoB9NRd8ei7j",
+      "token_kind": "bond",
+      "currency": "USD",
+      "token_cost_in_fiat": "1.078161",
+      "token_cost_in_usd": "1.078161",
+      "fiat_exchange_rate_with_usd": "1",
+      "current_basis_points": 360,
+      "current_time": "2026-10-25T13:50:53.280283606+00:00",
+      "payment_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "sources": {
+        "8e1e2967-0283-42dd-bb06-e49193c368d2": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.078161",
+          "updated_at": 1792936222
+        },
+        "7a5e931b-d5f1-4ca7-9dfa-4c0d8ea8f047": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.078161",
+          "updated_at": 1792936212
+        },
+        "aba2c7ff-0812-4e1a-81ab-8b25c1acfe24": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.078161",
+          "updated_at": 1792936212
+        },
+        "7bd29441-2c78-42a2-b1f0-3413447a38cb": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.078161",
+          "updated_at": 1792936222
+        },
+        "d2ce2919-082f-4d60-8fbb-a15b3b570e57": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.078161",
+          "updated_at": 1792936192
+        }
+      }
+    },
+    "referenceTimeSeconds": 1792936260
+  },
+  "assessment": {
+    "status": "technical_checks_passed",
+    "failures": [],
+    "priceUsd": "1.07815400",
+    "issuerPriceUsd": "1.07816100",
+    "ageSeconds": "6010",
+    "packageToWriteDelayMs": "8000",
+    "deviationBps": "0.064925",
+    "historyRecords": 10,
+    "maxHistoryGapSeconds": "43210",
+    "productionApproved": false
+  },
+  "completedAt": "2026-10-25T13:51:00.821Z"
+}
