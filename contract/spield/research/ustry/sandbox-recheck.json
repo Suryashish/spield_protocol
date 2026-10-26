@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "environment": "sandbox",
+  "baseUrl": "https://api.sand.etherfuse.com",
+  "startedAt": "2026-10-25T15:00:52.412208+00:00",
+  "apiVersion": "v1 /ramp (documented alongside v2 beta)",
+  "ordersCreated": false,
+  "transactionsSignedOrSubmitted": false,
+  "productionAccessConfirmed": false,
+  "productEligibilityConfirmed": false,
+  "authenticationPassed": true,
+  "accountApprovalPresent": true,
+  "partnerFeeDefaultBps": 0,
+  "walletInventory": {
+    "firstPageCount": 2,
+    "totalItems": 2,
+    "stellarOnFirstPage": 1
+  },
+  "registeredStellarWalletFound": true,
+  "walletClaimedOwnership": true,
+  "assets": [
+    {
+      "symbol": "USDC",
+      "identifier": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "currency": "usd"
+    },
+    {
+      "symbol": "USTRY",
+      "identifier": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": null
+    },
+    {
+      "symbol": "TESOURO",
+      "identifier": "TESOURO:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": "brl"
+    },
+    {
+      "symbol": "KTB",
+      "identifier": "KTB:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": null
+    },
+    {
+      "symbol": "CETES",
+      "identifier": "CETES:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": "mxn"
+    },
+    {
+      "symbol": "MEXe",
+      "identifier": "MEXe:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": "mxn"
+    },
+    {
+      "symbol": "EURC",
+      "identifier": "EURC:GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO",
+      "currency": "eur"
+    }
+  ],
+  "ustryListed": true,
+  "usdcListed": true,
+  "quotes": [
+    {
+      "httpStatus": 424,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "10",
+      "quoteReturned": false,
+      "control": false,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "httpStatus": 424,
+      "sourceSymbol": "USTRY",
+      "targetSymbol": "USDC",
+      "requestedSourceAmount": "10",
+      "quoteReturned": false,
+      "control": false,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "httpStatus": 200,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "CETES",
+      "requestedSourceAmount": "10",
+      "sourceAmount": "10",
+      "destinationAmount": "162.38622900175887187588187344",
+      "exchangeRate": "16.238622900175887187588187344",
+      "feeAmount": "0.02",
+      "feeBps": "20",
+      "nominalRate": "16.2712000",
+      "etherfuseMidMarketRate": "16.271165230637161510609406156",
+      "requiresSwap": true,
+      "quoteReturned": true,
+      "control": true
+    }
+  ],
+  "status": "sandbox_access_verified_quotes_unconfirmed",
+  "requests": [
+    {
+      "method": "GET",
+      "route": "/ramp/me",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/wallets",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/assets",
+      "httpStatus": 200
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 424,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 424,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 200
+    }
+  ],
+  "completedAt": "2026-10-25T15:01:00.576924+00:00"
+}

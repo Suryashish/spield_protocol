@@ -12,6 +12,8 @@
     "keeper:dry": "node ttl_keeper.mjs --dry-run",
     "calibrate": "node calibrate_vault_rate.mjs",
     "probe:ustry-oracle": "node probe_ustry_oracle.mjs",
+    "probe:etherfuse-sandbox": "python3 -B probe_etherfuse_sandbox.py --control",
+    "test:etherfuse-sandbox": "python3 -B -m unittest test_etherfuse_sandbox.py",
     "test:ustry-oracle": "node --test ustry_oracle.test.mjs",
     "test": "node --test calibrate_vault_rate.test.mjs ustry_oracle.test.mjs"
   },

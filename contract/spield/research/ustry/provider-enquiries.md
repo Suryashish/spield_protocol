@@ -1,6 +1,8 @@
 # USTRY provider enquiries
 
-Prepared 25 October 2026. **Drafts only; not sent.** Spield currently has no Etherfuse business account or existing provider contact. Primary access and product approval are unconfirmed.
+Updated 25 October 2026. **Drafts only; not sent.** Spield now has a business account and an API key verified against Etherfuse's sandbox. Account approval and Stellar USTRY listing are confirmed; USTRY quotes currently fail in both directions. Production access, primary redemption and product approval remain unconfirmed. See [sandbox test results](sandbox-results.md).
+
+**Setup follow-up:** Email is not required for standard sandbox activation. There is no sandbox bank account yet, and the registered Stellar wallet is not activated on-chain. A first simulated CETES onramp has a successful quote and can address those wallet prerequisites. This does not establish the cause of the USTRY quote failures. See [website/setup next steps](sandbox-setup-next-steps.md).
 
 ## 1. Etherfuse: redemption, eligibility and sandbox access
 
@@ -14,14 +16,18 @@ We are evaluating USTRY as a Treasury yield source for Spield, a Stellar/Soroban
 
 We have verified the USTRY Stellar asset and RedStone's live USD oracle. Before proceeding beyond an isolated prototype, please help us establish:
 
+**Current sandbox issue:** Our approved business account has a Stellar wallet with claimed organization ownership. `GET /ramp/me`, `GET /ramp/wallets` and `GET /ramp/assets?blockchain=stellar&currency=usd&wallet=...` return HTTP 200. USTRY is listed as `USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4`. However, `POST /ramp/quote` returns HTTP 424 / `FailedToGetQuote` for both 10 USDC → USTRY and 10 USTRY → USDC, using sandbox USDC `USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`. A 10 USDC → CETES control quote succeeds on the same account. Please confirm whether the USTRY sandbox path needs provisioning/liquidity, the supported test-funding route, and any account-specific requirements. These were quote-only checks; no order or swap was executed.
+
+Further checks: the Stellar wallet is registered but not yet activated on-chain, and no sandbox bank account is linked. We have a successful 100-MXN CETES quote for its documented first-onramp bootstrap. Smaller USTRY swaps and direct Stellar USTRY onramp/offramp quotes still return 424. The exact Solana devnet mint from the bond page (`BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt`), paired with the live-discovered sandbox payment mint, returns 500 for purchase and 404 `NoPathsFound` for reverse swaps. Are there supported USTRY test-liquidity/issuance paths distinct from the ordinary wallet bootstrap?
+
 1. **Product eligibility:** Can an approved operating entity hold pooled USTRY in a Soroban contract and issue SR, principal, yield and LP interests? Your holder terms address equivalent derivative positions. Which restrictions must apply to the entity, beneficiaries and subsequent PT/YT transfers?
 2. **Redemption rights:** Who may redeem USTRY held in a contract for multiple users? Does onboarding the operator suffice, or must every beneficiary be identified and eligible? How are claims handled if the operator is unavailable?
 3. **Settlement:** Which primary USTRY redemption routes are available on Stellar today? Please specify USTRY-to-USDC versus fiat, payout currencies, supported wallet types, contract-address support, order cutoffs, normal/worst-case timing, weekends/holidays, and suspension policies.
 4. **Economics and capacity:** What are USTRY-specific minimums, per-order/daily limits, spreads, commissions and redemption fees? Does the published rate/NAV already include commissions and withholding? Can you provide the applicable commercial schedule and redemption SLA?
 5. **Issuer controls:** Horizon currently reports `auth_required=false`, `auth_revocable=true` and `auth_clawback_enabled=true` for the issuer. What policy governs deauthorization/clawback of contract balances? Which controls apply to new contract holdings, and what notice/recovery process exists?
 6. **NAV and legal claims:** Which legal entity owes the USTRY claim on Stellar? Please provide the current governing documents, custody chain, latest USTRY reserve reconciliation, valuation policy, NAV effective timestamps, and the treatment of valuation revisions/losses.
-7. **Sandbox:** Is USTRY available through your Stellar sandbox? Please identify the supported API version, asset discovery endpoint, test token, acquisition flow, redemption flow and test limitations. If it is not available, is there a supported fixture?
-8. **Onboarding:** What KYB/KYC and distribution/integration process should Spield follow? We can provide operating-entity and intended-market information through the appropriate onboarding channel.
+7. **Sandbox:** USTRY asset discovery now works, but its quote routes do not. Please identify the supported acquisition/redemption workflow, test limitations and whether an alternative supported fixture or API version is required.
+8. **Onboarding:** Our sandbox account reports approval. What production KYB/KYC and distribution/integration process should Spield follow? We can provide operating-entity and intended-market information through the appropriate onboarding channel.
 
 Please identify which answers can be relied upon for this specific operating model and which require additional legal or commercial approval.
 
@@ -62,8 +68,8 @@ Spield team
 
 ## 3. Account setup sequence
 
-1. The Spield account owner signs up at the [Etherfuse sandbox](https://sandbox.etherfuse.com/), creates a business organization and follows the documented sandbox KYB approval workflow. [Initial setup](https://docs.etherfuse.com/initial-setup).
-2. Obtain the current API version and read the supported Stellar assets. Confirm **USTRY**, its issuer, and both purchase/redemption pair availability before building authenticated order logic.
+1. **Completed:** a business account/API key is available; sandbox authentication and approval were verified. [Initial setup](https://docs.etherfuse.com/initial-setup).
+2. **Partially completed:** authenticated Stellar asset discovery confirms USTRY and its testnet issuer. Both USTRY quote directions returned HTTP 424; ask Etherfuse to resolve the route before attempting funded orders.
 3. Use server-side credentials through the project's normal secret-management process. The oracle probe requires no API key or wallet secret.
 4. Complete production onboarding only after entity, jurisdiction and beneficiary requirements have been established. A sandbox approval does not grant production eligibility.
 5. Record the provider replies and the exact approved design here. Until then, primary redemption and PT/YT eligibility remain **unconfirmed**.
@@ -77,5 +83,5 @@ Spield team
 | Party entitled to primary redemption | Awaiting provider response |
 | Stellar payout currency, minimum, fees, capacity and timing | Awaiting provider response |
 | Contract-address or operating-wallet settlement process | Awaiting provider response |
-| USTRY sandbox token and round-trip order results | Awaiting account setup and authenticated verification |
+| USTRY sandbox token and round-trip order results | Sandbox token verified; quote routes return HTTP 424; funded round trip pending |
 | Controls, NAV effective time and current USTRY reserve evidence | Awaiting provider response |

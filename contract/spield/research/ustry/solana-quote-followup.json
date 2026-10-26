@@ -1,0 +1,57 @@
+{
+  "environment": "sandbox",
+  "chain": "solana",
+  "startedAt": "2026-10-25T14:50:08.815389+00:00",
+  "ordersCreated": false,
+  "quotes": [
+    {
+      "type": "swap",
+      "httpStatus": 500,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "10",
+      "quoteReturned": false,
+      "providerError": {
+        "type": "Unexpected",
+        "message": "An unexpected error occurred"
+      }
+    },
+    {
+      "type": "swap",
+      "httpStatus": 404,
+      "sourceSymbol": "USTRY",
+      "targetSymbol": "USDC",
+      "requestedSourceAmount": "10",
+      "quoteReturned": false,
+      "providerError": {
+        "type": "NoPathsFound",
+        "message": "No paths found"
+      }
+    },
+    {
+      "type": "onramp",
+      "httpStatus": 404,
+      "sourceSymbol": "MXN",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "100",
+      "quoteReturned": false,
+      "providerError": {
+        "type": "NoPathsFound",
+        "message": "No paths found"
+      }
+    },
+    {
+      "type": "offramp",
+      "httpStatus": 500,
+      "sourceSymbol": "USTRY",
+      "targetSymbol": "MXN",
+      "requestedSourceAmount": "1",
+      "quoteReturned": false,
+      "providerError": {
+        "type": "Unexpected",
+        "message": "An unexpected error occurred"
+      }
+    }
+  ],
+  "completedAt": "2026-10-25T14:50:14.373635+00:00"
+}

@@ -4,14 +4,18 @@ Last verified: **25 October 2026, 19:21 IST**. Full results: [oracle-observation
 
 ## Current decision
 
-**The public oracle checks pass. Production valuation methodology and primary redemption access remain unconfirmed.** The next action is Etherfuse account setup and provider replies, using the [prepared enquiries](provider-enquiries.md).
+**The public oracle checks pass. Sandbox account access and USTRY token availability are now verified, but both USTRY quote routes return HTTP 424 while the CETES control succeeds.** See the [authenticated sandbox results](sandbox-results.md). Production valuation methodology, primary redemption and PT/YT eligibility remain unconfirmed; the [updated enquiries](provider-enquiries.md) include the reproducible sandbox issue.
+
+**Setup clarification:** The [sandbox address/dashboard follow-up](sandbox-setup-next-steps.md) identifies missing self-service bank-account and Stellar-wallet activation steps, with a successful CETES first-onramp quote. Correct sandbox identifiers were already used; the linked Solana mint also has quote-route failures. Email is not itself required to activate the sandbox.
+
+**Fresh Stellar confirmation, 20:31 IST:** USTRY is listed for Stellar in the sandbox product catalog and authenticated discovery. Direct testnet SAC reads return `symbol=USTRY` and `decimals=7`. Both USTRY quote directions still return 424. See [availability evidence](sandbox-availability-recheck.md). The URL's Solana mint does not mean the product is Solana-only.
 
 | Requested step | Evidence and status |
 |---|---|
 | 1. Identify and read the actual oracle | **Verified:** provider deployment references, mainnet network identity, exact USTRY asset mapping, USD base, decimals, live/direct prices, timestamps, retained history and historical lookup. |
 | 1. Confirm pricing methodology | **Partially verified:** contract plumbing and public price comparison inspected. Exact upstream source composition, NAV effective-time semantics and source-to-deployed-bytecode matching require provider assurance. |
-| 2. Confirm redemption and product access | **Pending external action:** no business account/contact exists yet. Public documents do not approve Spield's pooled PT/YT structure. Drafts and account setup steps are ready. |
-| 3. Isolated testnet prototype | **Pending the preceding feasibility/access decisions**, following the requested sequence. No testnet contract or mock NAV is presented as a verified integration. |
+| 2. Confirm redemption and product access | **Account/API checks completed:** sandbox approval and USTRY listing verified. Both USTRY quote routes return HTTP 424, so no issuer round trip has been proven. Production pooled PT/YT terms remain pending provider response. |
+| 3. Isolated testnet prototype | Local accounting experiments can proceed alongside provider enquiries. A provider-backed funded round trip remains dependent on resolving the USTRY sandbox quote path. No prototype has been deployed yet. |
 | 4. USDC conversion | **Pending:** requires measured executable liquidity and approved settlement terms. |
 
 This checkpoint does not establish a reliable cash exit. In-kind token return, primary redemption and secondary sale are separate mechanisms with different failure conditions.
@@ -133,6 +137,6 @@ npm test
 
 ## 7. Next checkpoint
 
-Use the [provider enquiry and account setup sequence](provider-enquiries.md). The account owner must establish the business account and provide the operating-entity information requested during onboarding. Replies must confirm who can redeem pooled holdings, the accepted PT/YT structure, eligible users, and actual Stellar settlement terms.
+Use the [updated provider enquiry](provider-enquiries.md). The sandbox business account now authenticates and reports approval. Ask Etherfuse to resolve the USTRY quote path and provide a supported test-funding route. Replies must separately confirm who can redeem pooled holdings, the accepted PT/YT structure, eligible users, and actual production Stellar settlement terms.
 
-Proceed to the isolated testnet lifecycle once the outstanding methodology and access decisions are sufficiently resolved to define the product being tested. The required lifecycle remains deposit → split PT/YT → claim yield → maturity → in-kind redemption, including declining NAV, stale feeds and issuer-control failures. USDC conversion follows its own measured liquidity/settlement check.
+The isolated contract accounting prototype can proceed while those replies are pending, using clearly labeled controlled valuation inputs for failure cases. The required lifecycle remains deposit → split PT/YT → claim yield → maturity → in-kind redemption, including declining NAV, stale feeds and issuer-control failures. A funded issuer purchase/redemption test must wait for a usable USTRY sandbox route. USDC conversion follows its own measured liquidity/settlement check.

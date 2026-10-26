@@ -1,0 +1,167 @@
+{
+  "startedAt": "2026-10-25T14:48:46.310704+00:00",
+  "environment": "sandbox",
+  "quoteOnly": true,
+  "providedPage": "https://sandbox.etherfuse.com/bonds/BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+  "chains": [
+    {
+      "chain": "stellar",
+      "walletClaimedOwnership": true,
+      "assetDiscoveryHttp": 200,
+      "identifiers": {
+        "USDC": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "USTRY": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+        "CETES": "CETES:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4"
+      },
+      "quotes": [
+        {
+          "type": "swap",
+          "httpStatus": 424,
+          "sourceSymbol": "USDC",
+          "targetSymbol": "USTRY",
+          "requestedSourceAmount": "1",
+          "quoteReturned": false,
+          "errorClass": "quote_path_unavailable"
+        },
+        {
+          "type": "swap",
+          "httpStatus": 424,
+          "sourceSymbol": "USTRY",
+          "targetSymbol": "USDC",
+          "requestedSourceAmount": "1",
+          "quoteReturned": false,
+          "errorClass": "quote_path_unavailable"
+        },
+        {
+          "type": "onramp",
+          "httpStatus": 424,
+          "sourceSymbol": "MXN",
+          "targetSymbol": "USTRY",
+          "requestedSourceAmount": "100",
+          "quoteReturned": false,
+          "errorClass": "quote_path_unavailable"
+        },
+        {
+          "type": "offramp",
+          "httpStatus": 424,
+          "sourceSymbol": "USTRY",
+          "targetSymbol": "MXN",
+          "requestedSourceAmount": "1",
+          "quoteReturned": false,
+          "errorClass": "quote_path_unavailable"
+        },
+        {
+          "type": "onramp",
+          "httpStatus": 200,
+          "sourceSymbol": "MXN",
+          "targetSymbol": "CETES",
+          "requestedSourceAmount": "100",
+          "sourceAmount": "100",
+          "destinationAmount": "78.71",
+          "exchangeRate": "0.7871",
+          "feeAmount": "9.69",
+          "feeBps": "969",
+          "nominalRate": "0.87158926032233175276",
+          "requiresSwap": false,
+          "quoteReturned": true
+        }
+      ]
+    },
+    {
+      "chain": "solana",
+      "walletClaimedOwnership": true,
+      "assetDiscoveryHttp": 200,
+      "identifiers": {
+        "USDC": "BXTou3CvPxpFVAJvzvEZcAnRLGCHqT1LHKsFTSQft7s",
+        "USTRY": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+        "CETES": "AvvetPGuuB5FD5m86fpw3LtDKyQoUFT1mG9WarNQLW4q"
+      },
+      "quotes": [
+        {
+          "type": "swap",
+          "httpStatus": 500,
+          "sourceSymbol": "USDC",
+          "targetSymbol": "USTRY",
+          "requestedSourceAmount": "1",
+          "quoteReturned": false,
+          "errorClass": "provider_error"
+        },
+        {
+          "type": "swap",
+          "httpStatus": 404,
+          "sourceSymbol": "USTRY",
+          "targetSymbol": "USDC",
+          "requestedSourceAmount": "1",
+          "quoteReturned": false,
+          "errorClass": "provider_error"
+        }
+      ]
+    }
+  ],
+  "ordersCreated": false,
+  "transactionsSignedOrSubmitted": false,
+  "requests": [
+    {
+      "method": "GET",
+      "route": "/ramp/me",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/wallets",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/assets",
+      "httpStatus": 200
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 424,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 424,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 424,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 424,
+      "errorClass": "quote_path_unavailable"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/assets",
+      "httpStatus": 200
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 500,
+      "errorClass": "provider_error"
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 404,
+      "errorClass": "provider_error"
+    }
+  ],
+  "completedAt": "2026-10-25T14:48:59.023780+00:00"
+}

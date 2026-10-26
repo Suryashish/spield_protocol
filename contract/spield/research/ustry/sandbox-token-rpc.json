@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-10-25T15:00:52.450Z",
+  "network": "Test SDF Network ; September 2015",
+  "token": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+  "reads": [
+    {
+      "method": "symbol",
+      "latestLedger": 5383373,
+      "error": null,
+      "value": "USTRY"
+    },
+    {
+      "method": "decimals",
+      "latestLedger": 5383373,
+      "error": null,
+      "value": 7
+    }
+  ]
+}

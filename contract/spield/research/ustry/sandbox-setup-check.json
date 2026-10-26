@@ -1,0 +1,66 @@
+{
+  "checkedAt": "2026-10-25T14:51:17.899525+00:00",
+  "environment": "sandbox",
+  "accountApproved": true,
+  "providedPageHttpStatus": 403,
+  "ordersCreated": false,
+  "transactionsSignedOrSubmitted": false,
+  "sandboxUstryPrice": {
+    "token_symbol": "USTRY",
+    "token_mint": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+    "currency": "USD",
+    "token_cost_in_usd": "1.106574",
+    "payment_mint": "BXTou3CvPxpFVAJvzvEZcAnRLGCHqT1LHKsFTSQft7s",
+    "current_time": "2026-10-25T14:51:20.388841105+00:00"
+  },
+  "stellarWallet": {
+    "registered": true,
+    "claimedOwnership": true,
+    "onchainExists": false,
+    "horizonHttpStatus": 404
+  },
+  "sandboxBankAccountSetup": {
+    "httpStatus": 200,
+    "totalItems": 0,
+    "firstPageActiveCount": 0,
+    "firstPageCompliantCount": 0
+  },
+  "ustryTokenLookup": {
+    "symbol": "USTRY",
+    "bondCurrency": "USD",
+    "tokenPriceDecimal": "1.106574",
+    "solanaMintAddress": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+    "blockchains": [
+      {
+        "blockchain": "avalanche",
+        "tokenIdentifier": "0xBa5F40825FeC28d036153a2060A2aac8e52ADa28",
+        "totalSupply": "0.5",
+        "decimals": 6
+      },
+      {
+        "blockchain": "solana",
+        "tokenIdentifier": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+        "totalSupply": "2882.828762",
+        "decimals": 6
+      },
+      {
+        "blockchain": "base",
+        "tokenIdentifier": "0x936c8b0bC895358131D840f240A48b1DadA75833",
+        "totalSupply": "0.0",
+        "decimals": 6
+      },
+      {
+        "blockchain": "polygon",
+        "tokenIdentifier": "0xaec5E665E6e162e3374A54B8356fb9F7Dea1f74C",
+        "totalSupply": "0.0",
+        "decimals": 6
+      },
+      {
+        "blockchain": "stellar",
+        "tokenIdentifier": "USTRY-GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+        "totalSupply": "0.0",
+        "decimals": 7
+      }
+    ]
+  }
+}

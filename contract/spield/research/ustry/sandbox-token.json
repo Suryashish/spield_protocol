@@ -1,0 +1,19 @@
+{
+  "retrievedAt": "2026-10-25T14:36:41.163930+00:00",
+  "url": "https://horizon-testnet.stellar.org/assets?asset_code=USTRY&asset_issuer=GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+  "environment": "stellar-testnet",
+  "records": [
+    {
+      "asset_code": "USTRY",
+      "asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "contract_id": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+      "num_contracts": 0,
+      "flags": {
+        "auth_required": false,
+        "auth_revocable": true,
+        "auth_immutable": false,
+        "auth_clawback_enabled": true
+      }
+    }
+  ]
+}
