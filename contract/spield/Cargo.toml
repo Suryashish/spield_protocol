@@ -13,6 +13,8 @@ members = [
   "contracts/srrouter",
   "contracts/upgrade-fixture",
   "contracts/e2e",
+  "contracts/rwa-prototype",
+  "contracts/rwa-mock-oracle",
 ]
 
 [workspace.dependencies]

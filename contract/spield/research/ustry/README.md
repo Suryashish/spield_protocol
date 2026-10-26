@@ -1,5 +1,7 @@
 # USTRY feasibility: execution record
 
+**Local prototype now available:** see [the runbook](prototype.md) for the isolated Soroban contracts and commands to run deposit → PT/YT split → yield claim → maturity → in-kind redemption with a mock asset and controlled oracle. It also explains the loss policy, stale-price behavior, internal-ledger scope and the steps still needed for a genuine sandbox-token deployment.
+
 Last verified: **25 October 2026, 19:21 IST**. Full results: [oracle-observation.json](oracle-observation.json).
 
 ## Current decision
@@ -15,7 +17,7 @@ Last verified: **25 October 2026, 19:21 IST**. Full results: [oracle-observation
 | 1. Identify and read the actual oracle | **Verified:** provider deployment references, mainnet network identity, exact USTRY asset mapping, USD base, decimals, live/direct prices, timestamps, retained history and historical lookup. |
 | 1. Confirm pricing methodology | **Partially verified:** contract plumbing and public price comparison inspected. Exact upstream source composition, NAV effective-time semantics and source-to-deployed-bytecode matching require provider assurance. |
 | 2. Confirm redemption and product access | **Account/API checks completed:** sandbox approval and USTRY listing verified. Both USTRY quote routes return HTTP 424, so no issuer round trip has been proven. Production pooled PT/YT terms remain pending provider response. |
-| 3. Isolated testnet prototype | Local accounting experiments can proceed alongside provider enquiries. A provider-backed funded round trip remains dependent on resolving the USTRY sandbox quote path. No prototype has been deployed yet. |
+| 3. Isolated testnet prototype | Isolated local Soroban accounting contracts and scenario tests are implemented; see [prototype.md](prototype.md). Public-testnet deployment and a provider-backed funded round trip remain pending. |
 | 4. USDC conversion | **Pending:** requires measured executable liquidity and approved settlement terms. |
 
 This checkpoint does not establish a reliable cash exit. In-kind token return, primary redemption and secondary sale are separate mechanisms with different failure conditions.

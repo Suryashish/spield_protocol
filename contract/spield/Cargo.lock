@@ -1529,6 +1529,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "spield-rwa-mock-oracle"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "spield-rwa-prototype"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "spield-rwa-mock-oracle",
+ "spield-shared",
+]
+
+[[package]]
 name = "spield-shared"
 version = "0.1.0"
 dependencies = [
