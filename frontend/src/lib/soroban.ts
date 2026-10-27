@@ -1,3 +1,4 @@
+import { getActiveSeriesRevision } from './config';
 import {
   Account,
   Address,
@@ -436,6 +437,7 @@ export const writeContract = async (
   method: string,
   args: xdr.ScVal[] = [],
 ): Promise<WriteResult> => {
+  const selectedSeries = getActiveSeriesRevision();
   const contract = new Contract(contractId);
   const [sourceAccount, fee] = await Promise.all([freshAccount(walletAddress), inclusionFee()]);
 
@@ -471,6 +473,7 @@ export const writeContract = async (
     throw new Error(error.message || 'Transaction was rejected in the wallet.');
   }
 
+  if (getActiveSeriesRevision() !== selectedSeries) throw new Error('Series changed while signing. Review the selected series and try again.');
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK.passphrase);
   const sent = await failoverWrite((srv) => srv.sendTransaction(signed));
   if (sent.status === 'ERROR') {

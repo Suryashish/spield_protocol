@@ -90,7 +90,7 @@ const ProtocolContext = createContext<ProtocolContextValue | undefined>(undefine
 
 export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   const { address, isConnected } = useWallet();
-  const { activeSeriesId } = useSeries();
+  const { activeSeriesId, activeSeries } = useSeries();
 
   const [positions, setPositions] = useState<PositionValue[]>([]);
   const [balances, setBalances] = useState<Balances>(EMPTY_BALANCES);
@@ -116,6 +116,12 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   const load = useCallback(
     async (isInitial: boolean, includeWallet = true) => {
       const id = ++reqId.current;
+      if (activeSeries.source !== 'blend') {
+        setPositions([]); setBalances(EMPTY_BALANCES); setSolvency(null); setMaturity(null);
+        setPaused(false); setVaultStats(null); setReceipts([]); setMarketStats(null); setLpPosition(null);
+        setLastUpdated(null); setError(null); setLoading(false); setRefreshing(false);
+        return;
+      }
       if (isInitial) setLoading(true);
       else setRefreshing(true);
       setError(null);
@@ -194,7 +200,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     },
-    [address, isConnected],
+    [address, isConnected, activeSeriesId, activeSeries.source],
   );
 
   // Initial load + reload whenever the connected account or active series changes.

@@ -1,0 +1,53 @@
+{
+  "network": "Stellar testnet",
+  "wallet": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+  "token": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+  "stages": {},
+  "transactions": [],
+  "oracleMode": "issuer sandbox NAV, authenticated relay observations; not RedStone",
+  "updatedAtUtc": "2026-10-27T13:12:05.492Z",
+  "initialNav": {
+    "price": "110672300",
+    "fetchedAt": "2026-10-27T13:08:47.214Z",
+    "source": "https://api.sand.etherfuse.com/lookup/tokens/cost/ustry",
+    "response": {
+      "token_symbol": "USTRY",
+      "token_mint": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+      "token_kind": "bond",
+      "currency": "USD",
+      "token_cost_in_fiat": "1.106723",
+      "token_cost_in_usd": "1.106723",
+      "fiat_exchange_rate_with_usd": "1",
+      "current_basis_points": 254,
+      "current_time": "2026-10-27T13:08:47.035432090+00:00",
+      "payment_mint": "BXTou3CvPxpFVAJvzvEZcAnRLGCHqT1LHKsFTSQft7s",
+      "sources": {
+        "4ac820d6-2b2f-4e52-b62f-c83861d82322": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106491
+        },
+        "369ed8ed-033a-46e7-84ab-db60002f8d50": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106481
+        },
+        "7302046e-794e-4c29-b46f-8e6e24ae621f": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106511
+        },
+        "8333dd29-55fc-49c6-94d1-bf97a967654c": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106501
+        },
+        "c83470e8-282f-41e8-90a5-7eef368311c0": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793105931
+        }
+      }
+    }
+  }
+}

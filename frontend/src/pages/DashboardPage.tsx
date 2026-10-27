@@ -1,3 +1,5 @@
+import { useSeries } from '@/context/SeriesContext';
+import UstryDashboard from '@/components/dashboard/ustry/UstryDashboard';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useSEO } from '@/hooks/useSEO';
@@ -295,7 +297,7 @@ const SECTIONS: Record<string, () => React.ReactNode> = {
 
 /* ----------------------------------------------------------------- page */
 
-const DashboardPage = () => {
+const BlendDashboardPage = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -463,4 +465,7 @@ const DashboardPage = () => {
   );
 };
 
-export default DashboardPage;
+export default function DashboardPage() {
+  const { activeSeries } = useSeries();
+  return activeSeries.source === 'ustry' ? <UstryDashboard key={activeSeries.id} /> : <BlendDashboardPage key={activeSeries.id} />;
+}

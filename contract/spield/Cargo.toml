@@ -15,6 +15,9 @@ members = [
   "contracts/e2e",
   "contracts/rwa-prototype",
   "contracts/rwa-mock-oracle",
+  "contracts/rwa",
+  "contracts/rwa-token",
+  "contracts/ustry-oracle",
 ]
 
 [workspace.dependencies]

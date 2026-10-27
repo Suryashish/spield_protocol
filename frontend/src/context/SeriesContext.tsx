@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import type { YieldSource } from '@/lib/series';
+
 import {
   getActiveSeries,
   getActiveSeriesId,
@@ -33,6 +35,8 @@ type SeriesContextValue = {
   isCurrentEnded: boolean;
   /** Select and switch the active series */
   selectSeries: (seriesId: string) => void;
+  selectSource: (source: YieldSource) => void;
+  sources: YieldSource[];
 };
 
 const SeriesContext = createContext<SeriesContextValue | undefined>(undefined);
@@ -59,7 +63,7 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
     const live: SeriesConfig[] = [];
     const ended: SeriesConfig[] = [];
 
-    for (const s of seriesList) {
+    for (const s of seriesList.filter(s => s.source === getActiveSeries().source)) {
       if (getSeriesStatus(s, nowSecs) === 'live') {
         live.push(s);
       } else {
@@ -68,7 +72,7 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
     }
 
     return { liveSeries: live, endedSeries: ended };
-  }, [seriesList, nowSecs]);
+  }, [seriesList, nowSecs, activeSeriesId]);
 
   // The active series configuration
   const activeSeries = useMemo(() => {
@@ -80,9 +84,21 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
   }, [activeSeries, nowSecs]);
 
   const selectSeries = useCallback((id: string) => {
+    const next = getSeriesForNetwork(NETWORK_KEY).find(s => s.id === id);
+    if (!next) return;
     setActiveSeriesId(id);
     setActiveId(id);
+    try { localStorage.setItem(`spield.series.${NETWORK_KEY}.${next.source}`, id); } catch { /* storage may be disabled */ }
   }, []);
+
+  const sources = useMemo(() => [...new Set(seriesList.map(s => s.source))], [seriesList]);
+  const selectSource = useCallback((source: YieldSource) => {
+    const choices = getSeriesForNetwork(NETWORK_KEY).filter(s => s.source === source);
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(`spield.series.${NETWORK_KEY}.${source}`); } catch { /* optional persistence */ }
+    const selected = choices.find(s => s.id === saved) ?? choices.find(s => s.expiry > Date.now()/1000) ?? choices[0];
+    if (selected) selectSeries(selected.id);
+  }, [selectSeries]);
 
   const value = useMemo<SeriesContextValue>(
     () => ({
@@ -92,7 +108,7 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
       liveSeries,
       endedSeries,
       isCurrentEnded,
-      selectSeries,
+      selectSeries, selectSource, sources,
     }),
     [
       activeSeries,
@@ -101,7 +117,7 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
       liveSeries,
       endedSeries,
       isCurrentEnded,
-      selectSeries,
+      selectSeries, selectSource, sources,
     ],
   );
 

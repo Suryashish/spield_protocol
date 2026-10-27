@@ -1,3 +1,5 @@
+import ustryDeployment from './ustry-deployment.json';
+
 /**
  * Spield Multi-Series Registry & Configuration.
  *
@@ -23,7 +25,11 @@ export type NetworkKey = 'testnet' | 'mainnet';
 
 export type SeriesStatus = 'live' | 'ended';
 
+export type YieldSource = 'blend' | 'ustry';
+export type UstryContractSet = { series: string; oracle: string; receipt: string; pt: string; yt: string; asset: string; maxAge: number; capUstry: number };
 export type SeriesConfig = {
+  source: YieldSource;
+  ustry?: UstryContractSet;
   /** Unique identifier, e.g. 'mainnet-series-2' */
   id: string;
   /** Primary name, e.g. 'Series 2' */
@@ -45,15 +51,24 @@ export type SeriesConfig = {
   /** Descriptive overview of the series */
   description: string;
   /** Full SR stack contract addresses */
-  contracts: SrContractSet;
+  contracts?: SrContractSet;
 };
 
 /**
  * All known series across Mainnet and Testnet.
  */
 export const ALL_SERIES: SeriesConfig[] = [
+  {
+    source: 'ustry', id: 'testnet-ustry-1', name: 'USTRY Series 1', durationLabel: '14 Days', network: 'testnet',
+    expiry: ustryDeployment.expiry,
+    maturityDate: new Date(ustryDeployment.expiry * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }),
+    fixedAprPct: 0, ptCode: 'PT-USTRY',
+    description: 'Tokenized Treasury sandbox series. Deposits and payouts in USTRY; USD face is not a principal guarantee.',
+    ustry: ustryDeployment,
+  },
   // ── Mainnet Series ────────────────────────────────────────────────────────
   {
+    source: 'blend',
     id: 'mainnet-series-2',
     name: 'Series 2',
     durationLabel: '15 Days',
@@ -77,6 +92,7 @@ export const ALL_SERIES: SeriesConfig[] = [
     },
   },
   {
+    source: 'blend',
     id: 'mainnet-series-1',
     name: 'Series 1',
     durationLabel: '30 Days',
@@ -100,6 +116,7 @@ export const ALL_SERIES: SeriesConfig[] = [
     },
   },
   {
+    source: 'blend',
     id: 'mainnet-demo',
     name: 'Demo 90M',
     durationLabel: '90 Minutes',
@@ -125,6 +142,7 @@ export const ALL_SERIES: SeriesConfig[] = [
 
   // ── Testnet Series ────────────────────────────────────────────────────────
   {
+    source: 'blend',
     id: 'testnet-series-2',
     name: 'Testnet Series 2',
     durationLabel: '30 Days',
@@ -148,6 +166,7 @@ export const ALL_SERIES: SeriesConfig[] = [
     },
   },
   {
+    source: 'blend',
     id: 'testnet-series-1',
     name: 'Testnet Series 1',
     durationLabel: '30 Days',

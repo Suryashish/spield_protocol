@@ -9,7 +9,7 @@ import { SITE_ORIGIN } from '@/lib/site';
 
 import BrandMark from './BrandMark';
 import ThemeToggle from './ThemeToggle';
-import SeriesHeaderControl from './SeriesHeaderControl';
+import SourceSeriesControl from './SourceSeriesControl';
 
 /**
  * Restart tutorial / App guide button in the top bar.
@@ -167,7 +167,7 @@ type HeaderProps = {
 
 const Header = ({ section = 'Overview' }: HeaderProps) => {
   return (
-    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-canvas/85 px-4 backdrop-blur-xl lg:h-16 lg:px-6">
+    <header className="sticky top-0 z-20 flex min-h-14 shrink-0 flex-wrap items-center justify-between py-2 gap-3 border-b border-border bg-canvas/85 px-4 backdrop-blur-xl lg:min-h-16 lg:px-6">
       {/* The trail is set in the app's micro-caption — mono, tracked, quiet —
           with only the leaf in ink. It says where you are without competing
           with the page heading two lines below it. */}
@@ -191,9 +191,9 @@ const Header = ({ section = 'Overview' }: HeaderProps) => {
         </span>
       </nav>
 
-      <div className="flex items-center gap-2">
-        <TutorialHeaderButton />
-        <SeriesHeaderControl />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <SourceSeriesControl />
+        <span className="hidden md:inline-flex"><TutorialHeaderButton /></span>
         <ThemeToggle />
         <WalletMenu />
       </div>

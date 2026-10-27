@@ -240,12 +240,15 @@ const initialSeriesId = (() => {
 })();
 
 let currentActiveSeriesId: string = initialSeriesId;
+let seriesRevision = 0;
+export const getActiveSeriesRevision = (): number => seriesRevision;
 
 export const getActiveSeriesId = (): string => currentActiveSeriesId;
 
 export const setActiveSeriesId = (id: string): void => {
   const s = getSeriesById(id);
-  if (s) {
+  if (s && s.network === NETWORK_KEY) {
+    if (currentActiveSeriesId !== id) seriesRevision++;
     currentActiveSeriesId = id;
     if (typeof window !== 'undefined') {
       try {
@@ -263,6 +266,9 @@ export const getActiveSeries = (): SeriesConfig => {
 
 export const getActiveSrContracts = (): SrContractSet => {
   const series = getActiveSeries();
+  if (series.source !== 'blend' || !series.contracts) throw new Error('Blend contracts unavailable for this source.');
+  // Overrides belong only to the configured default Blend series, never historical selections.
+  if (series.id !== getDefaultSeriesId(NETWORK_KEY, IS_MAINNET_DEMO)) return series.contracts;
   return {
     sr: env('VITE_SR', series.contracts.sr),
     strategy: env('VITE_SR_STRATEGY', series.contracts.strategy),

@@ -1529,6 +1529,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "spield-rwa"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "spield-rwa-mock-oracle",
+ "spield-rwa-token",
+ "spield-shared",
+ "spield-ustry-oracle",
+]
+
+[[package]]
 name = "spield-rwa-mock-oracle"
 version = "0.1.0"
 dependencies = [
@@ -1541,6 +1552,14 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "spield-rwa-mock-oracle",
+ "spield-shared",
+]
+
+[[package]]
+name = "spield-rwa-token"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
  "spield-shared",
 ]
 
@@ -1614,6 +1633,14 @@ dependencies = [
 
 [[package]]
 name = "spield-upgrade-fixture"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "spield-shared",
+]
+
+[[package]]
+name = "spield-ustry-oracle"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
