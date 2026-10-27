@@ -1,5 +1,7 @@
 # USTRY provider enquiries
 
+**Sandbox execution now completed:** the agent registered a locally controlled organization wallet, prepared trustlines and a test bank fixture, obtained USTRY through simulated funding and completed MXN redemption, both USDC swaps and a genuine-token Soroban lifecycle. See [signed execution results](executed-sandbox-tests-2026-10-27.md). No additional allocation request is needed for this fixture; production questions remain separate.
+
 **Latest response and verification, 27 October:** Etherfuse says its missing Stellar sandbox liquidity is fixed; our four USTRY quote routes now return 200. It identifies Spield as the KYB'd customer using its registered `G...` wallet for provider purchases/redemptions, with Spield managing pooled contracts and its own tokens. There is no provider product giving users only USTRY yield. See [verified results and required wallet actions](liquidity-fix-recheck-2026-10-27.md); the earlier drafts below are historical references.
 
 **Status update:** The user has contacted Etherfuse and shared replies offering test allocations and engineering assistance, and supporting Spield-managed pooled PT/YT in principle. The original drafts below are retained for reference; the exact sent message was not supplied. The RedStone enquiry remains unsent by the agent. Use the [provider response assessment and focused reply](provider-response-review.md) for the next message. Production terms and a working issuer exit remain unverified.
@@ -85,5 +87,5 @@ Spield team
 | Party entitled to primary redemption | Provider identifies Spield's KYB'd organization as the customer; its own registered wallet buys/redeems |
 | Stellar payout currency, minimum, fees, capacity and timing | Sandbox USDC and MXN routes both quote successfully; actual settlement and production economics/timing remain unverified |
 | Contract-address or operating-wallet settlement process | Provider purchases/redemptions use registered `G...` wallet; Spield may hold/issue against USTRY in its contracts in between |
-| USTRY sandbox token and round-trip order results | All four quote routes now verified; registered wallet still holds zero USTRY; receipt and signed round trip pending |
+| USTRY sandbox token and round-trip order results | Actual USTRY receipt, MXN on/offramp and both USDC swaps completed; the registered local wallet retains sandbox tokens |
 | Controls, NAV effective time and current USTRY reserve evidence | Awaiting provider response |

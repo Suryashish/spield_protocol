@@ -1,0 +1,457 @@
+{
+  "environment": "Etherfuse sandbox / Stellar testnet",
+  "wallet": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+  "localIdentity": "alice425",
+  "realMoneyMoved": false,
+  "stages": {
+    "existingUsdcCompatibility": {
+      "issuer": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "quoteHttp": 400,
+      "accepted": false,
+      "registeredWalletRetested": true,
+      "supportedIssuerControlHttp": 200
+    },
+    "walletRegistration": {
+      "registered": true,
+      "organizationOwnershipClaimed": true,
+      "publicAddress": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF"
+    },
+    "walletSetup": {
+      "before": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "authorized": true
+        },
+        {
+          "asset": "XLM",
+          "balance": "9424.4913844",
+          "authorized": true
+        }
+      ],
+      "after": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "authorized": true
+        },
+        {
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "balance": "0.0000000",
+          "authorized": true
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "0.0000000",
+          "authorized": true
+        },
+        {
+          "asset": "XLM",
+          "balance": "9424.4913644",
+          "authorized": true
+        }
+      ]
+    },
+    "bankSetup": {
+      "sandboxPlaceholderUsed": true,
+      "compliant": true,
+      "status": "pending"
+    },
+    "onrampCreated": {
+      "simulatedMxn": "100",
+      "quote": {
+        "sourceAmount": "100",
+        "destinationAmount": "4.8602504249537551120578399900",
+        "exchangeRate": "0.0486025042495375511205783999",
+        "feeAmount": "0.20",
+        "feeBps": "20",
+        "requiresSwap": true
+      }
+    },
+    "sandboxFundsRequested": {
+      "simulatedMxn": "100",
+      "realMoneySent": false
+    },
+    "onrampStatus": {
+      "status": "completed",
+      "amountInTokens": "4.8602504249537551120578399900",
+      "amountInFiat": "100",
+      "transactionHash": null,
+      "claimRequired": false,
+      "burnTransactionReady": false,
+      "balances": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "authorized": true
+        },
+        {
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "balance": "0.0000000",
+          "authorized": true
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "4.8602504",
+          "authorized": true
+        },
+        {
+          "asset": "XLM",
+          "balance": "9424.4913644",
+          "authorized": true
+        }
+      ]
+    },
+    "offrampCreated": {
+      "amount": "1 USTRY",
+      "quote": {
+        "sourceAmount": "1",
+        "destinationAmount": "20.515044561749538609678609191",
+        "exchangeRate": "20.515044561749538609678609191",
+        "feeAmount": "0.002",
+        "feeBps": "20",
+        "requiresSwap": true
+      }
+    },
+    "offrampStatus": {
+      "status": "completed",
+      "amountInTokens": "1",
+      "amountInFiat": "20.51",
+      "transactionHash": "aGSjEKLTx4qWaQFp3ebchyY1rACJXyY1ctPDCSQjw26BfE4xTVjvtCvDr8zc6fLknTgRDbEn2hbz86zJsPW89Ud",
+      "claimRequired": false,
+      "burnTransactionReady": false,
+      "balances": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "authorized": true
+        },
+        {
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "balance": "0.0000000",
+          "authorized": true
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "3.8602504",
+          "authorized": true
+        },
+        {
+          "asset": "XLM",
+          "balance": "9424.4913544",
+          "authorized": true
+        }
+      ]
+    },
+    "ustryToUsdcCreated": {
+      "amount": "1",
+      "quote": {
+        "sourceAmount": "1",
+        "destinationAmount": "1.1044581788426921846735240251",
+        "exchangeRate": "1.1044581788426921846735240251",
+        "feeAmount": "0.002",
+        "feeBps": "20",
+        "requiresSwap": true
+      }
+    },
+    "ustryToUsdcStatus": {
+      "status": "completed",
+      "sendTransactionHash": "14c6e9553965409d17713353266d519b0cc28c58b7e056ba3f323e40bdc8a7f0",
+      "receiveTransactionHash": "14c6e9553965409d17713353266d519b0cc28c58b7e056ba3f323e40bdc8a7f0",
+      "balances": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "authorized": true
+        },
+        {
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "balance": "1.1044581",
+          "authorized": true
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "2.8602504",
+          "authorized": true
+        },
+        {
+          "asset": "XLM",
+          "balance": "9424.4913344",
+          "authorized": true
+        }
+      ]
+    },
+    "directStreamSwapAttempt": {
+      "streamConnected": true,
+      "thirdPartyTunnelUsed": false
+    },
+    "usdcToUstryCreated": {
+      "amount": "0.5",
+      "quote": {
+        "sourceAmount": "0.5",
+        "destinationAmount": "0.4509015309912397086108708895",
+        "exchangeRate": "0.9018030619824794172217417790",
+        "feeAmount": "0.001",
+        "feeBps": "20",
+        "requiresSwap": true
+      }
+    },
+    "usdcToUstryStatus": {
+      "status": "completed",
+      "sendTransactionHash": "97ea1ac035adc80d94fd001e72bfefefe939cccb23cd993bc6d45923440b16ee",
+      "receiveTransactionHash": "26658e2f823e0e9dbf94c20ec62325b8ce9b2abc3b3a39c256cee3d4d0749139",
+      "balances": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "authorized": true
+        },
+        {
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "balance": "0.6044581",
+          "authorized": true
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "3.3111519",
+          "authorized": true
+        },
+        {
+          "asset": "XLM",
+          "balance": "9424.4913244",
+          "authorized": true
+        }
+      ]
+    },
+    "onrampDelivery": {
+      "hash": "b44eae45e9c69c6ae7648fce26f63800ef2aaa15140286270c80bd9376dbef81",
+      "amount": "4.8602504",
+      "asset": "USTRY",
+      "paymentType": "path_payment_strict_receive"
+    }
+  },
+  "transactions": [
+    {
+      "stage": "trustlines",
+      "hash": "00fbf19258ae575fd2216584b60f88982a123ec8d1dd3c69a9c6c24928fe848a",
+      "successful": true,
+      "assets": [
+        "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4"
+      ]
+    },
+    {
+      "stage": "offrampBurn",
+      "hash": "4571502fd1d0923ce48d09117ae9ca8d82a2f13d4a998cd4f40aac5870277c75",
+      "successful": true,
+      "operations": [
+        {
+          "type": "pathPaymentStrictSend",
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "maximumAmount": "1.0000000",
+          "destination": "GBKTCPRJ3QVFAKBOZRIJBQ2YO5RQHD6F2S7KJLWQEGF35VZPTNMNEKRI"
+        }
+      ]
+    },
+    {
+      "stage": "ustryToUsdcSend",
+      "hash": "14c6e9553965409d17713353266d519b0cc28c58b7e056ba3f323e40bdc8a7f0",
+      "successful": true,
+      "operations": [
+        {
+          "type": "payment",
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "maximumAmount": "1.0000000",
+          "destination": "GBKTCPRJ3QVFAKBOZRIJBQ2YO5RQHD6F2S7KJLWQEGF35VZPTNMNEKRI"
+        },
+        {
+          "type": "pathPaymentStrictReceive",
+          "counterpartyPreSigned": true,
+          "receivedAsset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "minimumReceived": "1.1044581",
+          "destination": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF"
+        }
+      ]
+    },
+    {
+      "stage": "usdcToUstrySend",
+      "hash": "97ea1ac035adc80d94fd001e72bfefefe939cccb23cd993bc6d45923440b16ee",
+      "successful": true,
+      "operations": [
+        {
+          "type": "pathPaymentStrictSend",
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "maximumAmount": "0.5000000",
+          "destination": "GBKTCPRJ3QVFAKBOZRIJBQ2YO5RQHD6F2S7KJLWQEGF35VZPTNMNEKRI",
+          "settlement": "provider_forwarded",
+          "minimumRoutedOutput": "0.4509015"
+        }
+      ]
+    }
+  ],
+  "updatedAtUtc": "2026-10-26T21:23:12.705Z",
+  "horizonTransactionVerification": [
+    {
+      "hash": "00fbf19258ae575fd2216584b60f88982a123ec8d1dd3c69a9c6c24928fe848a",
+      "successful": true,
+      "createdAt": "2026-10-26T19:05:17Z",
+      "feeChargedStroops": "200"
+    },
+    {
+      "hash": "4571502fd1d0923ce48d09117ae9ca8d82a2f13d4a998cd4f40aac5870277c75",
+      "successful": true,
+      "createdAt": "2026-10-26T21:14:32Z",
+      "feeChargedStroops": "100"
+    },
+    {
+      "hash": "14c6e9553965409d17713353266d519b0cc28c58b7e056ba3f323e40bdc8a7f0",
+      "successful": true,
+      "createdAt": "2026-10-26T21:18:02Z",
+      "feeChargedStroops": "200"
+    },
+    {
+      "hash": "97ea1ac035adc80d94fd001e72bfefefe939cccb23cd993bc6d45923440b16ee",
+      "successful": true,
+      "createdAt": "2026-10-26T21:22:07Z",
+      "feeChargedStroops": "100"
+    },
+    {
+      "hash": "830e17acd2550c02a8f13b9f3ade967373900463f08dff9dd8540374fa77c640",
+      "successful": true,
+      "createdAt": "2026-10-26T21:22:52Z",
+      "feeChargedStroops": "11131"
+    },
+    {
+      "hash": "3df0ab18f92b5223f20641d0ecbf8c924c54be5690053c148ba4f73b23ddee26",
+      "successful": true,
+      "createdAt": "2026-10-26T21:24:02Z",
+      "feeChargedStroops": "11170"
+    },
+    {
+      "hash": "c153b892d5300ae20518776bd653b77205403bd3d0d7693f2fe9c53df7c25d5c",
+      "successful": true,
+      "createdAt": "2026-10-26T21:24:12Z",
+      "feeChargedStroops": "137556"
+    },
+    {
+      "hash": "09b1245172c1e98fd4e69a8966101c2b3d627208af92052604535608d94a363e",
+      "successful": true,
+      "createdAt": "2026-10-26T21:24:17Z",
+      "feeChargedStroops": "6693"
+    },
+    {
+      "hash": "8dd7af99426a7f906ea93048834266934c183e86c7b09089ea945eb585b3c1db",
+      "successful": true,
+      "createdAt": "2026-10-26T21:24:27Z",
+      "feeChargedStroops": "11209"
+    },
+    {
+      "hash": "e13dc4041bf7baa285140cc9ed81b3bedcd47eaac5abaf0b6c91a2709474b15e",
+      "successful": true,
+      "createdAt": "2026-10-26T21:24:32Z",
+      "feeChargedStroops": "6540"
+    },
+    {
+      "hash": "0247c7b2811ffe1188d77c0a78642c954386ec6bb044d97cd080a2da13de0a57",
+      "successful": true,
+      "createdAt": "2026-10-26T21:26:07Z",
+      "feeChargedStroops": "10103"
+    },
+    {
+      "hash": "d1aa82ed3961ea96ac900a19fb5fbb6007f50d19abaf0c10598680f7575cc5a1",
+      "successful": true,
+      "createdAt": "2026-10-26T21:26:17Z",
+      "feeChargedStroops": "11245"
+    },
+    {
+      "hash": "86955bf408679bca702fcb020af04b4ab6538eb3824d9654a380833d70e2c15c",
+      "successful": true,
+      "createdAt": "2026-10-26T21:26:22Z",
+      "feeChargedStroops": "6548"
+    },
+    {
+      "hash": "626e5fa67f1aa450ff6d868ed1c52ce6a690db5e2643ebd0530a3a4e2d0a2713",
+      "successful": true,
+      "createdAt": "2026-10-26T21:26:27Z",
+      "feeChargedStroops": "11282"
+    },
+    {
+      "hash": "d5ad29b36933f02b8cd24e280fee14c8ef1a53e40593ed355570e3d8aaa785cb",
+      "successful": true,
+      "createdAt": "2026-10-26T21:26:32Z",
+      "feeChargedStroops": "11070"
+    },
+    {
+      "hash": "cef408d79764d8fe4342a476952db6f753c49f43149b58cc37bbba2b6d98de84",
+      "successful": true,
+      "createdAt": "2026-10-26T21:27:17Z",
+      "feeChargedStroops": "11320"
+    },
+    {
+      "hash": "9f3288c43ab4b7c6f8326cbd333c1032c3fd9fbf44c8757c689b4410b465f7cf",
+      "successful": true,
+      "createdAt": "2026-10-26T21:27:57Z",
+      "feeChargedStroops": "11357"
+    },
+    {
+      "hash": "b0d42d9134791bac8f0cdfcd190ac694cdb2e591c9da64e005f98eb5dc93e645",
+      "successful": true,
+      "createdAt": "2026-10-26T21:29:12Z",
+      "feeChargedStroops": "11394"
+    },
+    {
+      "hash": "5fabd360fe8b07f515016972d613d8ba171a9f625755085c354ad5c0a27db24a",
+      "successful": true,
+      "createdAt": "2026-10-26T21:29:17Z",
+      "feeChargedStroops": "4862"
+    },
+    {
+      "hash": "3748e03df3151b43a49ff2b1366d9e5e39bb1caa9278f544fef9a1ff5056ccfe",
+      "successful": true,
+      "createdAt": "2026-10-26T21:29:22Z",
+      "feeChargedStroops": "10393"
+    },
+    {
+      "hash": "45f45e85c1c72264b34628332738c27db892675154a06eba8bf85bd7e52799c9",
+      "successful": true,
+      "createdAt": "2026-10-26T21:29:27Z",
+      "feeChargedStroops": "5826"
+    },
+    {
+      "hash": "b44eae45e9c69c6ae7648fce26f63800ef2aaa15140286270c80bd9376dbef81",
+      "successful": true,
+      "createdAt": "2026-10-26T19:10:02Z",
+      "feeChargedStroops": "100"
+    },
+    {
+      "hash": "26658e2f823e0e9dbf94c20ec62325b8ce9b2abc3b3a39c256cee3d4d0749139",
+      "successful": true,
+      "createdAt": "2026-10-26T21:22:17Z",
+      "feeChargedStroops": "100"
+    }
+  ],
+  "finalBalances": [
+    {
+      "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "balance": "132.9120223"
+    },
+    {
+      "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "balance": "0.6044581"
+    },
+    {
+      "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "balance": "3.3111519"
+    },
+    {
+      "asset": "XLM",
+      "balance": "9421.0814408"
+    }
+  ],
+  "validation": {
+    "allFourProviderFlowsCompleted": true,
+    "prototypeTokensConserved": true,
+    "independentlyVerifiedTransactionCount": 23,
+    "checkedAtUtc": "2026-10-26T21:30:02.326Z"
+  }
+}

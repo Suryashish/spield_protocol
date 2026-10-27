@@ -1,6 +1,8 @@
 # Isolated RWA accounting prototype
 
-This is a runnable local Soroban experiment for Spield. It uses a freely minted test asset and an admin-controlled oracle. It does not require Etherfuse tokens, liquidity, an API key, a business account or money. It is separate from the existing Blend strategy and PT/YT engine. No public-network deployment or issuer redemption has been performed by this prototype.
+**Public-testnet execution completed on 27 October:** the same contracts were deployed with genuine sandbox USTRY, and the lifecycle, falling/stale price checks, yield allocation, maturity and in-kind payouts completed. Provider on/offramps and both USDC swaps also settled. See [execution evidence](executed-sandbox-tests-2026-10-27.md). The local mock-token instructions below remain available for repeatable development.
+
+The local test harness is a runnable Soroban experiment using a freely minted test asset and an admin-controlled oracle, without Etherfuse credentials or funds. It is separate from the existing Blend strategy and PT/YT engine. A subsequent public-testnet run replaced the mock token with genuine sandbox USTRY; that execution is recorded separately above.
 
 ## Run it now
 
@@ -105,7 +107,7 @@ After Etherfuse supplies test tokens or a working acquisition route:
 5. Separately build and verify a provider-oracle adapter. This prototype expects `asset/base/decimals/observations`, which is **not** the raw RedStone SEP-40 interface. An actual adapter needs retained maturity observations and a reviewed update/freshness policy. Changing the oracle address alone is insufficient.
 6. Run a separate actual Etherfuse redemption or executable sale for the token returned to the user. Record proceeds, fees, timing, eligibility and failure cases. A successful contract payout into USTRY does not prove USTRY can be redeemed for cash or USDC.
 
-The WASM build is ready for a testnet deployment exercise, but deployment, public-network lifecycle transactions, live oracle integration and an issuer round trip remain unperformed. Provider confirmation of pooled holdings and the PT/YT product remains an independent acceptance condition.
+The WASM contracts have now been deployed and exercised on public testnet, and separate provider sandbox round trips completed. Live oracle integration and production implementation/terms remain independent acceptance conditions. The provider has expressed support for Spield-managed pooled holdings and its own token issuance.
 
 ## Verification completed
 
@@ -118,4 +120,4 @@ The WASM build is ready for a testnet deployment exercise, but deployment, publi
 | Clippy, both crates, all targets/features, warnings denied | Passed |
 | Rust formatting and working-tree whitespace checks | Passed |
 
-The lifecycle conserves the deposited tokens, and the fractional multi-user scenario reconciles all payouts plus residual rounding dust to total deposits. Tests use SDK-hosted execution, including one compiled-WASM scenario; they do not measure public-network fees, production resource limits or provider settlement.
+The local lifecycle conserves deposited tokens, and the fractional multi-user scenario reconciles payouts plus residual dust. Those automated tests use SDK-hosted execution, including one compiled-WASM scenario. The separate [public-testnet run](executed-sandbox-tests-2026-10-27.md) adds genuine-token custody and settlement evidence; neither establishes production capacity or economics.
