@@ -3,6 +3,7 @@ import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2, Compass } from 'luci
 
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
+import { useSeries } from '@/context/SeriesContext';
 import { useTutorial } from '@/context/TutorialContext';
 import { shortenAddress } from '@/lib/stellar';
 import { SITE_ORIGIN } from '@/lib/site';
@@ -14,12 +15,12 @@ import SourceSeriesControl from './SourceSeriesControl';
 /**
  * Restart tutorial / App guide button in the top bar.
  */
-const TutorialHeaderButton = () => {
+const TutorialHeaderButton = ({ onClick }: { onClick?: () => void }) => {
   const { restartTutorial } = useTutorial();
   return (
     <button
       type="button"
-      onClick={restartTutorial}
+      onClick={onClick ?? restartTutorial}
       title="Restart App Tutorial & Walkthrough"
       aria-label="Restart App Tutorial"
       className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-medium text-foreground shadow-float-sm transition-all duration-200 ease-vault hover:-translate-y-px hover:border-brand/40 hover:bg-brand/5 hover:text-brand-text active:scale-95"
@@ -163,9 +164,11 @@ const WalletMenu = () => {
 type HeaderProps = {
   /** Current section label, shown in the breadcrumb (e.g. "Positions"). */
   section?: string;
+  onGuide?: () => void;
 };
 
-const Header = ({ section = 'Overview' }: HeaderProps) => {
+const Header = ({ section = 'Overview', onGuide }: HeaderProps) => {
+  const { activeSeries } = useSeries();
   return (
     <header className="sticky top-0 z-20 flex min-h-14 shrink-0 flex-wrap items-center justify-between py-2 gap-3 border-b border-border bg-canvas/85 px-4 backdrop-blur-xl lg:min-h-16 lg:px-6">
       {/* The trail is set in the app's micro-caption — mono, tracked, quiet —
@@ -193,7 +196,7 @@ const Header = ({ section = 'Overview' }: HeaderProps) => {
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <SourceSeriesControl />
-        <span className="hidden md:inline-flex"><TutorialHeaderButton /></span>
+        {(activeSeries.source === 'blend' || onGuide) && <span className="hidden md:inline-flex"><TutorialHeaderButton onClick={onGuide} /></span>}
         <ThemeToggle />
         <WalletMenu />
       </div>

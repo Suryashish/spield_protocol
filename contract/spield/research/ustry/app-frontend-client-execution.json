@@ -1,0 +1,127 @@
+{
+  "network": "Stellar testnet",
+  "wallet": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+  "client": "actual frontend USTRY client, SDK16; CLI signer in temporary Node SSR harness",
+  "transactions": [
+    {
+      "method": "deposit_split",
+      "hash": "6d396a99ea029d661f9e9c65277e8724a056d04c9edf880b35abc7aa1b349762",
+      "successful": true
+    },
+    {
+      "method": "claim_yield",
+      "hash": "6dc124cf92e2d48cab985762aad78483b256f9c2b5cec52afb9f5d221c2f9cb4",
+      "successful": true
+    },
+    {
+      "method": "redeem",
+      "hash": "3176db6501e6fe450c95565add59d6ad60f2126b798c74f814e1011a8c70ded8",
+      "successful": true
+    },
+    {
+      "method": "gatal_usdc_to_ustry",
+      "hash": "0250f6de4d95551c5f95a348ef5d74ba4a67e5807568d7ede5ece7de71579a54",
+      "successful": true
+    },
+    {
+      "method": "ustry_to_gatal_usdc",
+      "hash": "8ff8d600f80df1a49d93caaad9adb55f25f973b71dfcc87112e7e8fa2b928318",
+      "successful": true
+    },
+    {
+      "method": "gbbd_usdc_to_ustry",
+      "hash": "9345e8fffeca6f2d9250d1ccb704fa0831be67554218390e7d38ef57b1c4c87e",
+      "successful": true
+    },
+    {
+      "method": "ustry_to_gbbd_usdc",
+      "hash": "aeff618607c2e80ba3c33567c429c71884545090bee6fbe09c2d3527548f6726",
+      "successful": true
+    }
+  ],
+  "series": "CCR6L2GNPIOXR6RZMVFXZ2NXIICCPVWCEXIVOZHAGME3CJ23675XQX5K",
+  "before": {
+    "state": {
+      "backing": "1",
+      "cursor": 1,
+      "face": "0",
+      "factor": "903566830061668437",
+      "finalized": false,
+      "high_water": "110672500",
+      "last_observation": {
+        "price": "110672500",
+        "timestamp": "1793109084"
+      },
+      "receipts": "0",
+      "total_yt": "0"
+    },
+    "holding": {
+      "accrued": "0",
+      "factor": "903566830061668437",
+      "pt": "0",
+      "receipt": "0",
+      "yt": "0"
+    },
+    "wallet": "33111516",
+    "custody": "1",
+    "paused": false,
+    "latest": {
+      "price": "110672500",
+      "timestamp": "1793109084"
+    },
+    "navAvailable": true,
+    "settledOnChain": false,
+    "syncError": null,
+    "readAt": 1793109857133
+  },
+  "gatalRoundTrip": {
+    "sourceIssuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+    "sourceUnits": "1000000",
+    "ustryUnits": "1518579",
+    "sourceRoundTripDifference": "6489",
+    "ustryBalanceRestored": true
+  },
+  "gbbdRoundTrip": {
+    "sourceIssuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    "sourceUnits": "1000000",
+    "ustryUnits": "903600",
+    "sourceRoundTripDifference": "500",
+    "ustryBalanceRestored": true
+  },
+  "completed": true,
+  "after": {
+    "state": {
+      "backing": "2",
+      "cursor": 1,
+      "face": "0",
+      "factor": "903566830061668437",
+      "finalized": false,
+      "high_water": "110672500",
+      "last_observation": {
+        "price": "110672500",
+        "timestamp": "1793109084"
+      },
+      "receipts": "0",
+      "total_yt": "0"
+    },
+    "holding": {
+      "accrued": "0",
+      "factor": "903566830061668437",
+      "pt": "0",
+      "receipt": "0",
+      "yt": "0"
+    },
+    "wallet": "33111515",
+    "custody": "2",
+    "paused": false,
+    "latest": {
+      "price": "110672500",
+      "timestamp": "1793109084"
+    },
+    "navAvailable": true,
+    "settledOnChain": false,
+    "syncError": null,
+    "readAt": 1793109896536
+  },
+  "roundingUnits": "1"
+}

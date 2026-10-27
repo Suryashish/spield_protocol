@@ -16,7 +16,9 @@
     "test:etherfuse-sandbox": "python3 -B -m unittest test_etherfuse_sandbox.py",
     "test:etherfuse-transactions": "node --test etherfuse_sandbox_tx.test.mjs",
     "test:ustry-oracle": "node --test ustry_oracle.test.mjs",
-    "test": "node --test calibrate_vault_rate.test.mjs ustry_oracle.test.mjs etherfuse_sandbox_tx.test.mjs"
+    "test": "node --test calibrate_vault_rate.test.mjs ustry_oracle.test.mjs etherfuse_sandbox_tx.test.mjs ustry_nav.test.mjs",
+    "ustry:relay": "node execute_ustry_app.mjs relay",
+    "ustry:keeper": "node execute_ustry_app.mjs keeper"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.0.1"

@@ -63,9 +63,10 @@ impl UstryOracle {
         env.storage()
             .instance()
             .set(&symbol_short!("history"), &history);
-        env.storage()
-            .instance()
-            .extend_ttl(10_000, env.storage().max_ttl());
+        env.storage().instance().extend_ttl(
+            env.storage().max_ttl().saturating_sub(17_280),
+            env.storage().max_ttl(),
+        );
     }
     pub fn asset(env: Env) -> Address {
         cfg(&env).asset
@@ -77,9 +78,10 @@ impl UstryOracle {
         8
     }
     pub fn observations(env: Env) -> Vec<Observation> {
-        env.storage()
-            .instance()
-            .extend_ttl(10_000, env.storage().max_ttl());
+        env.storage().instance().extend_ttl(
+            env.storage().max_ttl().saturating_sub(17_280),
+            env.storage().max_ttl(),
+        );
         env.storage()
             .instance()
             .get(&symbol_short!("history"))
@@ -121,7 +123,9 @@ mod test {
     use soroban_sdk::testutils::{Address as _, Ledger as _};
     #[test]
     fn cadence_identity_loss_maturity_and_bad_samples() {
-        let e = Env::default();
+        let e = Env::new_with_config(soroban_sdk::testutils::EnvTestConfig {
+            capture_snapshot_at_drop: false,
+        });
         e.mock_all_auths();
         e.ledger().set_timestamp(1000);
         let asset = Address::generate(&e);

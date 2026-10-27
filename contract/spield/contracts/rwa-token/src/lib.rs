@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    Env, String,
+    Env, IntoVal, Map, MuxedAddress, String, Symbol, Val,
 };
 use spield_shared::{token as allowance, Error};
 
@@ -24,9 +24,10 @@ struct Metadata {
 #[contract]
 pub struct ClaimToken;
 fn meta(env: &Env) -> Metadata {
-    env.storage()
-        .instance()
-        .extend_ttl(10_000, env.storage().max_ttl());
+    env.storage().instance().extend_ttl(
+        env.storage().max_ttl().saturating_sub(17_280),
+        env.storage().max_ttl(),
+    );
     env.storage()
         .instance()
         .get(&symbol_short!("meta"))
@@ -93,15 +94,15 @@ impl ClaimToken {
             (amount, expiration_ledger),
         );
     }
-    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+    pub fn transfer(env: Env, from: Address, to: MuxedAddress, amount: i128) {
         from.require_auth();
-        move_claim(&env, &from, &to, amount);
+        move_claim(&env, &from, &to.address(), amount, to.id());
     }
     pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
         nonnegative(&env, amount);
         spender.require_auth();
-        allowance::spend_allowance(&env, &from, &spender, amount);
-        move_claim(&env, &from, &to, amount);
+        consume_allowance(&env, &from, &spender, amount);
+        move_claim(&env, &from, &to, amount, None);
     }
     pub fn burn(env: Env, from: Address, amount: i128) {
         from.require_auth();
@@ -110,7 +111,7 @@ impl ClaimToken {
     pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
         nonnegative(&env, amount);
         spender.require_auth();
-        allowance::spend_allowance(&env, &from, &spender, amount);
+        consume_allowance(&env, &from, &spender, amount);
         burn_claim(&env, &from, amount);
     }
     /// Ledger mint/burn events are emitted only at the engine's request.
@@ -126,16 +127,47 @@ impl ClaimToken {
         }
     }
 }
-fn move_claim(env: &Env, from: &Address, to: &Address, amount: i128) {
+fn move_claim(env: &Env, from: &Address, to: &Address, amount: i128, muxed: Option<u64>) {
     nonnegative(env, amount);
     let m = meta(env);
     SeriesClient::new(env, &m.series).transfer_claim(from, to, &amount, &m.kind);
-    env.events()
-        .publish((symbol_short!("transfer"), from, to), amount);
+    if let Some(id) = muxed {
+        let mut data: Map<Symbol, Val> = Map::new(env);
+        data.set(Symbol::new(env, "amount"), amount.into_val(env));
+        data.set(Symbol::new(env, "to_muxed_id"), id.into_val(env));
+        env.events()
+            .publish((symbol_short!("transfer"), from, to), data);
+    } else {
+        env.events()
+            .publish((symbol_short!("transfer"), from, to), amount);
+    }
 }
 fn burn_claim(env: &Env, from: &Address, amount: i128) {
     nonnegative(env, amount);
     let m = meta(env);
     SeriesClient::new(env, &m.series).burn_claim(from, &amount, &m.kind);
     env.events().publish((symbol_short!("burn"), from), amount);
+}
+
+// SEP-41 consumes an allowance even when spender == owner. Zero needs no entry.
+fn consume_allowance(env: &Env, from: &Address, spender: &Address, amount: i128) {
+    let current = allowance::allowance(env, from, spender);
+    if current < amount {
+        panic_with_error!(env, Error::InsufficientAllowance);
+    }
+    if amount == 0 {
+        return;
+    }
+    let key = allowance::TokenKey::Allowance(allowance::AllowanceKey {
+        from: from.clone(),
+        spender: spender.clone(),
+    });
+    let value: allowance::AllowanceValue = env.storage().temporary().get(&key).unwrap();
+    allowance::set_allowance(
+        env,
+        from,
+        spender,
+        current - amount,
+        value.expiration_ledger,
+    );
 }

@@ -348,14 +348,16 @@ export interface HowItWorksModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sectionId: string;
+  config?: ExplainerConfig;
 }
 
 export const HowItWorksModal = ({
   open,
   onOpenChange,
   sectionId,
+  config: override,
 }: HowItWorksModalProps) => {
-  const config = EXPLAINER_CONFIGS[sectionId] ?? EXPLAINER_CONFIGS.overview;
+  const config = override ?? EXPLAINER_CONFIGS[sectionId] ?? EXPLAINER_CONFIGS.overview;
   const CalloutIcon = config.callout?.icon;
 
   return (

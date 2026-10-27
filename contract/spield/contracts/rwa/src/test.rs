@@ -38,6 +38,8 @@ impl World {
         env.mock_all_auths();
         env.cost_estimate().budget().reset_unlimited();
         env.ledger().set_timestamp(START);
+        env.ledger()
+            .with_mut(|info| info.min_persistent_entry_ttl = 120_960);
         let admin = Address::generate(&env);
         let asset_fixture = env.register_stellar_asset_contract_v2(admin.clone());
         asset_fixture
@@ -729,4 +731,149 @@ fn yt_burn_retains_prior_earnings_and_rebinding_fails() {
     w.mature(UP);
     assert_eq!(w.c().redeem(&owner, &face, &0), 8_000_000);
     assert_eq!(w.t().balance(&owner), UNIT);
+}
+
+#[cfg(feature = "wasm-tests")]
+#[test]
+fn compiled_nav_relay_and_claim_tokens_preserve_delegated_auth_and_maturity() {
+    use soroban_sdk::{
+        testutils::{MockAuth, MockAuthInvoke},
+        IntoVal, String,
+    };
+    let e = Env::new_with_config(soroban_sdk::testutils::EnvTestConfig {
+        capture_snapshot_at_drop: false,
+    });
+    e.mock_all_auths();
+    e.cost_estimate().budget().reset_unlimited();
+    e.ledger().set_timestamp(START);
+    let admin = Address::generate(&e);
+    let asset = e
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let bytes = |name: &str| {
+        std::fs::read(std::format!(
+            "{}/../../target/wasm32v1-none/release/{}.wasm",
+            env!("CARGO_MANIFEST_DIR"),
+            name
+        ))
+        .unwrap()
+    };
+    let oracle = e.register(
+        bytes("spield_ustry_oracle").as_slice(),
+        (admin.clone(), asset.clone(), ENTRY, START, START + TERM),
+    );
+    let series = e.register(
+        bytes("spield_rwa").as_slice(),
+        (admin, asset.clone(), oracle.clone(), START + TERM, AGE),
+    );
+    let tokens: std::vec::Vec<_> = (0..3u32)
+        .map(|kind| {
+            e.register(
+                bytes("spield_rwa_token").as_slice(),
+                (
+                    series.clone(),
+                    kind,
+                    String::from_str(&e, "Claim"),
+                    String::from_str(&e, "CLM"),
+                ),
+            )
+        })
+        .collect();
+    let c = UstrySeriesClient::new(&e, &series);
+    c.bind_tokens(&tokens[0], &tokens[1], &tokens[2]);
+    let alice = Address::generate(&e);
+    let bob = Address::generate(&e);
+    StellarAssetClient::new(&e, &asset).mint(&alice, &UNIT);
+    let face = c.deposit_split(&alice, &UNIT, &0);
+    let pt = spield_rwa_token::ClaimTokenClient::new(&e, &tokens[1]);
+    pt.approve(&alice, &bob, &face, &1000);
+    e.set_auths(&[]);
+    let invoke = MockAuthInvoke {
+        contract: &tokens[1],
+        fn_name: "transfer_from",
+        args: (bob.clone(), alice.clone(), bob.clone(), face).into_val(&e),
+        sub_invokes: &[],
+    };
+    pt.mock_auths(&[MockAuth {
+        address: &bob,
+        invoke: &invoke,
+    }])
+    .transfer_from(&bob, &alice, &bob, &face);
+    assert_eq!(pt.balance(&bob), face);
+    e.mock_all_auths();
+    let o = spield_ustry_oracle::UstryOracleClient::new(&e, &oracle);
+    e.ledger().set_timestamp(START + 100);
+    o.publish(&UP, &(START + 100));
+    spield_rwa_token::ClaimTokenClient::new(&e, &tokens[2]).transfer(&alice, &bob, &face);
+    assert_eq!(c.claim_yield(&alice), 2_000_000);
+    e.ledger().set_timestamp(START + TERM - 10);
+    o.publish(&ENTRY, &(START + TERM - 10));
+    e.ledger().set_timestamp(START + TERM + 10);
+    o.publish(&UP, &(START + TERM + 10));
+    assert!(c.finalize().finalized);
+    assert_eq!(c.redeem(&bob, &face, &0), 8_000_000);
+    assert_eq!(token::Client::new(&e, &asset).balance(&series), 0);
+}
+
+#[test]
+fn fresh_storage_extends_past_network_default_and_series_term() {
+    use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
+    let w = World::new();
+    let alice = w.user(UNIT);
+    w.c().deposit(&alice, &UNIT);
+    w.env.as_contract(&w.series, || {
+        assert!(w.env.storage().instance().get_ttl() > 250_000);
+        assert!(w.env.storage().persistent().get_ttl(&Key::Holding(alice)) > 250_000);
+    });
+    for kind in 0..3 {
+        let id = w.c().config().tokens.get(kind).unwrap();
+        w.env.as_contract(&id, || {
+            assert!(w.env.storage().instance().get_ttl() > 250_000)
+        });
+    }
+}
+
+#[test]
+fn sep41_self_allowance_zero_transfer_and_delegated_burn() {
+    let w = World::new();
+    let owner = w.user(UNIT);
+    let to = w.user(0);
+    let spender = w.user(0);
+    w.c().deposit(&owner, &UNIT);
+    let t = w.facade(0);
+    t.transfer_from(&spender, &to, &to, &0); // No stored allowance is needed for zero.
+    assert!(t.try_transfer_from(&owner, &owner, &to, &UNIT).is_err());
+    t.approve(&owner, &owner, &UNIT, &1000);
+    t.transfer_from(&owner, &owner, &to, &UNIT);
+    assert_eq!(t.allowance(&owner, &owner), 0);
+    t.approve(&to, &spender, &(UNIT / 2), &1000);
+    t.burn_from(&spender, &to, &(UNIT / 2));
+    assert_eq!(t.balance(&to), UNIT / 2);
+    assert_eq!(t.total_supply(), UNIT / 2);
+    assert_eq!(t.allowance(&to, &spender), 0);
+    assert_eq!(w.t().balance(&w.series), UNIT); // A voluntary burn never pays assets out.
+}
+
+#[test]
+fn sep41_muxed_transfer_credits_base_address_and_emits_muxed_id() {
+    use soroban_sdk::{
+        testutils::{Events as _, MuxedAddress as _},
+        Map, MuxedAddress, TryFromVal, Val,
+    };
+    let w = World::new();
+    let owner = w.user(UNIT);
+    w.c().deposit(&owner, &UNIT);
+    let recipient = MuxedAddress::generate(&w.env);
+    w.facade(0).transfer(&owner, &recipient, &UNIT);
+    let events = w.env.events().all();
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &events.events().last().unwrap().body;
+    let value = Val::try_from_val(&w.env, &body.data).unwrap();
+    let data = Map::<Symbol, Val>::try_from_val(&w.env, &value).unwrap();
+    let id = u64::try_from_val(
+        &w.env,
+        &data.get(Symbol::new(&w.env, "to_muxed_id")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(Some(id), recipient.id());
+    assert_eq!(w.facade(0).balance(&recipient.address()), UNIT);
 }

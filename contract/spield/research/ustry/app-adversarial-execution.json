@@ -1,0 +1,208 @@
+{
+  "network": "Stellar testnet",
+  "wallet": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+  "token": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+  "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+  "oracleMode": "controlled test prices; not actual USTRY NAV or realized yield",
+  "ptYtMode": "SEP-41 facades on spield-rwa engine",
+  "stages": {
+    "deployment": {
+      "oracle": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "series": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "expiry": 1793108364,
+      "maxAge": 90,
+      "walletUstry": "33111518"
+    },
+    "depositSplit": {
+      "depositedUstryUnits": "12500000",
+      "splitUstryUnits": "10000000",
+      "usdFaceUnits": "12500000",
+      "holding": {
+        "accrued": "0",
+        "factor": "800000000000000000",
+        "pt": "12500000",
+        "receipt": "2500000",
+        "yt": "12500000"
+      },
+      "custodyUstryUnits": "12500000"
+    },
+    "fallingNav": {
+      "controlledUsdPrice": "1.00",
+      "yieldTokensPaid": "0",
+      "oneTokenUsdUnits": "10000000",
+      "nominalPtFaceUnits": "12500000",
+      "highWater": "125000000"
+    },
+    "staleOracle": {
+      "rejected": true,
+      "contractError": 9,
+      "claimsUnchanged": true,
+      "oracleFreeReceiptPayoutUnits": "2500000"
+    },
+    "recoveryAndYield": {
+      "recoveryYieldUnits": "0",
+      "newHighWaterYieldPayoutUnits": "2000000",
+      "custodyUstryUnits": "8000000"
+    },
+    "maturityAndRedemption": {
+      "finalized": true,
+      "frozenHighWater": "156250000",
+      "postExpiryTestPrice": "2.50",
+      "principalPayoutUnits": "8000000",
+      "extraYieldUnits": "0",
+      "custodyUstryUnits": "0",
+      "initialWalletUstryUnits": "33111518",
+      "finalWalletUstryUnits": "33111518",
+      "tokensConserved": true
+    }
+  },
+  "transactions": [
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "df1e2ac1632d9d3da605e9eb1f568726cb1c45377741ff5640c2dc48dfbdbe4e",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "bind_tokens",
+      "hash": "0a998707146c22c885b4633932bf555e661c66d086237ff96ad477bf409d46b4",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "bc98c82b6f0a039625d234797c64b6566d9fa029a44524a8224e9b437e7a49f1",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "deposit",
+      "hash": "30f05d36f761da47628a34d7a2b28a299e92dceebeea4b233b4941fc6caf2771",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "split",
+      "hash": "2ee92b07c8ee46244b36ae2b4d147e92facf3a00d57e1aad2c6f4aaa2b225946",
+      "successful": true,
+      "returnValue": "12500000"
+    },
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "295dd0c4f44b0caa1641f6036c001bd7f38d7d01daca40bf23c6035b92ecf111",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "claim_yield",
+      "hash": "6294731d880d7ead9382759a041671c5b8cfe6428fc4d5329388c188627ea195",
+      "successful": true,
+      "returnValue": "0"
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "withdraw_receipts",
+      "hash": "b15bb8eda838e49971d0fb405af22ff954fb9d03a253daa196924ca925449d8e",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "a8c7586ee97fb396beca92bb9add861e1ed69fa610c3cf3b892704d4af2a2e8f",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "claim_yield",
+      "hash": "1d00c2baaa5aea90746e80026d49753791f4567ef412364cfd3b270a3a654492",
+      "successful": true,
+      "returnValue": "0"
+    },
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "c4002b322944790df469fe09980cd2e96d1778f81bf61763c65a2cfab993cf88",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "claim_yield",
+      "hash": "d2cc21237ee02c3b05a59722f5d8e5688c77644e1d8c85e992533d7a5c0444cc",
+      "successful": true,
+      "returnValue": "2000000"
+    },
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "21a2ed0559fc3a6671c4a0f6ac65b71a977c7800dc80854ff4ff248a9215225e",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+      "method": "publish",
+      "hash": "07a73c2f40aea0e290f49f40cca3c94175a5a1cc877abdb57f2b147c321c86b5",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "finalize",
+      "hash": "bf20bfe918969b9ed56f991e0678acf69547e14cdea5c712affb5628dc15ab1a",
+      "successful": true,
+      "returnValue": {
+        "backing": "8000000",
+        "cursor": 6,
+        "face": "12500000",
+        "factor": "640000000000000000",
+        "finalized": true,
+        "high_water": "156250000",
+        "last_observation": {
+          "price": "156250000",
+          "timestamp": "1793108299"
+        },
+        "receipts": "0",
+        "total_yt": "12500000"
+      }
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "redeem",
+      "hash": "164a144f0c35f7dc2249b56ffce393257e6687e02f59c0f6236f7471d70882fb",
+      "successful": true,
+      "returnValue": "8000000"
+    },
+    {
+      "contract": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+      "method": "claim_yield",
+      "hash": "ae1f04d063d5a8233b2c3a936c86633a1128ecca0165c3b08eb7155e44f8afe8",
+      "successful": true,
+      "returnValue": "0"
+    }
+  ],
+  "updatedAtUtc": "2026-10-27T13:40:03.485Z",
+  "oracle": "CDGTOYDZUKS7C3MRU6ZWW6GWEN4JJGI6CSQ7BODRFZZ72EQVE7PZSRZY",
+  "series": "CAAAI676VSVKDHEMVFMZY5ZTIORO3NZV5SN2XGXYQ335X4A47TAUVICE",
+  "expiry": 1793108364,
+  "maxAge": 90,
+  "wasmHashes": {
+    "spield_rwa_mock_oracle.wasm": "d9bb548f218beb4eef95d68ed3a7d773b87e7fc2309cd13fadd346f5c5621219",
+    "spield_rwa.wasm": "692347f196742dc69a3deb4720e7e4bd74313f0c0fa5432e235a18a05b2cca8e",
+    "spield_rwa_token.wasm": "eee65a0dcba476f14ea0e20415e47c66cc4f45a4ecb63d45ac05c93b13bccdca"
+  },
+  "tokens": {
+    "receipt": "CDGZKGVZBVEJ7X6EF62PLUUOHPDA4DTNW6QO5ZUDBJBD3QOAXTK5JS6Z",
+    "pt": "CAVJC2RXEVMW7JB4KUVTR4JHEWYS7OSILLHFSPHSXFMDLVPAHSI5PF43",
+    "yt": "CBFF74AKNP23Y6XXTZFOG2XIW2243IPWEGUSZFBQQBQ37OFWP6TIL4TX"
+  }
+}

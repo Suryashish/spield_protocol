@@ -58,12 +58,17 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
     return getSeriesForNetwork(NETWORK_KEY);
   }, []);
 
+  // The active series configuration
+  const activeSeries = useMemo(() => {
+    return seriesList.find((s) => s.id === activeSeriesId) ?? getActiveSeries();
+  }, [seriesList, activeSeriesId]);
+
   // Split into 2 clear sections: Live Now and Ended
   const { liveSeries, endedSeries } = useMemo(() => {
     const live: SeriesConfig[] = [];
     const ended: SeriesConfig[] = [];
 
-    for (const s of seriesList.filter(s => s.source === getActiveSeries().source)) {
+    for (const s of seriesList.filter(s => s.source === activeSeries.source)) {
       if (getSeriesStatus(s, nowSecs) === 'live') {
         live.push(s);
       } else {
@@ -72,12 +77,7 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
     }
 
     return { liveSeries: live, endedSeries: ended };
-  }, [seriesList, nowSecs, activeSeriesId]);
-
-  // The active series configuration
-  const activeSeries = useMemo(() => {
-    return seriesList.find((s) => s.id === activeSeriesId) ?? getActiveSeries();
-  }, [seriesList, activeSeriesId]);
+  }, [seriesList, nowSecs, activeSeries.source]);
 
   const isCurrentEnded = useMemo(() => {
     return getSeriesStatus(activeSeries, nowSecs) === 'ended';
@@ -124,6 +124,7 @@ export const SeriesProvider = ({ children }: { children: ReactNode }) => {
   return <SeriesContext.Provider value={value}>{children}</SeriesContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components -- The context hook is intentionally colocated with its provider.
 export const useSeries = (): SeriesContextValue => {
   const ctx = useContext(SeriesContext);
   if (!ctx) {

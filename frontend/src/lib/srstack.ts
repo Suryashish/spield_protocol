@@ -1,3 +1,4 @@
+import { getSeriesForNetwork, NETWORK_KEY } from './config';
 import type { xdr } from '@stellar/stellar-sdk';
 import { SR_CONTRACTS, SR_DEPLOYED, DECIMALS } from './config';
 import {
@@ -545,7 +546,7 @@ export interface SrVaultReceipt {
 
 const VAULT_DEPLOYED = (): boolean => Boolean(SR_DEPLOYED && SR_CONTRACTS?.vault);
 
-export const SR_VAULT_AVAILABLE = VAULT_DEPLOYED();
+export const SR_VAULT_AVAILABLE = getSeriesForNetwork(NETWORK_KEY).some(series => series.source === 'blend' && !!series.contracts?.vault);
 
 export const getVaultStats = async (): Promise<SrVaultStats | null> => {
   if (!VAULT_DEPLOYED() || !SR_CONTRACTS) return null;
@@ -740,7 +741,7 @@ export const isMatured = (s: SrMarketStats | null): boolean =>
 
 /** True when the router is deployed and wired on this network. */
 export const ROUTER_AVAILABLE = Boolean(
-  SR_DEPLOYED && SR_CONTRACTS?.router && !SR_CONTRACTS.router.startsWith('__'),
+  SR_DEPLOYED && getSeriesForNetwork(NETWORK_KEY).some(series => series.source === 'blend' && !!series.contracts?.router && !series.contracts.router.startsWith('__')),
 );
 
 /** Default floor applied to `min_*_out` on router exits, in bps below the executable amount. */

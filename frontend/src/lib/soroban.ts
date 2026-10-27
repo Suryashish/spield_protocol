@@ -436,6 +436,7 @@ export const writeContract = async (
   contractId: string,
   method: string,
   args: xdr.ScVal[] = [],
+  formatSimulationError?: (raw: string, method: string) => string,
 ): Promise<WriteResult> => {
   const selectedSeries = getActiveSeriesRevision();
   const contract = new Contract(contractId);
@@ -461,7 +462,7 @@ export const writeContract = async (
   // them into the transaction.
   const sim = await failoverWrite((srv) => srv.simulateTransaction(built));
   if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(parseContractError(sim.error, method));
+    throw new Error((formatSimulationError ?? parseContractError)(sim.error, method));
   }
   const prepared = rpc.assembleTransaction(built, sim).build();
 
@@ -475,6 +476,11 @@ export const writeContract = async (
 
   if (getActiveSeriesRevision() !== selectedSeries) throw new Error('Series changed while signing. Review the selected series and try again.');
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK.passphrase);
+  const requestedHash = prepared.hash();
+  const signedHash = signed.hash();
+  if (signedHash.length !== requestedHash.length || signedHash.some((byte, index) => byte !== requestedHash[index])) {
+    throw new Error('Wallet changed the requested transaction. Review and try again.');
+  }
   const sent = await failoverWrite((srv) => srv.sendTransaction(signed));
   if (sent.status === 'ERROR') {
     throw new Error(`Submission failed: ${JSON.stringify(sent.errorResult)}`);

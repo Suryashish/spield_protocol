@@ -468,9 +468,11 @@ fn holding(env: &Env, owner: &Address) -> Holding {
     let key = Key::Holding(owner.clone());
     let h = env.storage().persistent().get(&key).unwrap_or_default();
     if env.storage().persistent().has(&key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, 10_000, env.storage().max_ttl());
+        env.storage().persistent().extend_ttl(
+            &key,
+            env.storage().max_ttl().saturating_sub(17_280),
+            env.storage().max_ttl(),
+        );
     }
     h
 }
@@ -478,16 +480,19 @@ fn holding(env: &Env, owner: &Address) -> Holding {
 fn save_holding(env: &Env, owner: &Address, h: &Holding) {
     let key = Key::Holding(owner.clone());
     env.storage().persistent().set(&key, h);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, 10_000, env.storage().max_ttl());
+    env.storage().persistent().extend_ttl(
+        &key,
+        env.storage().max_ttl().saturating_sub(17_280),
+        env.storage().max_ttl(),
+    );
 }
 
 fn save_state(env: &Env, state: &State) {
     env.storage().instance().set(&Key::State, state);
-    env.storage()
-        .instance()
-        .extend_ttl(10_000, env.storage().max_ttl());
+    env.storage().instance().extend_ttl(
+        env.storage().max_ttl().saturating_sub(17_280),
+        env.storage().max_ttl(),
+    );
 }
 
 fn settle(env: &Env, h: &mut Holding, factor: i128) {

@@ -1,0 +1,144 @@
+{
+  "network": "Stellar testnet",
+  "wallet": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+  "token": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+  "stages": {
+    "deployed": {
+      "network": "testnet",
+      "series": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "oracle": "CDNFKQAMVU4TYXIMVBLUS7OZAAYYRWAWRPT3WX6MAJN565URX4X6XJJL",
+      "receipt": "CAFAWBTZAOCQURLCXJI2S7HU53BI5GASTKACKCEDQ7GI3SZEHYPG3CZJ",
+      "pt": "CAYLACXRNFX3LGFK2A2622FGLWL57CWFQLJFFXPRX3QQH5TAAF3GKOIZ",
+      "yt": "CAXDCVUYLCGZHI2BOMLC2FZO7LOTDWJR6DRURETH3M4E3V4G5SEW5AX6",
+      "asset": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+      "expiry": 1794316120,
+      "maxAge": 46800,
+      "capUstry": 1000
+    },
+    "genuineAssetRoundTrip": {
+      "face": "1106722",
+      "claim": "0",
+      "paid": "999999",
+      "initialTokens": "33111519",
+      "endingTokens": "33111518",
+      "custody": "1",
+      "roundingUnits": "1"
+    }
+  },
+  "transactions": [
+    {
+      "contract": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "method": "bind_tokens",
+      "hash": "6fce77550c4bbedb313d087b6e9a649c483ebe5e51374233741533fc0684b215",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "method": "deposit",
+      "hash": "f567cfef01fa47cb3d7266968b128b1b1b378a4c590ea4d30866bd944d822455",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "method": "withdraw_receipts",
+      "hash": "865e62ef101d87f8aa52de39eca762a4d2fcf4cee772c9c5cd9b610dfeac6207",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "method": "deposit_split",
+      "hash": "a21d6c39676a97b5ea08956ee318096f192f7b2c6c7387f261a522baf7ee8d4a",
+      "successful": true,
+      "returnValue": "1106722"
+    },
+    {
+      "contract": "CAYLACXRNFX3LGFK2A2622FGLWL57CWFQLJFFXPRX3QQH5TAAF3GKOIZ",
+      "method": "transfer",
+      "hash": "b9c7c24c5644eff8258ca0ed07b4273d172850c3733d81f5840ee7b225485939",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAXDCVUYLCGZHI2BOMLC2FZO7LOTDWJR6DRURETH3M4E3V4G5SEW5AX6",
+      "method": "transfer",
+      "hash": "db33f9c0fd61355c153fb5c52eb59aea963e1ba9d131ae28ea60731d0fecc92c",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "method": "claim_yield",
+      "hash": "1bb9ee94e1003114e08192f1c4719571b15a3f095f4fa945bed5c87cbfd38eba",
+      "successful": true,
+      "returnValue": "0"
+    },
+    {
+      "contract": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+      "method": "redeem",
+      "hash": "88092918dee099dddc6671068fea5e62a076c40e7eb4cf56dc35a5af7e6fa358",
+      "successful": true,
+      "returnValue": "999999"
+    }
+  ],
+  "oracleMode": "issuer sandbox NAV, authenticated relay observations; not RedStone",
+  "updatedAtUtc": "2026-10-27T13:24:06.485Z",
+  "initialNav": {
+    "price": "110672300",
+    "fetchedAt": "2026-10-27T13:08:47.214Z",
+    "source": "https://api.sand.etherfuse.com/lookup/tokens/cost/ustry",
+    "response": {
+      "token_symbol": "USTRY",
+      "token_mint": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+      "token_kind": "bond",
+      "currency": "USD",
+      "token_cost_in_fiat": "1.106723",
+      "token_cost_in_usd": "1.106723",
+      "fiat_exchange_rate_with_usd": "1",
+      "current_basis_points": 254,
+      "current_time": "2026-10-27T13:08:47.035432090+00:00",
+      "payment_mint": "BXTou3CvPxpFVAJvzvEZcAnRLGCHqT1LHKsFTSQft7s",
+      "sources": {
+        "4ac820d6-2b2f-4e52-b62f-c83861d82322": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106491
+        },
+        "369ed8ed-033a-46e7-84ab-db60002f8d50": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106481
+        },
+        "7302046e-794e-4c29-b46f-8e6e24ae621f": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106511
+        },
+        "8333dd29-55fc-49c6-94d1-bf97a967654c": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793106501
+        },
+        "c83470e8-282f-41e8-90a5-7eef368311c0": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106723",
+          "updated_at": 1793105931
+        }
+      }
+    }
+  },
+  "deployment": {
+    "network": "testnet",
+    "series": "CB5XNMCWJLPWXOMAOU2NXICX4VDEDYYEG62IJCTBMCH3HRSFFM7VRS7M",
+    "oracle": "CDNFKQAMVU4TYXIMVBLUS7OZAAYYRWAWRPT3WX6MAJN565URX4X6XJJL",
+    "receipt": "CAFAWBTZAOCQURLCXJI2S7HU53BI5GASTKACKCEDQ7GI3SZEHYPG3CZJ",
+    "pt": "CAYLACXRNFX3LGFK2A2622FGLWL57CWFQLJFFXPRX3QQH5TAAF3GKOIZ",
+    "yt": "CAXDCVUYLCGZHI2BOMLC2FZO7LOTDWJR6DRURETH3M4E3V4G5SEW5AX6",
+    "asset": "CCUGMX7HX6CH6T4XNPALQ7HCVU37RLUNHAYNSAIALTPFHFQVIRIHALBC",
+    "expiry": 1794316120,
+    "maxAge": 46800,
+    "capUstry": 1000
+  }
+}

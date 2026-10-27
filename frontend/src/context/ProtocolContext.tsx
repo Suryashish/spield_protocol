@@ -1,3 +1,4 @@
+import { getActiveSeriesId } from '@/lib/config';
 import {
   createContext,
   useCallback,
@@ -116,6 +117,7 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
   const load = useCallback(
     async (isInitial: boolean, includeWallet = true) => {
       const id = ++reqId.current;
+      if (getActiveSeriesId() !== activeSeriesId) return;
       if (activeSeries.source !== 'blend') {
         setPositions([]); setBalances(EMPTY_BALANCES); setSolvency(null); setMaturity(null);
         setPaused(false); setVaultStats(null); setReceipts([]); setMarketStats(null); setLpPosition(null);
@@ -134,6 +136,8 @@ export const ProtocolProvider = ({ children }: { children: ReactNode }) => {
           getVaultStats().catch(() => null),
           getMarketStats().catch(() => null),
         ]);
+
+        if (id !== reqId.current || getActiveSeriesId() !== activeSeriesId) return;
 
         // Wallet-specific reads. Each can fail independently; a failed read must
         // PRESERVE the previous value, not blank it — otherwise a transient RPC

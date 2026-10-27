@@ -4,7 +4,7 @@ Work branch: `ustryintegrationv1`. The user explicitly authorized testnet implem
 
 ## Intended behavior
 
-- Two adjacent selectors are recommended: **Yield source** (Blend/USTRY), then **Series / maturity**, filtered by source and network. A single optional layout question has been sent to the user; do not ask it again. Source-specific series selection should persist and must reset pending inputs/quotes and data when changed.
+- The user approved two adjacent selectors: **Yield source** (Blend/USTRY), then **Series / maturity**, filtered by source and network. The user selected this option; do not ask it again. Source-specific series selection should persist and must reset pending inputs/quotes and data when changed.
 - Blend continues using its existing stack. USTRY uses a separate immutable deployment and source client; no global Blend contract override may silently replace a USTRY address.
 - Complete USTRY vertical slice: genuine token balance/custody, direct deposits and atomic deposit/split, transferable receipt/PT/YT tokens, yield claims, pre-maturity recombination, maturity settlement and in-kind token withdrawals, source-specific portfolio/health views and conversion through explicitly quoted SDEX paths.
 - Do not show unsupported USTRY PT AMM, LP or fixed-vault actions as if they existed. Filter/describe capabilities using source metadata. USTRY denomination and payout units must remain separate from USD face; no USD principal guarantee or invented fixed APR.
@@ -53,5 +53,13 @@ Existing core loss policy remains: inverse high-water NAV token allocations, liv
 ## Progress
 
 - Repository inspected; branch and working tree clean at start.
-- UI layout question sent once; useful work continues independently.
-- Implementation design and cross-source failure cases recorded. Contract, relay and app code changes are next.
+- UI layout approved; both selectors are implemented, with source/network filtering and persistence.
+- New accounting core, immutable claim-token binding, SEP-41 receipt/PT/YT tokens, sandbox NAV relay, custody cap/pause and source-specific app flows are implemented.
+- 36 contract checks pass (including two compiled-WASM lifecycle tests), 57 operations tests pass, frontend/client/browser checks pass, and both network builds pass. Clippy passes with only two pre-existing shared-crate lint exceptions.
+- Final deployment: `CCR6L2GNPIOXR6RZMVFXZ2NXIICCPVWCEXIVOZHAGME3CJ23675XQX5K`; tracked metadata is `frontend/src/lib/ustry-deployment.json`.
+- Genuine 0.1-USTRY app round trip and 0.05-USTRY actual frontend-client round trip pass. Actual frontend SDEX round trips pass for both GATAL and GBBD USDC. Each small accounting round trip retains one smallest USTRY unit in escrow.
+- Final corrected artifact public-testnet maturity fixture passed: 0.2 USTRY yield + 0.8 USTRY principal + 0.25 receipt withdrawal returned the original 1.25 USTRY exactly, with zero custody. Evidence: `app-final-adversarial-execution.json`. Earlier 90s constructor attempt failed before funding; stale rejection was independently verified in the earlier fixture and compiled tests.
+- Independent audit passed: 37 successful transactions, all five app release WASM hashes match, and actual lifetimes extend beyond maturity. Alice holds 3.3111515 USTRY after all tests. The genuine NAV keeper is running and returned a healthy no-publication-needed result for this session; durable hosting remains an explicit operator responsibility. Runbook and research index are updated.
+- Full implementation and operator runbook: `research/ustry/app-integration-v1.md`. No production deployment, commit or push has occurred.
+
+Final user access: local testnet dev app is running at http://127.0.0.1:4173; choose USTRY then USTRY Series 1. The real browser loaded genuine NAV and the final series on reload. Secrets remain ignored; no commit, push, mainnet transaction or hosted frontend publication was performed.

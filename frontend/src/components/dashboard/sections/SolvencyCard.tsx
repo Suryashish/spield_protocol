@@ -8,7 +8,7 @@ import { formatUsd, fromBaseUnits } from '@/lib/soroban';
 import { CONTRACTS, SR_CONTRACTS, explorerContract } from '@/lib/config';
 
 /** The contract that actually enforces the solvency invariant now: the PT/YT engine. */
-const SOLVENCY_CONTRACT: string = SR_CONTRACTS?.yieldEngine ?? CONTRACTS.wrapper;
+
 
 /**
  * Public solvency hero (plan §11.5). v1 was rejected by SCF for being
@@ -29,6 +29,7 @@ const formatSurplus = (units: bigint | number | string): string => {
 };
 
 const SolvencyCard = () => {
+  const SOLVENCY_CONTRACT: string = SR_CONTRACTS?.yieldEngine ?? CONTRACTS.wrapper;
   const { solvency, loading } = useProtocol();
 
   const backing = solvency ? fromBaseUnits(solvency.backing) : 0;

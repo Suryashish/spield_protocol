@@ -1,3 +1,4 @@
+import { useSeries } from '@/context/SeriesContext';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { APP_TOUR_STEPS, type TourStep } from '@/components/dashboard/guide/tourSteps';
@@ -30,6 +31,7 @@ export interface TutorialContextValue {
 const TutorialContext = createContext<TutorialContextValue | undefined>(undefined);
 
 export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { activeSeries } = useSeries();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -53,23 +55,23 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Mandatory first-time user tour: trigger after initial page render
   useEffect(() => {
-    if (!hasSeenTour) {
+    if (!hasSeenTour && activeSeries.source === 'blend') {
       const timer = setTimeout(() => {
         setIsTourActive(true);
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, [hasSeenTour]);
+  }, [hasSeenTour, activeSeries.source]);
 
   // When step changes, ensure the app navigates to the section route
   useEffect(() => {
-    if (!isTourActive) return;
+    if (!isTourActive || activeSeries.source !== 'blend') return;
     const targetRoute = currentStep.route;
     const currentPath = location.pathname;
     if (currentPath !== targetRoute && !currentPath.startsWith(targetRoute)) {
       navigate(targetRoute);
     }
-  }, [isTourActive, currentStep, location.pathname, navigate]);
+  }, [isTourActive, currentStep, location.pathname, navigate, activeSeries.source]);
 
   const startTour = useCallback(
     (stepIndex = 0) => {
@@ -159,7 +161,7 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   return (
     <TutorialContext.Provider
       value={{
-        isTourActive,
+        isTourActive: isTourActive && activeSeries.source === 'blend',
         currentStepIndex,
         currentStep,
         hasSeenTour,
@@ -173,7 +175,7 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         closeTour,
         totalSteps,
         // Compatibility aliases:
-        isOpen: isTourActive,
+        isOpen: isTourActive && activeSeries.source === 'blend',
         restartTutorial: restartTour,
         openTutorial: startTour,
         closeTutorial: closeTour,
