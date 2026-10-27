@@ -1,0 +1,138 @@
+{
+  "observedAtUtc": "2026-10-26T18:43:53.118015+00:00",
+  "network": "Stellar testnet",
+  "apiVersion": "v1 /ramp",
+  "registeredStellarWalletCountOnFirstPage": 1,
+  "wallets": [
+    {
+      "publicAddress": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+      "horizonHttp": 200,
+      "localAddressIdentities": [],
+      "localSignerIdentities": [],
+      "thresholds": {
+        "low_threshold": 0,
+        "med_threshold": 0,
+        "high_threshold": 0
+      },
+      "balances": [
+        {
+          "asset_type": "credit_alphanum4",
+          "asset_code": "USDC",
+          "asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "100.0000000",
+          "limit": "922337203685.4775807",
+          "is_authorized": true,
+          "is_authorized_to_maintain_liabilities": true
+        },
+        {
+          "asset_type": "credit_alphanum12",
+          "asset_code": "USTRY",
+          "asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "0.0000000",
+          "limit": "922337203685.4775807",
+          "is_authorized": true,
+          "is_authorized_to_maintain_liabilities": true
+        },
+        {
+          "asset_type": "native",
+          "asset_code": null,
+          "asset_issuer": null,
+          "balance": "4.9999800",
+          "limit": null,
+          "is_authorized": null,
+          "is_authorized_to_maintain_liabilities": null
+        }
+      ],
+      "etherfuseRegistered": true,
+      "claimedOwnership": true
+    },
+    {
+      "publicAddress": "GBUPDAQJPIYQWTJGVPYSBAK5BOHC3DP7ED3AKDAEZ7FJD7NOX56Z7YDF",
+      "horizonHttp": 404,
+      "localAddressIdentities": [
+        "spield_deployer"
+      ]
+    },
+    {
+      "publicAddress": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+      "horizonHttp": 200,
+      "localAddressIdentities": [
+        "alice425"
+      ],
+      "localSignerIdentities": [
+        {
+          "name": "alice425",
+          "weight": 1
+        }
+      ],
+      "thresholds": {
+        "low_threshold": 0,
+        "med_threshold": 0,
+        "high_threshold": 0
+      },
+      "balances": [
+        {
+          "asset_type": "credit_alphanum4",
+          "asset_code": "USDC",
+          "asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223",
+          "limit": "922337203685.4775807",
+          "is_authorized": true,
+          "is_authorized_to_maintain_liabilities": true
+        },
+        {
+          "asset_type": "native",
+          "asset_code": null,
+          "asset_issuer": null,
+          "balance": "9424.4913844",
+          "limit": null,
+          "is_authorized": null,
+          "is_authorized_to_maintain_liabilities": null
+        }
+      ]
+    }
+  ],
+  "fiatQuotes": [
+    {
+      "type": "onramp",
+      "httpStatus": 200,
+      "quoteReturned": true,
+      "sourceSymbol": "MXN",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "100",
+      "sourceAmount": "100",
+      "destinationAmount": "4.8651804257956087963281462900",
+      "exchangeRate": "0.0486518042579560879632814629",
+      "feeAmount": "0.20",
+      "feeBps": "20",
+      "nominalRate": "0.151885917",
+      "etherfuseMidMarketRate": "0.0487493028636834548730275179",
+      "requiresSwap": true
+    },
+    {
+      "type": "offramp",
+      "httpStatus": 200,
+      "quoteReturned": true,
+      "sourceSymbol": "USTRY",
+      "targetSymbol": "MXN",
+      "requestedSourceAmount": "1",
+      "sourceAmount": "1",
+      "destinationAmount": "20.472087660356209806309379929",
+      "exchangeRate": "20.472087660356209806309379929",
+      "feeAmount": "0.002",
+      "feeBps": "20",
+      "nominalRate": "20.52",
+      "etherfuseMidMarketRate": "20.513113888132474755821021973",
+      "requiresSwap": true
+    }
+  ],
+  "ordersCreated": false,
+  "transactionsSignedOrSubmitted": false,
+  "credentialsSaved": false,
+  "notes": "Public wallet addresses intentionally retained for funding guidance; API key, account IDs, quote IDs, secrets and raw responses excluded.",
+  "sandboxBankAccounts": {
+    "httpStatus": 200,
+    "bankAccountsOnFirstPage": 0,
+    "totalItems": 0
+  }
+}

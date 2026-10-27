@@ -1,22 +1,26 @@
 # USTRY feasibility: execution record
 
+**Latest checkpoint — 27 October 2026:** all four v1 USTRY routes (USDC swaps both directions and MXN onramp/offramp) now return HTTP 200. The registered wallet is active and has a USTRY trustline, but holds the other issuer's USDC, lacks Etherfuse's USDC trustline and has no USTRY yet. Its signer does not match the configured local CLI identities. See [liquidity-fix verification and exact wallet steps](liquidity-fix-recheck-2026-10-27.md). No order or transaction was executed.
+
+**Provider reply received by the user:** Etherfuse has offered Stellar testnet USTRY allocations, engineering help for an exit, and support in principle for a Spield-managed pooled PT/YT structure. Our probes used **v1 `/ramp/quote`**, so the reported incomplete Stellar v2 rollout is not a confirmed explanation for their failures. See the [response assessment and reply draft](provider-response-review.md), including why Etherfuse's yield-retaining principal token is not automatically a replacement yield source.
+
 **Local prototype now available:** see [the runbook](prototype.md) for the isolated Soroban contracts and commands to run deposit → PT/YT split → yield claim → maturity → in-kind redemption with a mock asset and controlled oracle. It also explains the loss policy, stale-price behavior, internal-ledger scope and the steps still needed for a genuine sandbox-token deployment.
 
-Last verified: **25 October 2026, 19:21 IST**. Full results: [oracle-observation.json](oracle-observation.json).
+Last mainnet oracle verification: **25 October 2026, 19:21 IST**. Full results: [oracle-observation.json](oracle-observation.json). Later sandbox, prototype and provider-response checkpoints are recorded separately below.
 
 ## Current decision
 
-**The public oracle checks pass. Sandbox account access and USTRY token availability are now verified, but both USTRY quote routes return HTTP 424 while the CETES control succeeds.** See the [authenticated sandbox results](sandbox-results.md). Production valuation methodology, primary redemption and PT/YT eligibility remain unconfirmed; the [updated enquiries](provider-enquiries.md) include the reproducible sandbox issue.
+**Continue USTRY integration testing: the public oracle checks pass, and repaired sandbox liquidity now produces both USDC swap quotes and direct MXN onramp/offramp quotes.** The [earlier 424 failures](sandbox-results.md) are historical. Etherfuse identifies Spield as the customer purchasing/redeeming from its registered organization wallet, and supports Spield-managed pooled contracts and token issuance. Token receipt, an executed round trip, detailed production economics and valuation methodology remain unverified; see the [latest wallet/action checkpoint](liquidity-fix-recheck-2026-10-27.md).
 
-**Setup clarification:** The [sandbox address/dashboard follow-up](sandbox-setup-next-steps.md) identifies missing self-service bank-account and Stellar-wallet activation steps, with a successful CETES first-onramp quote. Correct sandbox identifiers were already used; the linked Solana mint also has quote-route failures. Email is not itself required to activate the sandbox.
+**Historical setup clarification, 25 October:** the [address/dashboard follow-up](sandbox-setup-next-steps.md) recorded an unactivated wallet and no bank account. The 27 October check supersedes wallet activation: it is now active, with a USTRY trustline. No sandbox bank account is linked yet; direct test allocation and swaps do not require one. Correct sandbox identifiers were already used in our API probes.
 
-**Fresh Stellar confirmation, 20:31 IST:** USTRY is listed for Stellar in the sandbox product catalog and authenticated discovery. Direct testnet SAC reads return `symbol=USTRY` and `decimals=7`. Both USTRY quote directions still return 424. See [availability evidence](sandbox-availability-recheck.md). The URL's Solana mint does not mean the product is Solana-only.
+**Historical Stellar confirmation, 25 October, 20:31 IST:** USTRY was listed for Stellar and direct testnet SAC reads returned `symbol=USTRY`, `decimals=7`; quotes then returned 424. See [availability evidence](sandbox-availability-recheck.md). The URL's Solana mint does not mean the product is Solana-only. Quote failures are superseded by the 27 October successful checks.
 
 | Requested step | Evidence and status |
 |---|---|
 | 1. Identify and read the actual oracle | **Verified:** provider deployment references, mainnet network identity, exact USTRY asset mapping, USD base, decimals, live/direct prices, timestamps, retained history and historical lookup. |
 | 1. Confirm pricing methodology | **Partially verified:** contract plumbing and public price comparison inspected. Exact upstream source composition, NAV effective-time semantics and source-to-deployed-bytecode matching require provider assurance. |
-| 2. Confirm redemption and product access | **Account/API checks completed:** sandbox approval and USTRY listing verified. Both USTRY quote routes return HTTP 424, so no issuer round trip has been proven. Production pooled PT/YT terms remain pending provider response. |
+| 2. Confirm redemption and product access | **Operating model clarified and quotes verified:** Spield is the KYB'd customer; purchases/redemptions use its registered `G...` wallet, with pooled contracts/token issuance supported in between. All four sandbox USTRY routes quote successfully. Actual receipt and executed settlement remain pending. |
 | 3. Isolated testnet prototype | Isolated local Soroban accounting contracts and scenario tests are implemented; see [prototype.md](prototype.md). Public-testnet deployment and a provider-backed funded round trip remain pending. |
 | 4. USDC conversion | **Pending:** requires measured executable liquidity and approved settlement terms. |
 
@@ -139,6 +143,6 @@ npm test
 
 ## 7. Next checkpoint
 
-Use the [updated provider enquiry](provider-enquiries.md). The sandbox business account now authenticates and reports approval. Ask Etherfuse to resolve the USTRY quote path and provide a supported test-funding route. Replies must separately confirm who can redeem pooled holdings, the accepted PT/YT structure, eligible users, and actual production Stellar settlement terms.
+Follow the [latest verified wallet steps](liquidity-fix-recheck-2026-10-27.md): add Etherfuse's USDC trustline to the registered wallet, obtain a small test allocation or complete a simulated MXN onramp, and sign a small actual swap/exit from that wallet. It is separate from the existing local `alice425` signer. The provider has now clarified who buys/redeems; production economics, applicable operating terms and executed settlement still need confirmation.
 
-The isolated contract accounting prototype can proceed while those replies are pending, using clearly labeled controlled valuation inputs for failure cases. The required lifecycle remains deposit → split PT/YT → claim yield → maturity → in-kind redemption, including declining NAV, stale feeds and issuer-control failures. A funded issuer purchase/redemption test must wait for a usable USTRY sandbox route. USDC conversion follows its own measured liquidity/settlement check.
+The [isolated contract accounting prototype](prototype.md) is implemented and locally tested with controlled inputs. Once the offered allocation arrives, repeat deposit → split PT/YT → claim yield → maturity → in-kind redemption with genuine sandbox USTRY. Direct allocation bypasses the failed purchase route; an actual provider exit still needs an engineering-supported workflow. Do not make contract testing depend on a speculative v2 release date. USDC conversion follows its own measured liquidity/settlement check.

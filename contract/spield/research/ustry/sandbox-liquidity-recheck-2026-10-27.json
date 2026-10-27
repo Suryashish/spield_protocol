@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "environment": "sandbox",
+  "baseUrl": "https://api.sand.etherfuse.com",
+  "startedAt": "2026-10-26T18:42:14.887676+00:00",
+  "apiVersion": "v1 /ramp (documented alongside v2 beta)",
+  "ordersCreated": false,
+  "transactionsSignedOrSubmitted": false,
+  "productionAccessConfirmed": false,
+  "productEligibilityConfirmed": false,
+  "authenticationPassed": true,
+  "accountApprovalPresent": true,
+  "partnerFeeDefaultBps": 0,
+  "walletInventory": {
+    "firstPageCount": 2,
+    "totalItems": 2,
+    "stellarOnFirstPage": 1
+  },
+  "registeredStellarWalletFound": true,
+  "walletClaimedOwnership": true,
+  "assets": [
+    {
+      "symbol": "USDC",
+      "identifier": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "currency": "usd"
+    },
+    {
+      "symbol": "CETES",
+      "identifier": "CETES:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": "mxn"
+    },
+    {
+      "symbol": "MEXe",
+      "identifier": "MEXe:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": "mxn"
+    },
+    {
+      "symbol": "KTB",
+      "identifier": "KTB:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": null
+    },
+    {
+      "symbol": "TESOURO",
+      "identifier": "TESOURO:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": "brl"
+    },
+    {
+      "symbol": "USTRY",
+      "identifier": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "currency": null
+    },
+    {
+      "symbol": "EURC",
+      "identifier": "EURC:GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO",
+      "currency": "eur"
+    }
+  ],
+  "ustryListed": true,
+  "usdcListed": true,
+  "quotes": [
+    {
+      "httpStatus": 200,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "10",
+      "sourceAmount": "10",
+      "destinationAmount": "9.018099105051749039091496061",
+      "exchangeRate": "0.9018099105051749039091496061",
+      "feeAmount": "0.02",
+      "feeBps": "20",
+      "nominalRate": "0.9036000",
+      "etherfuseMidMarketRate": "0.9036171447947644327746990041",
+      "requiresSwap": true,
+      "quoteReturned": true,
+      "control": false
+    },
+    {
+      "httpStatus": 200,
+      "sourceSymbol": "USTRY",
+      "targetSymbol": "USDC",
+      "requestedSourceAmount": "10",
+      "sourceAmount": "10",
+      "destinationAmount": "11.044500500596005636566587782",
+      "exchangeRate": "1.1044500500596005636566587782",
+      "feeAmount": "0.02",
+      "feeBps": "20",
+      "nominalRate": "1.1061313",
+      "etherfuseMidMarketRate": "1.1066633768132270176920428639",
+      "requiresSwap": true,
+      "quoteReturned": true,
+      "control": false
+    },
+    {
+      "httpStatus": 200,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "CETES",
+      "requestedSourceAmount": "10",
+      "sourceAmount": "10",
+      "destinationAmount": "161.21861314233532343477732477",
+      "exchangeRate": "16.121861314233532343477732477",
+      "feeAmount": "0.02",
+      "feeBps": "20",
+      "nominalRate": "16.1750000",
+      "etherfuseMidMarketRate": "16.154169653540613570618970418",
+      "requiresSwap": true,
+      "quoteReturned": true,
+      "control": true
+    }
+  ],
+  "status": "sandbox_quotes_passed",
+  "requests": [
+    {
+      "method": "GET",
+      "route": "/ramp/me",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/wallets",
+      "httpStatus": 200
+    },
+    {
+      "method": "GET",
+      "route": "/ramp/assets",
+      "httpStatus": 200
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 200
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 200
+    },
+    {
+      "method": "POST",
+      "route": "/ramp/quote",
+      "httpStatus": 200
+    }
+  ],
+  "completedAt": "2026-10-26T18:42:21.678452+00:00"
+}

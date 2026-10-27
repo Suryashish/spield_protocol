@@ -1,6 +1,8 @@
 # USTRY provider enquiries
 
-Updated 25 October 2026. **Drafts only; not sent.** Spield now has a business account and an API key verified against Etherfuse's sandbox. Account approval and Stellar USTRY listing are confirmed; USTRY quotes currently fail in both directions. Production access, primary redemption and product approval remain unconfirmed. See [sandbox test results](sandbox-results.md).
+**Latest response and verification, 27 October:** Etherfuse says its missing Stellar sandbox liquidity is fixed; our four USTRY quote routes now return 200. It identifies Spield as the KYB'd customer using its registered `G...` wallet for provider purchases/redemptions, with Spield managing pooled contracts and its own tokens. There is no provider product giving users only USTRY yield. See [verified results and required wallet actions](liquidity-fix-recheck-2026-10-27.md); the earlier drafts below are historical references.
+
+**Status update:** The user has contacted Etherfuse and shared replies offering test allocations and engineering assistance, and supporting Spield-managed pooled PT/YT in principle. The original drafts below are retained for reference; the exact sent message was not supplied. The RedStone enquiry remains unsent by the agent. Use the [provider response assessment and focused reply](provider-response-review.md) for the next message. Production terms and a working issuer exit remain unverified.
 
 **Setup follow-up:** Email is not required for standard sandbox activation. There is no sandbox bank account yet, and the registered Stellar wallet is not activated on-chain. A first simulated CETES onramp has a successful quote and can address those wallet prerequisites. This does not establish the cause of the USTRY quote failures. See [website/setup next steps](sandbox-setup-next-steps.md).
 
@@ -72,16 +74,16 @@ Spield team
 2. **Partially completed:** authenticated Stellar asset discovery confirms USTRY and its testnet issuer. Both USTRY quote directions returned HTTP 424; ask Etherfuse to resolve the route before attempting funded orders.
 3. Use server-side credentials through the project's normal secret-management process. The oracle probe requires no API key or wallet secret.
 4. Complete production onboarding only after entity, jurisdiction and beneficiary requirements have been established. A sandbox approval does not grant production eligibility.
-5. Record the provider replies and the exact approved design here. Until then, primary redemption and PT/YT eligibility remain **unconfirmed**.
+5. The [provider reply review](provider-response-review.md) now records support in principle for Spield-managed pooled PT/YT and an offered test allocation. Confirm the precise production design, rights and settlement terms; no completed primary redemption is recorded.
 
 ## 4. Evidence required to close step 2
 
 | Required answer | Current status |
 |---|---|
-| Pooled contract holding and PT/YT terms accepted | Awaiting provider response |
+| Pooled contract holding and PT/YT terms accepted | Provider supports Spield-managed structure in principle; detailed production terms pending |
 | Eligible entity, users, countries and transfer policy | Awaiting provider response |
-| Party entitled to primary redemption | Awaiting provider response |
-| Stellar payout currency, minimum, fees, capacity and timing | Awaiting provider response |
-| Contract-address or operating-wallet settlement process | Awaiting provider response |
-| USTRY sandbox token and round-trip order results | Sandbox token verified; quote routes return HTTP 424; funded round trip pending |
+| Party entitled to primary redemption | Provider identifies Spield's KYB'd organization as the customer; its own registered wallet buys/redeems |
+| Stellar payout currency, minimum, fees, capacity and timing | Sandbox USDC and MXN routes both quote successfully; actual settlement and production economics/timing remain unverified |
+| Contract-address or operating-wallet settlement process | Provider purchases/redemptions use registered `G...` wallet; Spield may hold/issue against USTRY in its contracts in between |
+| USTRY sandbox token and round-trip order results | All four quote routes now verified; registered wallet still holds zero USTRY; receipt and signed round trip pending |
 | Controls, NAV effective time and current USTRY reserve evidence | Awaiting provider response |
