@@ -1,0 +1,82 @@
+{
+  "network": "Stellar testnet",
+  "executionMode": "SDEX path payment to self; not Etherfuse Ramp API",
+  "wallet": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+  "localIdentity": "alice425",
+  "realMoneyMoved": false,
+  "maxInitialSpend": "1.0000000",
+  "sourceAsset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+  "destinationAsset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+  "slippageLimitBpsPerLeg": 100,
+  "transactions": [
+    {
+      "stage": "buyUstry",
+      "hash": "e14a8546a4d7313bdbb8b81f1b9750c3aa48fb90273c4328944d36248486e9b4",
+      "sourceAsset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "sourceAmount": "1.0000000",
+      "destinationAsset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "quotedOutput": "1.5177264",
+      "minOutput": "1.5025491",
+      "path": [
+        "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+      ],
+      "successful": true,
+      "actualOutput": "1.5177264",
+      "createdAt": "2026-10-27T12:16:45Z",
+      "feeChargedStroops": "100"
+    },
+    {
+      "stage": "sellBackToGatal",
+      "hash": "cb404b729b3dfc2199e9a2c9d1fcb6086988d985ae9810773963334f9aeda739",
+      "sourceAsset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "sourceAmount": "1.5177264",
+      "destinationAsset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "quotedOutput": "0.9935162",
+      "minOutput": "0.9835810",
+      "path": [
+        "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+      ],
+      "successful": true,
+      "actualOutput": "0.9935162",
+      "createdAt": "2026-10-27T12:18:15Z",
+      "feeChargedStroops": "100"
+    }
+  ],
+  "updatedAtUtc": "2026-10-27T12:18:16.298Z",
+  "completed": true,
+  "initialBalances": {
+    "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56": "132.9120223",
+    "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5": "0.6044581",
+    "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4": "3.3111519"
+  },
+  "finalBalances": {
+    "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56": "132.9055385",
+    "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5": "0.6044581",
+    "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4": "3.3111519"
+  },
+  "initialGatalUsdcSpent": "1.0000000",
+  "ustryAcquiredAndResold": "1.5177264",
+  "gatalUsdcReturned": "0.9935162",
+  "gatalUsdcRoundTripDifference": "0.0064838",
+  "intermediateCircleUsdcBalanceUnchanged": true,
+  "finalUstryBalanceUnchanged": true,
+  "noUserFundingNeeded": true,
+  "independentVerification": {
+    "checkedAtUtc": "2026-10-27T12:23:22.154Z",
+    "successfulTransactions": [
+      {
+        "hash": "e14a8546a4d7313bdbb8b81f1b9750c3aa48fb90273c4328944d36248486e9b4",
+        "successful": true,
+        "createdAt": "2026-10-27T12:16:45Z",
+        "feeChargedStroops": "100"
+      },
+      {
+        "hash": "cb404b729b3dfc2199e9a2c9d1fcb6086988d985ae9810773963334f9aeda739",
+        "successful": true,
+        "createdAt": "2026-10-27T12:18:15Z",
+        "feeChargedStroops": "100"
+      }
+    ],
+    "allFinalBalancesMatched": true
+  }
+}

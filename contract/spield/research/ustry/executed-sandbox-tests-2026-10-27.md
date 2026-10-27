@@ -1,5 +1,7 @@
 # Executed USTRY sandbox tests
 
+**Later issuer-route correction:** the API rejection recorded below applies to Etherfuse's v1 Ramp interface. We subsequently reproduced the user's successful **GATAL-USDC → GBBD-USDC → USTRY** Stellar DEX route and its reverse from Alice. See [the follow-up with transaction proof](gatal-usdc-route-resolution-2026-10-27.md). GBBD is Circle's published testnet issuer; "Etherfuse USDC" below refers to the asset accepted by that sandbox, not a separate issuer owned by Etherfuse.
+
 Execution date: **27 October 2026, IST**. Evidence: [provider execution journal](sandbox-execution-2026-10-27.json) and [public-testnet prototype journal](testnet-prototype-execution-2026-10-27.json). These supersede the earlier quote-only wallet instructions.
 
 ## Provider round trips completed
@@ -24,7 +26,7 @@ The original browser wallet remains separate. The new local wallet is now a prov
 
 Both USD-token routes quoted 20 bps. Their source amounts differ, so these are execution samples in both directions rather than a matched-notional profitability comparison. Testnet liquidity/fees do not establish production capacity or economics.
 
-The old issuer's **132.9120223 USDC** in the local wallet was not used by these tests. Sharing the `USDC` symbol does not make the two issuers interchangeable.
+The GATAL issuer's **132.9120223 USDC** in the local wallet was not used by these initial provider-API tests. It was subsequently used successfully in the separately recorded DEX-route test. Sharing the symbol does not make the issuers interchangeable; an explicit conversion path is required.
 
 ## Funding and settlement details
 
@@ -79,4 +81,4 @@ Validation completed: **27 contract scenario/WASM tests** and **54 operational-s
 
 No further funding request or manual token transfer is needed from the user for these tests. The local registered wallet now holds usable sandbox tokens. Continue toward the live NAV adapter, reviewed loss/maturity semantics, interoperable PT/YT tokens and application integration; production access and economics remain separate from this successful sandbox execution.
 
-The final balances are **3.3111519 sandbox USTRY** and **0.6044581 Etherfuse-issued sandbox USDC**, plus the unchanged 132.9120223 USDC from the other issuer. They are held by the registered `alice425` public address above, not the original browser wallet. All amounts and transaction-verification results are retained in the execution journal.
+At the end of this initial provider/prototype run, balances were **3.3111519 sandbox USTRY**, **0.6044581 Circle-listed GBBD testnet USDC**, and 132.9120223 GATAL-USDC. They are held by the registered `alice425` public address above. The later DEX round trip changed GATAL-USDC to **132.9055385** while leaving those USTRY and GBBD-USDC balances unchanged; its [separate journal](gatal-usdc-execution-2026-10-27.json) is the newer snapshot.

@@ -102,7 +102,7 @@ async function setup() {
     if (!discovery.assets?.some(a => a.identifier === id)) throw new Error('Expected sandbox asset missing from discovery');
   }
   const unsupported = await quote(OTHER_USDC, USTRY, '1');
-  event('existingUsdcCompatibility', { issuer: OTHER_USDC, quoteHttp: unsupported.status, accepted: unsupported.status === 200 });
+  event('existingUsdcCompatibility', { scope: 'Etherfuse v1 Ramp quotes only; excludes independent SDEX routes', issuer: OTHER_USDC, quoteHttp: unsupported.status, accepted: unsupported.status === 200 });
   const wallet = requireSuccess(await api('/ramp/wallet', { publicKey: WALLET, blockchain: 'stellar', claimOwnership: true }), 'Register org-owned wallet');
   if (wallet.publicKey !== WALLET || wallet.claimedOwnership !== true || !wallet.walletId) throw new Error('Wallet ownership/registration not confirmed');
   state.walletId = wallet.walletId;
@@ -275,7 +275,7 @@ async function verifyUsdc() {
   await account();
   const other = await quote(OTHER_USDC, USTRY, '1');
   const accepted = await quote(USDC, USTRY, '1');
-  event('existingUsdcCompatibility', { issuer: OTHER_USDC, quoteHttp: other.status, accepted: other.status === 200,
+  event('existingUsdcCompatibility', { scope: 'Etherfuse v1 Ramp quotes only; excludes independent SDEX routes', issuer: OTHER_USDC, quoteHttp: other.status, accepted: other.status === 200,
     registeredWalletRetested: true, supportedIssuerControlHttp: accepted.status });
 }
 async function main() {

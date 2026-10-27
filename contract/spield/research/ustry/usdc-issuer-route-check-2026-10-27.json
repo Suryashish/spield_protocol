@@ -1,0 +1,177 @@
+{
+  "observedAtUtc": "2026-10-27T12:12:17.229Z",
+  "network": "Stellar testnet",
+  "paths": [
+    {
+      "kind": "strictSend",
+      "requestedAmount": "1",
+      "records": [
+        {
+          "source_asset_type": "credit_alphanum4",
+          "source_asset_code": "USDC",
+          "source_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "source_amount": "1.0000000",
+          "destination_asset_type": "credit_alphanum12",
+          "destination_asset_code": "USTRY",
+          "destination_asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "destination_amount": "1.5177264",
+          "path": [
+            {
+              "asset_type": "credit_alphanum4",
+              "asset_code": "USDC",
+              "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+            }
+          ]
+        },
+        {
+          "source_asset_type": "credit_alphanum4",
+          "source_asset_code": "USDC",
+          "source_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "source_amount": "1.0000000",
+          "destination_asset_type": "credit_alphanum4",
+          "destination_asset_code": "USDC",
+          "destination_asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "destination_amount": "1.6796441",
+          "path": []
+        }
+      ]
+    },
+    {
+      "kind": "strictSend",
+      "requestedAmount": "0.1",
+      "records": [
+        {
+          "source_asset_type": "credit_alphanum4",
+          "source_asset_code": "USDC",
+          "source_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "source_amount": "0.1000000",
+          "destination_asset_type": "credit_alphanum12",
+          "destination_asset_code": "USTRY",
+          "destination_asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "destination_amount": "0.1518585",
+          "path": [
+            {
+              "asset_type": "credit_alphanum4",
+              "asset_code": "USDC",
+              "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+            }
+          ]
+        },
+        {
+          "source_asset_type": "credit_alphanum4",
+          "source_asset_code": "USDC",
+          "source_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "source_amount": "0.1000000",
+          "destination_asset_type": "credit_alphanum4",
+          "destination_asset_code": "USDC",
+          "destination_asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "destination_amount": "0.1680595",
+          "path": []
+        }
+      ]
+    },
+    {
+      "kind": "strictReceive",
+      "requestedAmount": "0.1",
+      "records": [
+        {
+          "source_asset_type": "credit_alphanum4",
+          "source_asset_code": "USDC",
+          "source_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "source_amount": "0.0658494",
+          "destination_asset_type": "credit_alphanum12",
+          "destination_asset_code": "USTRY",
+          "destination_asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "destination_amount": "0.1000000",
+          "path": [
+            {
+              "asset_type": "credit_alphanum4",
+              "asset_code": "USDC",
+              "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "address": "GDXHBXYT23MUJWOKNZLTRBYJA2H6LDIL2DVHJCVITEFKQK5QUT2LPBJF",
+      "balances": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "132.9120223"
+        },
+        {
+          "asset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "balance": "0.6044581"
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "3.3111519"
+        },
+        {
+          "asset": "XLM",
+          "balance": "9421.0814408"
+        }
+      ]
+    },
+    {
+      "address": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+      "balances": [
+        {
+          "asset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+          "balance": "90.0000000"
+        },
+        {
+          "asset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+          "balance": "15.2833013"
+        },
+        {
+          "asset": "XLM",
+          "balance": "4.9999700"
+        }
+      ]
+    }
+  ],
+  "browserPayments": [
+    {
+      "type": "path_payment_strict_send",
+      "from": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+      "to": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+      "asset_code": "USTRY",
+      "asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "amount": "15.2833013",
+      "source_asset_code": "USDC",
+      "source_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "source_amount": "10.0000000",
+      "transaction_hash": "1bbb8a28581a75f5914683163c7160e4e9a8a6d11d3cbe7a06b836481c50649f",
+      "created_at": "2026-10-27T12:07:45Z"
+    },
+    {
+      "type": "payment",
+      "from": "GDVY6VGSUSGE4MYQJ5FAU6NGZUEGU5AAIYB57IK4MAU7GTQOIZAS6MNM",
+      "to": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+      "asset_code": "USDC",
+      "asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "amount": "100.0000000",
+      "transaction_hash": "c8a416af9d320e5fc19a14f192ac28cbad6783a3bd8ab1268b6b14631ca5c01b",
+      "created_at": "2026-10-25T15:05:22Z"
+    },
+    {
+      "type": "create_account",
+      "transaction_hash": "78419b2c16f7820dcd4efbe7919942c5519441698b6b919058a0b85d9508cab9",
+      "created_at": "2026-10-25T15:03:07Z"
+    }
+  ],
+  "issuerMetadata": {
+    "address": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+    "homeDomain": null,
+    "flags": {
+      "auth_required": false,
+      "auth_revocable": false,
+      "auth_immutable": false,
+      "auth_clawback_enabled": false
+    }
+  }
+}

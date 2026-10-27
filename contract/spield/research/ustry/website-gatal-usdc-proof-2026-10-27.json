@@ -1,0 +1,44 @@
+{
+  "websitePurchase": {
+    "hash": "1bbb8a28581a75f5914683163c7160e4e9a8a6d11d3cbe7a06b836481c50649f",
+    "successful": true,
+    "createdAt": "2026-10-27T12:07:45Z",
+    "operations": [
+      {
+        "type": "path_payment_strict_send",
+        "from": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+        "to": "GBMV57BAYM6DK25OB2U63HXLLUCVECINC5APEKNIELGSTEM5QCGSMLEQ",
+        "sourceAsset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+        "sourceAmount": "10.0000000",
+        "destinationAsset": "USTRY:GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+        "destinationAmount": "15.2833013",
+        "path": [
+          {
+            "asset_type": "credit_alphanum4",
+            "asset_code": "USDC",
+            "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+          }
+        ]
+      }
+    ]
+  },
+  "reversePaths": [
+    {
+      "source_asset_type": "credit_alphanum12",
+      "source_asset_code": "USTRY",
+      "source_asset_issuer": "GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4",
+      "source_amount": "0.1000000",
+      "destination_asset_type": "credit_alphanum4",
+      "destination_asset_code": "USDC",
+      "destination_asset_issuer": "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "destination_amount": "0.0654166",
+      "path": [
+        {
+          "asset_type": "credit_alphanum4",
+          "asset_code": "USDC",
+          "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        }
+      ]
+    }
+  ]
+}

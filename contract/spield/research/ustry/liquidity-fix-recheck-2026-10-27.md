@@ -1,5 +1,7 @@
 # USTRY liquidity fix and wallet readiness
 
+**Issuer-route clarification:** the GATAL-USDC rejection in this historical checkpoint applies to the provider's Ramp API. An independent Stellar DEX path through GBBD-USDC now has verified purchases and reverse trades; see [the correction and execution proof](gatal-usdc-route-resolution-2026-10-27.md). Circle's published testnet USDC is GBBD, which is also the asset this sandbox's Ramp API accepts.
+
 **Historical quote-only checkpoint, superseded later on 27 October:** a locally signable wallet has since been registered, funded and used to complete provider and Soroban contract round trips. Follow [the executed test report](executed-sandbox-tests-2026-10-27.md) for the current wallet/fund status; the earlier browser-wallet instructions below remain a snapshot of the initial check.
 
 Verified **27 October 2026, approximately 00:12–00:14 IST** (the saved UTC timestamps are 26 October, 18:42–18:44). Sources: [swap quote evidence](sandbox-liquidity-recheck-2026-10-27.json), [wallet and fiat quote evidence](wallet-readiness-2026-10-27.json), and the latest Etherfuse reply supplied by the user.

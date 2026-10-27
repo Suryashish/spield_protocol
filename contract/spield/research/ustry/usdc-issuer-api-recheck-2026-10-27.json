@@ -1,0 +1,29 @@
+{
+  "network": "sandbox / Stellar testnet",
+  "quotes": [
+    {
+      "sourceAsset": "USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56",
+      "httpStatus": 400,
+      "quoteReturned": false,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "1"
+    },
+    {
+      "sourceAsset": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "httpStatus": 200,
+      "quoteReturned": true,
+      "sourceSymbol": "USDC",
+      "targetSymbol": "USTRY",
+      "requestedSourceAmount": "1",
+      "sourceAmount": "1",
+      "destinationAmount": "0.9017641799091565951574035890",
+      "exchangeRate": "0.9017641799091565951574035890",
+      "feeAmount": "0.002",
+      "feeBps": "20",
+      "nominalRate": "0.9036000",
+      "etherfuseMidMarketRate": "0.9035713225542651254082200291",
+      "requiresSwap": true
+    }
+  ]
+}
