@@ -12,7 +12,6 @@ import {
   YAxis,
 } from 'recharts';
 import {
-  ArrowDown,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
@@ -47,7 +46,6 @@ import UstryConversion from './UstryConversion';
 import UstryReceiptWrapper from './UstryReceiptWrapper';
 
 type Props = { model: UstryDashboardModel };
-type Mode = 'deposit_split' | 'redeem' | 'deposit' | 'withdraw_receipts' | 'split';
 const date = (timestamp: number) =>
   new Date(timestamp * 1000).toLocaleDateString(undefined, {
     month: 'short',
@@ -69,17 +67,6 @@ function Pair({ label, children }: { label: string; children: ReactNode }) {
     </div>
   );
 }
-function ArrowDivider() {
-  return (
-    <div className="flex items-center gap-3 py-0.5">
-      <span className="rule-soft flex-1" />
-      <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
-        <ArrowDown size={12} />
-      </span>
-      <span className="rule-soft flex-1" />
-    </div>
-  );
-}
 export function UstryStats({
   model: m,
   kind = 'overview',
@@ -87,15 +74,25 @@ export function UstryStats({
   const { data, address, loading, activeSeries, claimable } = m;
   const days = Math.max(0, Math.ceil((activeSeries.expiry - m.clock / 1000) / 86400));
   const shown = (value?: bigint) => (address && data && value !== undefined ? units(value) : '—');
+  const walletBalances = m.usdcBalances.address === address ? m.usdcBalances : null;
+  const usdcValue = address && walletBalances?.gatal !== null && walletBalances?.gatal !== undefined
+    ? units(walletBalances.gatal)
+    : '—';
+  const usdcSub = !address
+    ? 'Connect your wallet'
+    : walletBalances?.circle !== null && walletBalances?.circle !== undefined
+      ? `GATAL test USDC · Circle: ${units(walletBalances.circle)} USDC`
+      : 'GATAL test USDC · Circle balance unavailable';
   if (kind === 'liquidity' || kind === 'vault')
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
-          label="USTRY Balance"
-          value={shown(data?.wallet)}
-          sub={address ? 'Available in your wallet' : 'Connect your wallet'}
+          label="USDC Balance"
+          value={usdcValue}
+          sub={usdcSub}
           icon={Wallet2}
-          loading={loading && !data}
+          loading={loading && !!address && walletBalances?.gatal == null}
+          info="GATAL and Circle test USDC are different Stellar assets. The main figure shows GATAL; the note shows Circle."
         />
         <StatTile
           label={kind === 'vault' ? 'Fixed APR' : 'Pool Liquidity'}
@@ -120,13 +117,13 @@ export function UstryStats({
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" data-testid="ustry-stats">
       <StatTile
-        label="USTRY Balance"
-        value={shown(data?.wallet)}
-        sub={address ? 'Available to deposit' : 'Connect your wallet'}
+        label="USDC Balance"
+        value={usdcValue}
+        sub={usdcSub}
         icon={Wallet2}
         tone="usdc"
-        loading={loading && !data}
-        info="USTRY in your connected wallet. Deposits and payouts use these token units."
+        loading={loading && !!address && walletBalances?.gatal == null}
+        info="GATAL and Circle test USDC are different Stellar assets. The main figure shows GATAL; the note shows Circle."
       />
       <StatTile
         label={kind === 'deposit' ? 'PT Balance' : 'Principal Face'}
@@ -477,268 +474,6 @@ export function UstryOverview({ model }: Props) {
         </div>
       </div>
     </div>
-  );
-}
-export function UstryActionPanel({ model: m, receipt = false }: Props & { receipt?: boolean }) {
-  const [mode, setMode] = useState<Mode>(() =>
-    receipt ? 'deposit' : m.matured ? 'redeem' : 'deposit_split',
-  );
-  const [amount, setAmount] = useState('');
-  const entered = amountOf(amount);
-  const invalidAmount = amount !== '' && entered === 0n;
-  const d = m.data;
-  const split = mode === 'deposit_split' || mode === 'split';
-  const face = d ? (entered * FACTOR_SCALE) / d.state.factor : 0n;
-  const payout = d ? (entered * d.state.factor) / FACTOR_SCALE : 0n;
-  const available = d
-    ? mode === 'redeem'
-      ? m.matured
-        ? d.holding.pt
-        : d.holding.pt < d.holding.yt
-          ? d.holding.pt
-          : d.holding.yt
-      : mode === 'withdraw_receipts' || mode === 'split'
-        ? d.holding.receipt
-        : d.wallet
-    : 0n;
-  const over = entered > available;
-  const smallPayout = mode === 'redeem' && entered > 0n && payout === 0n;
-  const entry = mode !== 'redeem' && mode !== 'withdraw_receipts';
-  const capExceeded =
-    !!d &&
-    (mode === 'deposit' || mode === 'deposit_split') &&
-    d.state.receipts + d.state.backing + entered > BigInt(m.c.capUstry) * 10_000_000n;
-  const blocked = entry
-    ? m.entryBlocked || capExceeded
-    : mode === 'redeem'
-      ? m.unsafe
-      : !d || !!m.error;
-  const disabled =
-    m.busy ||
-    m.connecting ||
-    (!!m.address &&
-      (!m.onCorrectNetwork || m.loading || blocked || entered <= 0n || over || smallPayout));
-  const label = !m.address
-    ? 'Connect Wallet'
-    : !m.onCorrectNetwork
-      ? 'Switch wallet network'
-      : m.busy
-        ? 'Confirming…'
-        : entry && m.matured
-          ? 'Series Matured (Minting Closed)'
-          : entry && d?.paused
-            ? 'Deposits Paused'
-            : blocked
-              ? capExceeded
-                ? 'Deposit cap reached'
-                : 'Waiting for valid NAV'
-              : entered <= 0n
-                ? 'Enter an amount'
-                : over
-                  ? `Insufficient ${mode === 'redeem' ? (m.matured ? 'PT' : 'PT + YT') : mode === 'split' || mode === 'withdraw_receipts' ? 'receipts' : 'USTRY'}`
-                  : smallPayout
-                    ? 'Amount too small'
-                    : mode === 'deposit_split'
-                      ? 'Deposit & Mint'
-                      : mode === 'redeem'
-                        ? m.matured
-                          ? 'Redeem USTRY'
-                          : 'Combine PT + YT'
-                        : mode === 'withdraw_receipts'
-                          ? 'Withdraw USTRY'
-                          : mode === 'split'
-                            ? 'Split into PT + YT'
-                            : 'Deposit USTRY';
-  const tabs: { mode: Mode; title: string; sub: string }[] = receipt
-    ? [
-        { mode: 'deposit', title: 'Deposit', sub: 'USTRY → sUSTRY' },
-        { mode: 'withdraw_receipts', title: 'Withdraw', sub: 'sUSTRY → USTRY' },
-        { mode: 'split', title: 'Split', sub: 'sUSTRY → PT + YT' },
-      ]
-    : [
-        { mode: 'deposit_split', title: 'Deposit', sub: 'USTRY → PT + YT' },
-        {
-          mode: 'redeem',
-          title: m.matured ? 'Redeem' : 'Combine',
-          sub: m.matured ? 'PT → USTRY' : 'PT + YT → USTRY',
-        },
-      ];
-  async function submit() {
-    if (!m.address) {
-      m.openWalletPicker();
-      return;
-    }
-    if (disabled) return;
-    const minimum = ((mode === 'redeem' ? payout : face) * 9950n) / 10000n || 1n;
-    if (
-      await m.transact(
-        mode === 'deposit_split' ? 'Deposit and split USTRY' : mode.replaceAll('_', ' '),
-        mode,
-        entered,
-        minimum,
-      )
-    )
-      setAmount('');
-  }
-  return (
-    <Card className="h-full rounded-xl">
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>
-            {receipt
-              ? 'USTRY receipts'
-              : mode === 'deposit_split'
-                ? 'Deposit'
-                : m.matured
-                  ? 'Redeem'
-                  : 'Combine'}
-          </span>
-          <InfoTooltip
-            title="USTRY accounting"
-            content="Deposit amounts use USTRY token units. PT and YT use USD face, valued using the current NAV. Payouts return USTRY, and dollar principal is not guaranteed."
-          />
-        </CardTitle>
-        <CardDescription>
-          {receipt
-            ? 'Hold one receipt per USTRY, withdraw in kind or split into PT and YT.'
-            : mode === 'deposit_split'
-              ? 'Supply USTRY to mint principal tokens (PT) + yield tokens (YT)'
-              : m.matured
-                ? 'Burn PT for its frozen USTRY allocation'
-                : 'Burn equal PT + YT to withdraw the principal allocation in USTRY'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div
-          className={cn(
-            'grid gap-1 rounded-lg bg-muted/50 p-1',
-            receipt ? 'grid-cols-3' : 'grid-cols-2',
-          )}
-          aria-label={receipt ? 'Receipt actions' : 'Deposit actions'}
-        >
-          {tabs.map((t) => (
-            <button
-              key={t.mode}
-              type="button"
-              aria-pressed={mode === t.mode}
-              onClick={() => {
-                setMode(t.mode);
-                setAmount('');
-              }}
-              className={cn(
-                'rounded-md px-3 py-2 text-[12px] font-medium transition-colors',
-                mode === t.mode
-                  ? 'bg-card text-foreground shadow-float-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <span className="block">{t.title}</span>
-              <span className="block text-[10px] opacity-70">{t.sub}</span>
-            </button>
-          ))}
-        </div>
-        <AmountField
-          label={
-            mode === 'redeem'
-              ? 'You burn (USD face)'
-              : mode === 'withdraw_receipts' || mode === 'split'
-                ? 'Receipt amount'
-                : 'Deposit'
-          }
-          token={
-            mode === 'redeem'
-              ? m.matured
-                ? 'PT'
-                : 'PT + YT'
-              : mode === 'withdraw_receipts' || mode === 'split'
-                ? 'sUSTRY'
-                : 'USTRY'
-          }
-          value={amount}
-          onChange={setAmount}
-          disabled={m.busy}
-          balance={m.address && d ? units(available) : '—'}
-          onMax={m.address && available > 0n ? () => setAmount(units(available)) : undefined}
-          invalid={over || invalidAmount}
-        />
-        {invalidAmount && (
-          <p className="text-xs text-danger-text" role="alert">
-            Enter a positive amount with at most 7 decimal places.
-          </p>
-        )}
-        <ArrowDivider />
-        {split ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <AmountField
-              label="You receive"
-              token="PT"
-              value={entered > 0n && d ? units(face) : ''}
-              hint="USD face · payout in USTRY"
-              hintTone="brand"
-            />
-            <AmountField
-              label="You receive"
-              token="YT"
-              value={entered > 0n && d ? units(face) : ''}
-              hint="Variable · earns until maturity"
-              hintTone="ember"
-            />
-          </div>
-        ) : (
-          <AmountField
-            label="You receive"
-            token={mode === 'deposit' ? 'sUSTRY' : 'USTRY'}
-            value={entered > 0n && d ? units(mode === 'redeem' ? payout : entered) : ''}
-            hint={
-              mode === 'deposit'
-                ? 'One receipt per USTRY'
-                : mode === 'withdraw_receipts'
-                  ? 'In-kind exit · no price required'
-                  : 'Token allocation · dollar value can vary'
-            }
-            hintTone="brand"
-          />
-        )}
-        <div className="well space-y-1.5 rounded-lg p-3">
-          <Pair label="Yield source">Etherfuse USTRY</Pair>
-          <Pair label="You receive">
-            {entered > 0n && d
-              ? split
-                ? `${units(face)} PT + ${units(face)} YT`
-                : `${units(mode === 'redeem' ? payout : entered)} ${mode === 'deposit' ? 'sUSTRY' : 'USTRY'}`
-              : '—'}
-          </Pair>
-          <Pair label="Sandbox NAV">{d ? `$${units(d.latest.price, 8)} / USTRY` : '—'}</Pair>
-          <Pair label="Maturity">{date(m.activeSeries.expiry)}</Pair>
-          {(split || mode === 'redeem') && <Pair label="Minimum output tolerance">0.5%</Pair>}
-        </div>
-        {entry && m.matured && (
-          <p className="rounded-lg border border-ember/25 bg-ember/8 p-3 text-xs text-ember-text">
-            This series has matured. Select Redeem to withdraw PT after settlement.
-          </p>
-        )}
-        {entry && d && d.latest.price < d.state.high_water && (
-          <p className="text-xs text-ember-text">
-            New splits are unavailable while NAV is below its previous high.
-          </p>
-        )}
-        <Button className="w-full" disabled={disabled} onClick={() => void submit()}>
-          {m.busy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : !m.address ? (
-            <Wallet className="mr-2 h-4 w-4" />
-          ) : (
-            <Coins className="mr-2 h-4 w-4" />
-          )}
-          {label}
-        </Button>
-        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-          {receipt
-            ? 'Unsplit receipts stay separate from PT/YT. Their USTRY quantity is fixed while the underlying NAV can change.'
-            : 'PT and YT represent USD face; all payouts are in USTRY. NAV losses can reduce the dollar value of principal.'}
-        </p>
-      </CardContent>
-    </Card>
   );
 }
 function UstryTransfer({ model: m }: Props) {

@@ -20,7 +20,6 @@ export type Holding = { receipt: bigint; pt: bigint; yt: bigint; factor: bigint;
 export type UstrySnapshot = {
   state: UstryState;
   holding: Holding;
-  wallet: bigint;
   custody: bigint;
   paused: boolean;
   latest: Observation;
@@ -61,7 +60,7 @@ export async function readUstry(
   address: string | null,
 ): Promise<UstrySnapshot> {
   const c = ustryContracts(series);
-  const [cfg, stored, history, custody, wallet, holding] = await Promise.all([
+  const [cfg, stored, history, custody, holding] = await Promise.all([
     readContract<{
       asset: string;
       oracle: string;
@@ -73,7 +72,6 @@ export async function readUstry(
     readContract<UstryState>(c.series, 'state'),
     readContract<Observation[]>(c.oracle, 'observations').catch(() => null),
     readContract<bigint>(c.asset, 'balance', [addr(c.series)]),
-    address ? readContract<bigint>(c.asset, 'balance', [addr(address)]) : Promise.resolve(0n),
     address
       ? readContract<Holding>(c.series, 'balance', [addr(address)])
       : Promise.resolve({ receipt: 0n, pt: 0n, yt: 0n, factor: 0n, accrued: 0n }),
@@ -98,7 +96,6 @@ export async function readUstry(
   return {
     state,
     holding,
-    wallet,
     custody,
     paused: cfg.paused,
     latest: history?.at(-1) ?? stored.last_observation,

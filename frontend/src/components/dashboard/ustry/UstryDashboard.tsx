@@ -33,7 +33,7 @@ import {
 } from './UstrySections';
 
 const SUBTITLES: Record<string, string> = {
-  overview: 'Your portfolio at a glance — USTRY balances, principal, yield and backing.',
+  overview: 'Your portfolio at a glance — wallet USDC, principal, yield and USTRY backing.',
   deposit: 'Deposit USDC for PT and YT, or combine your position to receive USDC.',
   v2: 'What your YT has earned — claimable straight to USTRY without giving up the position.',
   srwrap: 'Wrap USDC into sUSTRY receipts, or unwrap sUSTRY back to USDC.',

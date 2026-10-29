@@ -4,6 +4,12 @@ import { useWallet } from '@/context/WalletContext';
 import { useToast } from '@/context/ToastContext';
 import { addr, i128, writeContract } from '@/lib/soroban';
 import {
+  CIRCLE_ISSUER,
+  conversionBalance,
+  GATAL_ISSUER,
+  swapAsset,
+} from '@/lib/ustry-conversion';
+import {
   readUstry,
   ustryContracts,
   writeUstry,
@@ -20,6 +26,15 @@ export function useUstryDashboard() {
   const { push, update } = useToast();
   const c = ustryContracts(activeSeries);
   const [data, setData] = useState<UstrySnapshot | null>(null);
+  const [usdcBalances, setUsdcBalances] = useState<{
+    address: string | null;
+    gatal: bigint | null;
+    circle: bigint | null;
+  }>({
+    address: null,
+    gatal: null,
+    circle: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -46,6 +61,7 @@ export function useUstryDashboard() {
     }
   });
   const request = useRef(0);
+  const balanceRequest = useRef(0);
   const mounted = useRef(true);
   const activityKey = `spield.ustry.activity.${activeSeries.id}.${address ?? 'none'}`;
   useEffect(() => {
@@ -54,9 +70,27 @@ export function useUstryDashboard() {
       mounted.current = false;
     };
   }, []);
+  const refreshUsdc = useCallback(async () => {
+    const id = ++balanceRequest.current;
+    if (!address) {
+      setUsdcBalances({ address: null, gatal: null, circle: null });
+      return;
+    }
+    const [gatal, circle] = await Promise.allSettled([
+      conversionBalance(address, swapAsset('USDC', GATAL_ISSUER)),
+      conversionBalance(address, swapAsset('USDC', CIRCLE_ISSUER)),
+    ]);
+    if (mounted.current && id === balanceRequest.current)
+      setUsdcBalances({
+        address,
+        gatal: gatal.status === 'fulfilled' ? gatal.value : null,
+        circle: circle.status === 'fulfilled' ? circle.value : null,
+      });
+  }, [address]);
   const refresh = useCallback(async () => {
     const id = ++request.current;
     setLoading(true);
+    void refreshUsdc();
     try {
       const next = await readUstry(activeSeries, address);
       if (mounted.current && id === request.current) {
@@ -68,7 +102,7 @@ export function useUstryDashboard() {
     } finally {
       if (mounted.current && id === request.current) setLoading(false);
     }
-  }, [activeSeries, address]);
+  }, [activeSeries, address, refreshUsdc]);
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
@@ -161,6 +195,7 @@ export function useUstryDashboard() {
     openWalletPicker,
     connecting,
     data,
+    usdcBalances,
     error,
     loading,
     busy,
