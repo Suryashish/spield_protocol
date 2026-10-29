@@ -40,7 +40,6 @@ const SUBTITLES: Record<string, string> = {
   v2: 'What your YT has earned — claimable straight to USTRY without giving up the position.',
   srwrap: 'Wrap USDC into sUSTRY receipts, or unwrap sUSTRY back to USDC.',
   markets: 'Convert USDC and USTRY using executable exchange quotes with a minimum output.',
-  vault: 'Fixed-vault availability for the selected USTRY series.',
   liquidity: 'Pool and liquidity-position availability for the selected USTRY series.',
   solvency: 'Live USTRY backing against token obligations — and what can interrupt an exit.',
   activity: 'Your confirmed deposits, claims, transfers and redemptions for this USTRY series.',
@@ -73,17 +72,14 @@ function explainer(section: string, title: string): ExplainerConfig {
       body: 'Payouts use USTRY, whose NAV can fall. PT does not guarantee dollar principal. Unsplit receipt exits and finalized token payouts do not need a live oracle.',
     },
   };
-  if (['vault', 'liquidity'].includes(section))
+  if (section === 'liquidity')
     return {
       ...common,
       steps: [
         {
           icon: Layers,
           title: 'Current series availability',
-          body:
-            section === 'vault'
-              ? 'No USTRY fixed-rate vault is deployed. Deposit and SR Wrapper remain available.'
-              : 'No USTRY PT pool or LP contract is deployed. Markets can convert the underlying USTRY asset.',
+          body: 'No USTRY PT pool or LP contract is deployed. Markets can convert the underlying USTRY asset.',
         },
       ],
     };
@@ -175,7 +171,7 @@ export default function UstryDashboard() {
     ) : activeNav === 'activity' ? (
       <UstryActivity model={model} />
     ) : (
-      <UstryUnavailable model={model} section={activeNav} />
+      <UstryUnavailable model={model} />
     );
   return (
     <NavProvider value={navValue}>

@@ -281,7 +281,9 @@ try {
   );
   mode = 'healthy';
   await page.reload();
-  for (const id of Object.keys(labels)) {
+  // Fixed Vault leaves the USTRY dashboard (it runs on a Blend series); it is checked separately.
+  const ustrySections = Object.keys(labels).filter((id) => id !== 'vault');
+  for (const id of ustrySections) {
     await go(id);
     assert.ok(await page.getByRole('button', { name: 'How it works', exact: true }).isVisible());
     assert.ok(
@@ -297,11 +299,23 @@ try {
       blendNavigation,
       `Navigation drift on ${id}`,
     );
-    if (['vault', 'liquidity'].includes(id)) {
+    if (id === 'liquidity') {
       assert.match(await page.locator('main').innerText(), /Unavailable for USTRY/);
       assert.ok(await page.getByRole('button', { name: /unavailable$/ }).isDisabled());
     }
   }
+  // Both sources share the existing Blend Fixed-Rate Vault: opening it from USTRY switches to a
+  // Blend series, and choosing USTRY again leaves the vault for the USTRY overview.
+  await go('vault');
+  await waitFor(
+    async () => (await page.getByLabel('Yield source', { exact: true }).inputValue()) === 'blend',
+    'Fixed Vault did not open on a Blend series',
+  );
+  await page.locator('[data-slot="card-description"]', { hasText: 'lock a fixed rate until maturity' }).waitFor();
+  assert.doesNotMatch(await page.locator('main').innerText(), /Unavailable for USTRY/);
+  await page.getByLabel('Yield source', { exact: true }).selectOption('ustry');
+  await page.getByRole('heading', { name: 'Overview', level: 1, exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Yield source', { exact: true }).inputValue(), 'ustry');
   await go('markets');
   await page.getByLabel('Conversion USDC issuer').waitFor();
   assert.equal(await page.getByLabel('Conversion USDC issuer').locator('option').count(), 2);
@@ -311,7 +325,7 @@ try {
   const primary = page.getByRole('navigation', { name: 'Primary', exact: true });
   await primary.waitFor();
   const ustryMobileLabels = await primary.getByRole('button').allTextContents();
-  for (const id of Object.keys(labels)) {
+  for (const id of ustrySections) {
     const mainIds = ['overview', 'vault', 'deposit', 'markets'];
     if (mainIds.includes(id))
       await primary.getByRole('button', { name: labels[id], exact: true }).click();

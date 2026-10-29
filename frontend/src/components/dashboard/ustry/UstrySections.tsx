@@ -75,7 +75,7 @@ function Pair({ label, children }: { label: string; children: ReactNode }) {
 export function UstryStats({
   model: m,
   kind = 'overview',
-}: Props & { kind?: 'overview' | 'deposit' | 'liquidity' | 'vault' }) {
+}: Props & { kind?: 'overview' | 'deposit' | 'liquidity' }) {
   const { data, address, loading, activeSeries, claimable } = m;
   const days = Math.max(0, Math.ceil((activeSeries.expiry - m.clock / 1000) / 86400));
   const shown = (value?: bigint) => (address && data && value !== undefined ? units(value) : '—');
@@ -88,7 +88,7 @@ export function UstryStats({
     : walletBalances?.circle !== null && walletBalances?.circle !== undefined
       ? `GATAL test USDC · Circle: ${units(walletBalances.circle)} USDC`
       : 'GATAL test USDC · Circle balance unavailable';
-  if (kind === 'liquidity' || kind === 'vault')
+  if (kind === 'liquidity')
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
@@ -100,13 +100,13 @@ export function UstryStats({
           info="GATAL and Circle test USDC are different Stellar assets. The main figure shows GATAL; the note shows Circle."
         />
         <StatTile
-          label={kind === 'vault' ? 'Fixed APR' : 'Pool Liquidity'}
+          label="Pool Liquidity"
           value="—"
           sub="Not configured for this series"
-          icon={kind === 'vault' ? Lock : Droplets}
+          icon={Droplets}
         />
         <StatTile
-          label={kind === 'vault' ? 'Vault Status' : 'LP Position'}
+          label="LP Position"
           value="Unavailable"
           sub="No deployment for USTRY"
           icon={Layers}
@@ -1041,35 +1041,28 @@ export function UstryActivity({ model: m }: Props) {
     </Card>
   );
 }
-export function UstryUnavailable({ model: m, section }: Props & { section: string }) {
+/** Sections with no USTRY deployment. The Fixed-Rate Vault is not one: `DashboardPage` sends it
+ *  to the Blend vault. */
+export function UstryUnavailable({ model: m }: Props) {
   const navigate = useNavigate();
-  const liquidity = section === 'liquidity';
-  const title = liquidity ? 'Provide Liquidity' : 'Fixed-Rate Vault';
-  const description = liquidity
-    ? 'No USTRY PT liquidity pool is deployed for this series.'
-    : 'No USTRY fixed-rate vault is deployed for this series.';
   return (
     <div className="space-y-6">
-      <UstryStats model={m} kind={liquidity ? 'liquidity' : 'vault'} />
+      <UstryStats model={m} kind="liquidity" />
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
         <div className="lg:col-span-5">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle>{title}</CardTitle>
-              <CardDescription>{description}</CardDescription>
+              <CardTitle>Provide Liquidity</CardTitle>
+              <CardDescription>No USTRY PT liquidity pool is deployed for this series.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <EmptyState
-                icon={liquidity ? Droplets : Lock}
+                icon={Droplets}
                 title="Unavailable for USTRY"
-                body={
-                  liquidity
-                    ? 'Existing USTRY can be converted to USDC on Markets. That conversion does not trade PT or create LP tokens.'
-                    : 'Use Deposit to split USTRY into PT/YT, or SR Wrapper to hold unsplit USTRY receipts.'
-                }
+                body="Existing USTRY can be converted to USDC on Markets. That conversion does not trade PT or create LP tokens."
               />
               <Button className="w-full" disabled>
-                {title} unavailable
+                Provide Liquidity unavailable
               </Button>
             </CardContent>
           </Card>
@@ -1077,28 +1070,17 @@ export function UstryUnavailable({ model: m, section }: Props & { section: strin
         <div className="lg:col-span-7">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle>
-                {liquidity
-                  ? 'Your liquidity position'
-                  : 'Your vault receipts'}
-              </CardTitle>
+              <CardTitle>Your liquidity position</CardTitle>
               <CardDescription>Available actions for the selected USTRY series</CardDescription>
             </CardHeader>
             <CardContent>
               <EmptyState
                 icon={Package}
-                title={
-                  liquidity
-                    ? 'No USTRY LP deployment'
-                    : 'No USTRY fixed-vault deployment'
-                }
+                title="No USTRY LP deployment"
                 body="Your USTRY receipt, PT and YT balances remain available on their respective pages."
                 action={
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate(liquidity ? '/markets' : '/deposit')}
-                  >
-                    {liquidity ? 'Go to Markets' : 'Go to Deposit'}
+                  <Button variant="outline" onClick={() => navigate('/markets')}>
+                    Go to Markets
                   </Button>
                 }
               />
