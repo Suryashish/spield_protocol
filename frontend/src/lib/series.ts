@@ -1,4 +1,5 @@
 import ustryDeployment from './ustry-deployment.json';
+import ustrySeries2 from './ustry-v2-testnet-series-2.json';
 
 /**
  * Spield Multi-Series Registry & Configuration.
@@ -26,7 +27,31 @@ export type NetworkKey = 'testnet' | 'mainnet';
 export type SeriesStatus = 'live' | 'ended';
 
 export type YieldSource = 'blend' | 'ustry';
-export type UstryContractSet = { series: string; oracle: string; receipt: string; pt: string; yt: string; asset: string; maxAge: number; capUstry: number };
+/**
+ * A USTRY series deployment. `version` 1 is Series 1 (`spield-rwa`, custom history oracle, every
+ * priced action needs a fresh NAV). `version` 2 is `spield-ustry-series` on a SEP-40 feed, where
+ * only new deposits need a fresh NAV and maturity always finalizes.
+ */
+export type UstryContractSet = {
+  version?: 1 | 2;
+  network?: NetworkKey;
+  series: string;
+  oracle: string;
+  receipt: string;
+  pt: string;
+  yt: string;
+  asset: string;
+  expiry: number;
+  maxAge: number;
+  /** v1 only: cap in whole USTRY. */
+  capUstry?: number;
+  /** v2 only: cap in token units (7 decimals), as a decimal string. */
+  cap?: string;
+  /** v2 only: seconds after expiry before finalization no longer needs a post-expiry sample. */
+  grace?: number;
+  /** v2 only: high-water growth bound, bps per year. */
+  maxAprBps?: number;
+};
 export type SeriesConfig = {
   source: YieldSource;
   ustry?: UstryContractSet;
@@ -58,6 +83,14 @@ export type SeriesConfig = {
  * All known series across Mainnet and Testnet.
  */
 export const ALL_SERIES: SeriesConfig[] = [
+  {
+    source: 'ustry', id: 'testnet-ustry-2', name: 'USTRY Series 2', durationLabel: '30 Days', network: 'testnet',
+    expiry: ustrySeries2.expiry,
+    maturityDate: new Date(ustrySeries2.expiry * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }),
+    fixedAprPct: 0, ptCode: 'PT-USTRY',
+    description: 'Tokenized Treasury sandbox series on a SEP-40 NAV feed. Only new deposits need a fresh NAV; exits and maturity never wait on the oracle. USD face is not a principal guarantee.',
+    ustry: { ...ustrySeries2, version: 2, network: 'testnet' },
+  },
   {
     source: 'ustry', id: 'testnet-ustry-1', name: 'USTRY Series 1', durationLabel: '14 Days', network: 'testnet',
     expiry: ustryDeployment.expiry,

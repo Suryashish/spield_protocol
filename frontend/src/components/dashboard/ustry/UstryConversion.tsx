@@ -22,9 +22,12 @@ import {
 import { quantity, units } from '@/lib/ustry';
 export default function UstryConversion({
   busyParent,
+  nav,
   onConfirmed,
 }: {
   busyParent: boolean;
+  /** Latest USTRY NAV at 8 decimals; quotes priced too far from it are refused. */
+  nav: bigint | null;
   onConfirmed: (hash: string) => Promise<void>;
 }) {
   const { activeSeries } = useSeries();
@@ -73,6 +76,7 @@ export default function UstryConversion({
         source,
         destination,
         quantity(amount),
+        nav ?? 0n,
       );
       if (mounted.current && id === generation.current) setQuote(q);
     } catch (e) {

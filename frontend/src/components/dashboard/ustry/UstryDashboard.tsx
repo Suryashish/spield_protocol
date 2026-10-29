@@ -273,15 +273,23 @@ export default function UstryDashboard() {
                   assumed to be zero.
                 </Banner>
               )}
-              {pendingPrice && (
-                <Banner>
-                  {matured
-                    ? 'Maturity settlement is pending a valid boundary observation.'
-                    : 'NAV is stale or synchronization is unavailable.'}{' '}
-                  Priced actions are disabled. Unsplit receipts can still be withdrawn on SR
-                  Wrapper.
-                </Banner>
-              )}
+              {pendingPrice &&
+                (data?.version === 2 ? (
+                  <Banner>
+                    {matured
+                      ? 'Maturity settlement waits for a post-expiry NAV sample, or for the grace period to pass.'
+                      : 'NAV is stale or the feed is unavailable, so new deposits are paused.'}{' '}
+                    Combine, yield claims, transfers and receipt withdrawals remain available.
+                  </Banner>
+                ) : (
+                  <Banner>
+                    {matured
+                      ? 'Maturity settlement is pending a valid boundary observation.'
+                      : 'NAV is stale or synchronization is unavailable.'}{' '}
+                    Priced actions are disabled. Unsplit receipts can still be withdrawn on SR
+                    Wrapper.
+                  </Banner>
+                ))}
               {data?.state.finalized && (stale || !data.navAvailable) && (
                 <Banner>
                   The displayed NAV is the last available observation. Finalized payouts use frozen

@@ -1,0 +1,49 @@
+# Publishes the Etherfuse sandbox USTRY NAV to the testnet spield-ustry-nav oracle and folds it
+# into the v2 series. Mainnet series read RedStone and need none of this.
+#
+# Setup (once):
+#   Secret    USTRY_PUBLISHER_SECRET   S… seed of the oracle's *publisher* (not its admin). It can
+#                                      only publish NAV samples; it holds no user funds.
+#   Variable  USTRY_ORACLE             oracle contract, e.g. from frontend/src/lib/ustry-v2-testnet-series-2.json
+#   Variable  USTRY_SERIES             comma-separated v2 series to sync after a publish
+#
+# Every 30 minutes, against a 4h publication cadence and a 13h consumer freshness limit: a run can
+# be skipped or delayed by hours before deposits pause, and exits never depend on it. Extra runs
+# are harmless — the oracle rejects early or duplicate samples. A failed run (red) means the NAV
+# is more than 10h old or the relay could not publish: that is the alert.
+name: USTRY NAV relay
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ustry-nav-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: contract/spield/scripts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install script dependencies
+        run: npm ci || npm install
+      - name: Publish and sync
+        env:
+          USTRY_PUBLISHER_SECRET: ${{ secrets.USTRY_PUBLISHER_SECRET }}
+          USTRY_ORACLE: ${{ vars.USTRY_ORACLE }}
+          USTRY_SERIES: ${{ vars.USTRY_SERIES }}
+        run: |
+          if [ -z "$USTRY_PUBLISHER_SECRET" ] || [ -z "$USTRY_ORACLE" ]; then
+            echo "::error::Set the USTRY_PUBLISHER_SECRET secret and the USTRY_ORACLE variable."
+            exit 1
+          fi
+          node ustry_nav_relay.mjs --key env:USTRY_PUBLISHER_SECRET

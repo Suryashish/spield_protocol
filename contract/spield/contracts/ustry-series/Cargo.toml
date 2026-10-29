@@ -1,0 +1,23 @@
+[package]
+name = "spield-ustry-series"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[features]
+# Runs against captured RedStone mainnet state: scripts/fetch_redstone_fork.mjs
+fork-tests = []
+
+[dependencies]
+soroban-sdk = { workspace = true }
+spield-shared = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+spield-rwa-token = { path = "../rwa-token" }
+spield-ustry-nav = { path = "../ustry-nav" }
+soroban-ledger-snapshot = "=25.3.1"

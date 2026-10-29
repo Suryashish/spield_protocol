@@ -65,7 +65,7 @@ try {
       const initial = app.getActiveSeriesId();
       app.setActiveSeriesId(ustry.id);
       assert.equal(app.getActiveSeriesId(), initial);
-      assert.throws(() => app.ustryContracts(ustry), /only for Stellar testnet/);
+      assert.throws(() => app.ustryContracts(ustry), /not available on/);
       continue;
     }
     assert.equal(app.quantity('1.0000001'), 10000001n);
@@ -156,18 +156,28 @@ try {
         ],
       }),
     });
-    const quote = await app.conversionQuote(wallet, ustry.id, source, destination, 10000000n);
+    const quote = await app.conversionQuote(wallet, ustry.id, source, destination, 10000000n, 110000000n);
     assert.equal(quote.minimum, 14850000n);
     assert.equal(quote.path[0].issuer, app.CIRCLE_ISSUER);
     app.setActiveSeriesId('testnet-series-2');
     app.setActiveSeriesId(ustry.id);
     await assert.rejects(app.executeConversion(wallet, quote), /expired or selection changed/);
-    const fresh = await app.conversionQuote(wallet, ustry.id, source, destination, 10000000n);
+    const fresh = await app.conversionQuote(wallet, ustry.id, source, destination, 10000000n, 110000000n);
     fresh.expires = Date.now() - 1;
     await assert.rejects(app.executeConversion(wallet, fresh), /expired/);
+    // NAV guard: buying USTRY below NAV is fine; paying >2% over NAV, or selling >2% under it, is not.
+    app.assertNavBound(source, 10000000n, 15000000n, 110000000n);
+    assert.throws(() => app.assertNavBound(source, 10000000n, 8900000n, 110000000n), /above the/);
+    app.assertNavBound(destination, 10000000n, 10900000n, 110000000n);
+    assert.throws(() => app.assertNavBound(destination, 10000000n, 4640000n, 110000000n), /below the/);
+    assert.throws(() => app.assertNavBound(source, 10000000n, 9000000n, 0n), /NAV is unavailable/);
+    await assert.rejects(
+      app.conversionQuote(wallet, ustry.id, source, destination, 10000000n, 0n),
+      /NAV is unavailable/,
+    );
     Horizon.Server.prototype.strictSendPaths = () => ({ call: async () => ({ records: [] }) });
     await assert.rejects(
-      app.conversionQuote(wallet, ustry.id, source, destination, 10000000n),
+      app.conversionQuote(wallet, ustry.id, source, destination, 10000000n, 110000000n),
       /No executable/,
     );
     await assert.rejects(app.writeUstry(ustry, wallet, 'unknown'), /Unsupported/);

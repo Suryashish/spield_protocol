@@ -57,6 +57,8 @@ export default function UstryReceiptWrapper({
   const ustry = swapAsset('USTRY', USTRY_ISSUER);
   const entered = amountOf(amount);
   const factor = m.data?.state.factor ?? 0n;
+  // Every quote is checked against this NAV before it can be shown or executed.
+  const nav = m.data?.latest.price ?? 0n;
   const expectedPayout =
     product === 'ptyt' && factor > 0n ? (entered * factor) / FACTOR_SCALE : entered;
   const quoteInput = mode === 'wrap' ? entered : expectedPayout;
@@ -81,8 +83,7 @@ export default function UstryReceiptWrapper({
     mode === 'wrap' &&
     !!quote &&
     !!m.data &&
-    m.data.state.receipts + m.data.state.backing + quote.output >
-      BigInt(m.c.capUstry) * 10_000_000n;
+    m.data.state.receipts + m.data.state.backing + quote.output > m.data.cap;
   const faceTooSmall = product === 'ptyt' && mode === 'wrap' && !!quote && minimumFace <= 0n;
   const expired = !!quote && now >= quote.expires;
 
@@ -138,6 +139,7 @@ export default function UstryReceiptWrapper({
           mode === 'wrap' ? swapAsset('USDC', issuer) : swapAsset('USTRY', USTRY_ISSUER),
           mode === 'wrap' ? swapAsset('USTRY', USTRY_ISSUER) : swapAsset('USDC', issuer),
           quoteInput,
+          nav,
         );
         if (request === generation.current) {
           setQuote(result);
@@ -159,7 +161,7 @@ export default function UstryReceiptWrapper({
       clearInterval(interval);
       generationRef.current++;
     };
-  }, [quoteInput, mode, issuer, m.address, m.activeSeries.id, busy]);
+  }, [quoteInput, mode, issuer, m.address, m.activeSeries.id, busy, nav]);
 
   function reset(nextMode?: Mode, nextIssuer?: string, nextAmount?: string) {
     generation.current++;
@@ -225,14 +227,13 @@ export default function UstryReceiptWrapper({
         if (m.entryBlocked) throw new Error('USTRY deposits are currently unavailable.');
         const before = await conversionBalance(address, ustry);
         // A new quote accounts for time spent adding trustlines and signing in the wallet.
-        const fresh = await conversionQuote(address, m.activeSeries.id, usdc, ustry, entered);
+        const fresh = await conversionQuote(address, m.activeSeries.id, usdc, ustry, entered, nav);
         if (fresh.output < quote.minimum)
           throw new Error('The new sUSTRY estimate is below your reviewed minimum. Get a new quote before swapping.');
         const snapshot = m.data;
         if (
           !snapshot ||
-          snapshot.state.receipts + snapshot.state.backing + fresh.output >
-            BigInt(m.c.capUstry) * 10_000_000n
+          snapshot.state.receipts + snapshot.state.backing + fresh.output > snapshot.cap
         )
           throw new Error('The latest quote exceeds this series’ USTRY deposit cap.');
         await convert({
@@ -288,7 +289,7 @@ export default function UstryReceiptWrapper({
         }
         if (received <= 0n)
           throw new Error('The withdrawal succeeded, but USTRY is not visible in your wallet yet. It remains yours; use Markets after balances refresh.');
-        const fresh = await conversionQuote(address, m.activeSeries.id, ustry, usdc, received);
+        const fresh = await conversionQuote(address, m.activeSeries.id, ustry, usdc, received, nav);
         if (fresh.output < quote.minimum)
           throw new Error('The withdrawal succeeded, but the new USDC quote is below your reviewed minimum. Your USTRY remains in your wallet; review a new rate on Markets.');
         await convert({

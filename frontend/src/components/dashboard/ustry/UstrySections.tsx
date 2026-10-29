@@ -50,7 +50,9 @@ import UstryReceiptWrapper from './UstryReceiptWrapper';
 
 type Props = { model: UstryDashboardModel };
 const date = (timestamp: number) =>
-  new Date(timestamp * 1000).toLocaleDateString(undefined, {
+  // UTC, so every date on these pages matches the series selector's maturity date.
+  new Date(timestamp * 1000).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -457,7 +459,7 @@ export function UstrySolvencyCard({ model: m }: Props) {
             <Code2 size={13} />
             Read live from{' '}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
-              state() + balance()
+              {m.data?.version === 2 ? 'status() + balance()' : 'state() + balance()'}
             </code>
           </span>
           <a
@@ -811,7 +813,11 @@ export function UstryMarkets({ model }: Props) {
           <UstryNavChart model={model} />
         </div>
         <div className="lg:col-span-4" data-tour="markets-panel">
-          <UstryConversion busyParent={model.busy} onConfirmed={model.onConverted} />
+          <UstryConversion
+            busyParent={model.busy}
+            nav={model.data?.latest.price ?? null}
+            onConfirmed={model.onConverted}
+          />
         </div>
       </div>
     </div>
@@ -826,12 +832,21 @@ export function UstrySolvency({ model: m }: Props) {
       'Token coverage does not guarantee USD principal. PT and yield payouts remain in USTRY.',
       'high',
     ],
-    [
-      TrendingUp,
-      'Prices depend on the NAV relay',
-      'Priced actions stop when observations are stale. Missing maturity history can delay settlement.',
-      'medium',
-    ],
+    m.data?.version === 2
+      ? [
+          TrendingUp,
+          m.activeSeries.network === 'mainnet'
+            ? 'New deposits depend on the RedStone NAV feed'
+            : 'New deposits depend on the NAV relay',
+          'A stale or unavailable NAV pauses new deposits only. Combine, claims and transfers never read the feed, and maturity finalizes on a post-expiry price or after the grace period.',
+          'medium',
+        ]
+      : [
+          TrendingUp,
+          'Prices depend on the NAV relay',
+          'Priced actions stop when observations are stale. Missing maturity history can delay settlement.',
+          'medium',
+        ],
     [
       Lock,
       'Issuer controls apply',
@@ -867,7 +882,7 @@ export function UstrySolvency({ model: m }: Props) {
             <div className="grid grid-cols-3 gap-3 text-sm">
               <div>
                 <div className="text-xs text-muted-foreground">Cap</div>
-                <div className="tabular-nums">{m.c.capUstry} USTRY</div>
+                <div className="tabular-nums">{d ? units(d.cap) : '—'} USTRY</div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Backing</div>
@@ -905,30 +920,45 @@ export function UstrySolvency({ model: m }: Props) {
       <Card>
         <CardHeader>
           <CardTitle>Series configuration</CardTitle>
-          <CardDescription>USTRY Series · Etherfuse sandbox · Stellar testnet</CardDescription>
+          <CardDescription>
+            {m.activeSeries.network === 'mainnet'
+              ? 'USTRY · RedStone NAV feed · Stellar mainnet'
+              : 'USTRY Series · Etherfuse sandbox · Stellar testnet'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
             <Pair label="Settlement">
               {d?.settledOnChain
                 ? 'Finalized on chain'
-                : d?.state.finalized
+                : d?.finalizable
                   ? 'Ready to finalize'
                   : m.matured
-                    ? 'Pending boundary observation'
+                    ? d?.version === 2 && m.c.grace
+                      ? `Waiting for a post-expiry NAV, or grace until ${date(m.activeSeries.expiry + m.c.grace)}`
+                      : 'Pending boundary observation'
                     : 'Not yet matured'}
             </Pair>
-            <Pair label="Last relay observation">
+            <Pair label="Last NAV observation">
               {d ? new Date(Number(d.latest.timestamp) * 1000).toLocaleString() : '—'}
             </Pair>
-            <Pair label="NAV freshness limit">13 hours</Pair>
-            <Pair label="NAV relay heartbeat">12 hours / 0.1% change</Pair>
+            <Pair label="NAV freshness limit">{(m.c.maxAge / 3600).toFixed(0)} hours</Pair>
+            <Pair label="NAV source">
+              {m.activeSeries.network === 'mainnet'
+                ? 'RedStone · 12h heartbeat / 0.1% move'
+                : d?.version === 2
+                  ? 'Spield relay · 4h cadence / 0.1% move'
+                  : 'Spield relay · 12h heartbeat / 0.1% move'}
+            </Pair>
+            {d?.version === 2 && (
+              <Pair label="Stale NAV blocks">New deposits only</Pair>
+            )}
           </div>
           <p className="text-[12px] leading-relaxed text-muted-foreground">
             The relay records when it observed Etherfuse’s sandbox quote. That timestamp is not a
             verified underlying Treasury valuation time.
           </p>
-          {m.matured && d?.state.finalized && !d.settledOnChain && (
+          {m.matured && d?.finalizable && !d.settledOnChain && (
             <Button
               disabled={!m.address || !m.onCorrectNetwork || m.busy || m.loading || !!m.error}
               onClick={() => void m.finalize()}

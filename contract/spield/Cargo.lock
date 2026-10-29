@@ -1640,11 +1640,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "spield-ustry-nav"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "spield-shared",
+]
+
+[[package]]
 name = "spield-ustry-oracle"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "spield-shared",
+]
+
+[[package]]
+name = "spield-ustry-series"
+version = "0.1.0"
+dependencies = [
+ "soroban-ledger-snapshot",
+ "soroban-sdk",
+ "spield-rwa-token",
+ "spield-shared",
+ "spield-ustry-nav",
 ]
 
 [[package]]

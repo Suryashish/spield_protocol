@@ -36,12 +36,35 @@ function allowed(a: Asset) {
     (a.code === 'USDC' && [CIRCLE_ISSUER, GATAL_ISSUER].includes(a.issuer ?? ''))
   );
 }
+/** Worst acceptable route price against NAV, in basis points. Only the side that hurts the
+ *  user is bounded: paying more than NAV for USTRY, or receiving less than NAV for it. */
+export const MAX_NAV_DEVIATION_BPS = 200n;
+
+/** Throws when a quote prices USTRY worse than `nav` (8 decimals, USD) by more than the bound.
+ *  The app's 1% slippage minimum only protects against movement away from the quote itself;
+ *  this protects against a quote that is bad to begin with, such as a thin testnet book. */
+export function assertNavBound(source: Asset, amount: bigint, output: bigint, nav: bigint) {
+  if (nav <= 0n) throw new Error('USTRY NAV is unavailable, so this quote cannot be checked.');
+  const buying = source.code === 'USDC';
+  // USD per USTRY implied by the route, at 8 decimals (both legs use 7).
+  const implied = buying ? (amount * 100_000_000n) / output : (output * 100_000_000n) / amount;
+  const bad = buying
+    ? implied * 10_000n > nav * (10_000n + MAX_NAV_DEVIATION_BPS)
+    : implied * 10_000n < nav * (10_000n - MAX_NAV_DEVIATION_BPS);
+  if (bad) {
+    const pct = Number(((implied > nav ? implied - nav : nav - implied) * 10_000n) / nav) / 100;
+    throw new Error(
+      `This route ${buying ? 'charges' : 'pays'} $${(Number(implied) / 1e8).toFixed(4)} per USTRY, ${pct.toFixed(2)}% ${buying ? 'above' : 'below'} the $${(Number(nav) / 1e8).toFixed(4)} NAV. Try the other USDC asset or a smaller amount.`,
+    );
+  }
+}
 export async function conversionQuote(
   wallet: string,
   seriesId: string,
   source: Asset,
   destination: Asset,
   amount: bigint,
+  nav: bigint,
 ): Promise<ConversionQuote> {
   testnet();
   const revision = getActiveSeriesRevision();
@@ -71,6 +94,7 @@ export async function conversionQuote(
       'No executable sandbox liquidity for this pair and amount. Try a smaller amount or retry later.',
     );
   const output = quantity(best.destination_amount);
+  assertNavBound(source, amount, output, nav);
   const minimum = (output * 9900n) / 10000n;
   if (minimum <= 0n) throw new Error('Quoted output is too small.');
   if (getActiveSeriesId() !== seriesId || getActiveSeriesRevision() !== revision)

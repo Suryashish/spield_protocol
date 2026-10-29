@@ -18,7 +18,9 @@
     "test:ustry-oracle": "node --test ustry_oracle.test.mjs",
     "test": "node --test calibrate_vault_rate.test.mjs ustry_oracle.test.mjs etherfuse_sandbox_tx.test.mjs ustry_nav.test.mjs",
     "ustry:relay": "node execute_ustry_app.mjs relay",
-    "ustry:keeper": "node execute_ustry_app.mjs keeper"
+    "ustry:keeper": "node execute_ustry_app.mjs keeper",
+    "ustry:v2:relay": "node ustry_nav_relay.mjs",
+    "ustry:v2:deploy": "node deploy_ustry_v2.mjs"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.0.1"

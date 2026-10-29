@@ -1,0 +1,52 @@
+[
+  {
+    "name": "deposits closed after expiry",
+    "pass": true,
+    "detail": "error #4"
+  },
+  {
+    "name": "finalizable on a post-expiry sample",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "finalized via boundary path",
+    "pass": true,
+    "detail": "1c1ce9c747607fadea0eda6019c7d0abdf3b3a11ba65c7194ff52d6223835638"
+  },
+  {
+    "name": "post-expiry samples did not move high-water",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "PT-only redemption after finalization",
+    "pass": true,
+    "detail": "paid 999990"
+  },
+  {
+    "name": "custody covers obligations after exit",
+    "pass": true,
+    "detail": "10 ≥ 10"
+  },
+  {
+    "name": "token 0 supply == series supply after exit",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "token 1 supply == series supply after exit",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "token 2 supply == series supply after exit",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "alice recovered her USTRY minus the gift and rounding",
+    "pass": true,
+    "detail": "difference 10 units"
+  }
+]

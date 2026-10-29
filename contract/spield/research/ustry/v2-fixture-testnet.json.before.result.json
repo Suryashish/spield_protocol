@@ -1,0 +1,62 @@
+[
+  {
+    "name": "status: oracle ok, fresh, entry open",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "split face = amount × NAV (rounded down)",
+    "pass": true,
+    "detail": "1106901"
+  },
+  {
+    "name": "holding has receipt, PT and YT",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "slippage guard on split",
+    "pass": true,
+    "detail": "error #10"
+  },
+  {
+    "name": "cap refuses > cap deposit",
+    "pass": true,
+    "detail": "error #15"
+  },
+  {
+    "name": "PT/YT transfer credited the recipient",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "the admin cannot publish NAV",
+    "pass": true,
+    "detail": "publish: transaction cc0ab80e2243ab87c05580def7d3d78dfb52e2b"
+  },
+  {
+    "name": "claim on a fresh position pays 0",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "custody covers obligations after entry",
+    "pass": true,
+    "detail": "1500000 ≥ 1500000"
+  },
+  {
+    "name": "token 0 supply == series supply after entry",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "token 1 supply == series supply after entry",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "token 2 supply == series supply after entry",
+    "pass": true,
+    "detail": ""
+  }
+]

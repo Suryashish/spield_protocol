@@ -125,9 +125,18 @@ export function useUstryDashboard() {
     !!data &&
     (Number(data.latest.timestamp) > clock / 1000 + 30 ||
       clock / 1000 - Number(data.latest.timestamp) > c.maxAge);
-  const unsafe = !data || !!error || !!data.syncError || (stale && !data.state.finalized);
+  const priceUnsafe = !data || !!error || !!data.syncError || (stale && !data.state.finalized);
+  // `unsafe` gates exits (combine, claim, YT transfer). Series 1 reverts those on a stale NAV;
+  // v2 never does, so only a failed read can block them there.
+  const unsafe = data?.exitsNeedNav === false ? !data || !!error : priceUnsafe;
+  // v2 asks the contract (`status().entry_open`); Series 1 keeps its client-side rule.
   const entryBlocked =
-    unsafe || matured || !!data?.paused || (!!data && data.latest.price < data.state.high_water);
+    data?.version === 2
+      ? !!error || !data.entryOpen || matured
+      : priceUnsafe ||
+        matured ||
+        !!data?.paused ||
+        (!!data && data.latest.price < data.state.high_water);
   const claimable = data ? entitlement(data.holding, data.state) : 0n;
   const walletReady = !!address && onCorrectNetwork;
   const record = (item: Activity) => {

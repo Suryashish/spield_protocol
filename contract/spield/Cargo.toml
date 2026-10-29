@@ -18,6 +18,8 @@ members = [
   "contracts/rwa",
   "contracts/rwa-token",
   "contracts/ustry-oracle",
+  "contracts/ustry-nav",
+  "contracts/ustry-series",
 ]
 
 [workspace.dependencies]
