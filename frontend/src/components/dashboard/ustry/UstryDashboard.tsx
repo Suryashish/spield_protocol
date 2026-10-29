@@ -36,7 +36,7 @@ const SUBTITLES: Record<string, string> = {
   overview: 'Your portfolio at a glance — USTRY balances, principal, yield and backing.',
   deposit: 'Split USTRY into principal tokens (PT) and yield tokens (YT), or recombine to exit.',
   v2: 'What your YT has earned — claimable straight to USTRY without giving up the position.',
-  srwrap: 'Hold unsplit USTRY receipts — deposit, withdraw in kind, or split into PT and YT.',
+  srwrap: 'Wrap USDC into sUSTRY receipts, or unwrap sUSTRY back to USDC.',
   markets: 'Convert USDC and USTRY using executable exchange quotes with a minimum output.',
   vault: 'Fixed-vault availability for the selected USTRY series.',
   liquidity: 'Pool and liquidity-position availability for the selected USTRY series.',
@@ -53,7 +53,7 @@ function explainer(section: string, title: string): ExplainerConfig {
       {
         icon: Coins,
         title: '1 · Acquire or deposit USTRY',
-        body: 'Use Markets to convert supported test USDC, then deposit USTRY. You can hold unsplit receipts or mint PT and YT.',
+        body: 'Use SR Wrapper to pay with supported test USDC and receive sUSTRY. The app converts through USTRY and deposits it for you.',
       },
       {
         icon: Layers,

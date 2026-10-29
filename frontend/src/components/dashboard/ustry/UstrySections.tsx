@@ -44,6 +44,7 @@ import { explorerContract, explorerTx } from '@/lib/config';
 import { FACTOR_SCALE, quantity, units } from '@/lib/ustry';
 import type { UstryDashboardModel } from './useUstryDashboard';
 import UstryConversion from './UstryConversion';
+import UstryReceiptWrapper from './UstryReceiptWrapper';
 
 type Props = { model: UstryDashboardModel };
 type Mode = 'deposit_split' | 'redeem' | 'deposit' | 'withdraw_receipts' | 'split';
@@ -908,7 +909,7 @@ export function UstryReceipts({ model }: Props) {
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12" data-tour="srwrap-panel">
       <div className="lg:col-span-5">
-        <UstryActionPanel model={model} receipt />
+        <UstryReceiptWrapper model={model} />
       </div>
       <div className="lg:col-span-7">
         <UstryPositions model={model} receipt />

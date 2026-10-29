@@ -112,6 +112,17 @@ export async function missingTrustlines(wallet: string, assets: Asset[]) {
     return !line;
   });
 }
+export async function conversionBalance(wallet: string, asset: Asset): Promise<bigint> {
+  testnet();
+  const account = await horizon.loadAccount(wallet);
+  const line = account.balances.find(
+    (balance) =>
+      'asset_code' in balance &&
+      balance.asset_code === asset.code &&
+      balance.asset_issuer === asset.issuer,
+  );
+  return line && !/^0(?:\.0+)?$/.test(line.balance) ? quantity(line.balance) : 0n;
+}
 async function signSubmit(
   wallet: string,
   tx: ReturnType<TransactionBuilder['build']>,
