@@ -14,12 +14,14 @@ function PillSelect({
   value,
   onChange,
   className,
+  tourTarget,
   children,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   className?: string;
+  tourTarget: string;
   children: ReactNode;
 }) {
   return (
@@ -27,6 +29,7 @@ function PillSelect({
       <span className="sr-only">{label}</span>
       <select
         aria-label={label}
+        data-tour={tourTarget}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-full border border-border bg-card pl-3.5 pr-8 text-[13px] font-medium text-foreground shadow-float-sm transition-colors duration-200 hover:border-line-strong focus-visible:outline-brand"
@@ -49,6 +52,7 @@ export default function SourceSeriesControl() {
     <div className="flex min-w-0 items-center gap-2" data-tour="series-selector">
       <PillSelect
         label="Yield source"
+        tourTarget="yield-source"
         value={activeSeries.source}
         onChange={(v) => selectSource(v as YieldSource)}
         className="shrink-0"
@@ -61,6 +65,7 @@ export default function SourceSeriesControl() {
       </PillSelect>
       <PillSelect
         label="Series / maturity"
+        tourTarget="series-maturity"
         value={activeSeries.id}
         onChange={selectSeries}
         className="max-w-[min(52vw,16rem)]"

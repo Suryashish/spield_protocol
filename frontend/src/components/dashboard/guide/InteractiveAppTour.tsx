@@ -14,6 +14,8 @@ import {
   Sparkles,
   Droplets,
   ShieldCheck,
+  ArrowLeftRight,
+  Layers,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -37,6 +39,9 @@ interface CardCoords {
 
 const STEP_ICONS: Record<string, LucideIcon> = {
   wallet: Wallet,
+  'yield-source': ArrowLeftRight,
+  'series-selector': Layers,
+  'srwrap-panel': Layers,
   'overview-stats': LayoutDashboard,
   'vault-panel': Lock,
   'deposit-panel': Coins,
@@ -51,15 +56,15 @@ const computeCardCoords = (
   winW: number,
   winH: number,
   isMobile: boolean,
+  cardH: number,
 ): CardCoords => {
   const cardW = isMobile ? Math.min(360, winW - 24) : 360;
-  const cardH = 175;
   const gap = 14;
 
   const minX = 14;
   const maxX = winW - cardW - 14;
   const minY = 68; // Below sticky header
-  const maxY = winH - cardH - 16;
+  const maxY = Math.max(minY, winH - cardH - 16);
 
   if (!target) {
     return {
@@ -165,11 +170,26 @@ export const InteractiveAppTour: React.FC = () => {
   } = useTutorial();
 
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
-  const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
+  const [windowSize, setWindowSize] = useState(() => ({
+    width: typeof window === 'undefined' ? 0 : window.innerWidth,
+    height: typeof window === 'undefined' ? 0 : window.innerHeight,
+  }));
+  const [cardHeight, setCardHeight] = useState(300);
+  const cardRef = useRef<HTMLDivElement>(null);
   const retryRef = useRef<number | null>(null);
 
   const isLastStep = currentStepIndex === totalSteps - 1;
   const isFirstStep = currentStepIndex === 0;
+
+  // Explanations wrap differently across steps and screen sizes. Measure the card so its
+  // navigation stays inside the viewport even when the highlighted panel is near the bottom.
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!isTourActive || !card) return;
+    const observer = new ResizeObserver(() => setCardHeight(card.getBoundingClientRect().height));
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [isTourActive]);
 
   // Track window dimensions
   useEffect(() => {
@@ -184,8 +204,8 @@ export const InteractiveAppTour: React.FC = () => {
   // Synchronously compute card coordinates based on target element and viewport
   const cardCoords = useMemo(() => {
     const isMobile = windowSize.width < 768;
-    return computeCardCoords(targetRect, windowSize.width, windowSize.height, isMobile);
-  }, [targetRect, windowSize]);
+    return computeCardCoords(targetRect, windowSize.width, windowSize.height, isMobile, cardHeight);
+  }, [targetRect, windowSize, cardHeight]);
 
   // Measure target DOM element
   const updateRect = useCallback(() => {
@@ -209,6 +229,7 @@ export const InteractiveAppTour: React.FC = () => {
         return true;
       }
     }
+    setTargetRect(null);
     return false;
   }, [isTourActive, currentStep]);
 
@@ -267,6 +288,11 @@ export const InteractiveAppTour: React.FC = () => {
     if (!isTourActive) return;
 
     const handleKey = (e: KeyboardEvent) => {
+      // Native selects own their arrow keys while the user tries the highlighted controls.
+      if (e.target instanceof HTMLSelectElement) {
+        if (e.key === 'Escape') e.target.blur();
+        return;
+      }
       if (e.key === 'Escape') {
         skipTour();
       } else if (e.key === 'ArrowRight') {
@@ -288,7 +314,9 @@ export const InteractiveAppTour: React.FC = () => {
   const IconComponent = STEP_ICONS[currentStep.id] || Sparkles;
 
   return createPortal(
-    <div className="fixed inset-0 z-[75] pointer-events-auto">
+    <div className={cn('fixed inset-0 z-[75]',
+      currentStep.id === 'yield-source' || currentStep.id === 'series-selector'
+        ? 'pointer-events-none' : 'pointer-events-auto')}>
       {/* 1. Fluid, smooth SVG spotlight mask with spring animation */}
       <svg
         className="fixed inset-0 h-full w-full pointer-events-none"
@@ -348,6 +376,8 @@ export const InteractiveAppTour: React.FC = () => {
 
       {/* 3. Redesigned, elevated glassmorphic tour card */}
       <motion.div
+        ref={cardRef}
+        className="pointer-events-auto"
         initial={false}
         animate={{
           x: cardCoords.x,
@@ -365,6 +395,8 @@ export const InteractiveAppTour: React.FC = () => {
           top: 0,
           left: 0,
           width: cardWidth,
+          maxHeight: 'calc(100dvh - 84px)',
+          overflowY: 'auto',
           zIndex: 80,
         }}
       >

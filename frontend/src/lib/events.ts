@@ -578,12 +578,13 @@ const toActivities = (raw: RawEvent[]): Activity[] => {
   return out;
 };
 
-export const getRecentActivity = async (limit = 25): Promise<Activity[]> => {
+export const getRecentActivity = async (limit = 25, user?: string): Promise<Activity[]> => {
   // Prefer the RPC (authoritative, freshest). If it has nothing — the usual case
   // once a deployment is older than the RPC's retention window — fall back to the
   // full-history explorer index so real past transactions still show.
   const rpc = await fetchRpcEvents();
   const items = toActivities(rpc.length > 0 ? rpc : await fetchExplorerEvents());
   items.sort((a, b) => b.ledger - a.ledger);
-  return items.slice(0, limit);
+  // Filter before limiting: other wallets' recent actions must not crowd out this user's rows.
+  return (user ? items.filter((item) => item.user === user) : items).slice(0, limit);
 };

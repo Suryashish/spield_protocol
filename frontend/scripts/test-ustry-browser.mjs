@@ -297,7 +297,7 @@ try {
       blendNavigation,
       `Navigation drift on ${id}`,
     );
-    if (['vault', 'liquidity', 'bridge'].includes(id)) {
+    if (['vault', 'liquidity'].includes(id)) {
       assert.match(await page.locator('main').innerText(), /Unavailable for USTRY/);
       assert.ok(await page.getByRole('button', { name: /unavailable$/ }).isDisabled());
     }
@@ -331,9 +331,10 @@ try {
   await page.screenshot({ path: '/tmp/spield-ustry-mobile-matched.png', fullPage: true });
   await primary.getByRole('button', { name: /^More/ }).click();
   await page.getByRole('button', { name: /App Tutorial & Interactive Guide/ }).click();
-  await page.getByRole('dialog').waitFor();
-  assert.match(await page.getByRole('dialog').innerText(), /USTRY/);
-  await page.getByRole('button', { name: 'Got it', exact: true }).click();
+  await page.getByRole('heading', { name: 'Connect Your Wallet', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('heading', { name: 'Switch Blend / USTRY', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const lightCanvas = await page
     .locator('.app-shell')
     .first()

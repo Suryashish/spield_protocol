@@ -13,7 +13,8 @@
     "dev:testnet": "VITE_NETWORK=testnet vite",
     "build:testnet": "VITE_NETWORK=testnet tsc -b && VITE_NETWORK=testnet vite build",
     "test:ustry": "node scripts/test-ustry.mjs",
-    "test:ustry:browser": "node scripts/test-ustry-browser.mjs"
+    "test:ustry:browser": "node scripts/test-ustry-browser.mjs",
+    "test:activity-guide:browser": "node scripts/test-activity-guide-browser.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",

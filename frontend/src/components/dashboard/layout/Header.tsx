@@ -3,7 +3,6 @@ import { ChevronDown, Wallet, Copy, Check, LogOut, Loader2, Compass } from 'luci
 
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/WalletContext';
-import { useSeries } from '@/context/SeriesContext';
 import { useTutorial } from '@/context/TutorialContext';
 import { shortenAddress } from '@/lib/stellar';
 import { SITE_ORIGIN } from '@/lib/site';
@@ -168,7 +167,6 @@ type HeaderProps = {
 };
 
 const Header = ({ section = 'Overview', onGuide }: HeaderProps) => {
-  const { activeSeries } = useSeries();
   return (
     <header className="sticky top-0 z-20 flex min-h-14 shrink-0 flex-wrap items-center justify-between py-2 gap-3 border-b border-border bg-canvas/85 px-4 backdrop-blur-xl lg:min-h-16 lg:px-6">
       {/* The trail is set in the app's micro-caption — mono, tracked, quiet —
@@ -196,7 +194,7 @@ const Header = ({ section = 'Overview', onGuide }: HeaderProps) => {
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <SourceSeriesControl />
-        {(activeSeries.source === 'blend' || onGuide) && <span className="hidden md:inline-flex"><TutorialHeaderButton onClick={onGuide} /></span>}
+        <span className="hidden md:inline-flex"><TutorialHeaderButton onClick={onGuide} /></span>
         <ThemeToggle />
         <WalletMenu />
       </div>

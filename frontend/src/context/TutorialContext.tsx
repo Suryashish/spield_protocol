@@ -1,7 +1,7 @@
 import { useSeries } from '@/context/SeriesContext';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { APP_TOUR_STEPS, type TourStep } from '@/components/dashboard/guide/tourSteps';
+import { getTourSteps, type TourStep } from '@/components/dashboard/guide/tourSteps';
 
 const STORAGE_KEY = 'spield_app_tour_completed_v2';
 
@@ -36,7 +36,7 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const location = useLocation();
 
   const [isTourActive, setIsTourActive] = useState(false);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [currentStepId, setCurrentStepId] = useState('wallet');
 
   // Synchronous read of localStorage in state initializer
   const [hasSeenTour, setHasSeenTour] = useState<boolean>(() => {
@@ -50,40 +50,39 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return true;
   });
 
-  const totalSteps = APP_TOUR_STEPS.length;
-  const currentStep = APP_TOUR_STEPS[currentStepIndex] ?? APP_TOUR_STEPS[0];
+  const steps = getTourSteps(activeSeries.source);
+  const totalSteps = steps.length;
+  // Keep the same highlighted control when the user switches source during the tour.
+  const currentStepIndex = Math.max(0, steps.findIndex((step) => step.id === currentStepId));
+  const currentStep = steps[currentStepIndex];
 
   // Mandatory first-time user tour: trigger after initial page render
   useEffect(() => {
-    if (!hasSeenTour && activeSeries.source === 'blend') {
+    if (!hasSeenTour) {
       const timer = setTimeout(() => {
         setIsTourActive(true);
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, [hasSeenTour, activeSeries.source]);
+  }, [hasSeenTour]);
 
   // When step changes, ensure the app navigates to the section route
   useEffect(() => {
-    if (!isTourActive || activeSeries.source !== 'blend') return;
+    if (!isTourActive) return;
     const targetRoute = currentStep.route;
     const currentPath = location.pathname;
-    if (currentPath !== targetRoute && !currentPath.startsWith(targetRoute)) {
+    if (currentPath !== targetRoute) {
       navigate(targetRoute);
     }
-  }, [isTourActive, currentStep, location.pathname, navigate, activeSeries.source]);
+  }, [isTourActive, currentStep, location.pathname, navigate]);
 
   const startTour = useCallback(
     (stepIndex = 0) => {
       const validIndex = Math.max(0, Math.min(stepIndex, totalSteps - 1));
-      setCurrentStepIndex(validIndex);
-      const step = APP_TOUR_STEPS[validIndex];
-      if (step && location.pathname !== step.route) {
-        navigate(step.route);
-      }
+      setCurrentStepId(steps[validIndex].id);
       setIsTourActive(true);
     },
-    [totalSteps, location.pathname, navigate],
+    [totalSteps, steps],
   );
 
   const closeTour = useCallback(() => {
@@ -111,57 +110,30 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const restartTour = useCallback(() => {
-    setCurrentStepIndex(0);
-    navigate(APP_TOUR_STEPS[0].route);
+    setCurrentStepId('wallet');
     setIsTourActive(true);
-  }, [navigate]);
+  }, []);
 
   const nextStep = useCallback(() => {
-    setCurrentStepIndex((prev) => {
-      if (prev < totalSteps - 1) {
-        const nextIdx = prev + 1;
-        const nextStepItem = APP_TOUR_STEPS[nextIdx];
-        if (nextStepItem && location.pathname !== nextStepItem.route) {
-          navigate(nextStepItem.route);
-        }
-        return nextIdx;
-      }
+    if (currentStepIndex < totalSteps - 1) {
+      setCurrentStepId(steps[currentStepIndex + 1].id);
+    } else {
       completeTour();
-      return prev;
-    });
-  }, [totalSteps, location.pathname, navigate, completeTour]);
+    }
+  }, [currentStepIndex, totalSteps, steps, completeTour]);
 
   const prevStep = useCallback(() => {
-    setCurrentStepIndex((prev) => {
-      if (prev > 0) {
-        const prevIdx = prev - 1;
-        const prevStepItem = APP_TOUR_STEPS[prevIdx];
-        if (prevStepItem && location.pathname !== prevStepItem.route) {
-          navigate(prevStepItem.route);
-        }
-        return prevIdx;
-      }
-      return prev;
-    });
-  }, [location.pathname, navigate]);
+    if (currentStepIndex > 0) setCurrentStepId(steps[currentStepIndex - 1].id);
+  }, [currentStepIndex, steps]);
 
-  const goToStep = useCallback(
-    (index: number) => {
-      if (index >= 0 && index < totalSteps) {
-        setCurrentStepIndex(index);
-        const step = APP_TOUR_STEPS[index];
-        if (step && location.pathname !== step.route) {
-          navigate(step.route);
-        }
-      }
-    },
-    [totalSteps, location.pathname, navigate],
-  );
+  const goToStep = useCallback((index: number) => {
+    if (index >= 0 && index < totalSteps) setCurrentStepId(steps[index].id);
+  }, [totalSteps, steps]);
 
   return (
     <TutorialContext.Provider
       value={{
-        isTourActive: isTourActive && activeSeries.source === 'blend',
+        isTourActive,
         currentStepIndex,
         currentStep,
         hasSeenTour,
@@ -175,7 +147,7 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         closeTour,
         totalSteps,
         // Compatibility aliases:
-        isOpen: isTourActive && activeSeries.source === 'blend',
+        isOpen: isTourActive,
         restartTutorial: restartTour,
         openTutorial: startTour,
         closeTutorial: closeTour,

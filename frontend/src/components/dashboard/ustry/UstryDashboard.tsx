@@ -20,6 +20,7 @@ import { navById, NAV_ITEMS } from '../data';
 import Sidebar from '../layout/Sidebar';
 import BottomNav from '../layout/BottomNav';
 import Header from '../layout/Header';
+import InteractiveAppTour from '../guide/InteractiveAppTour';
 import HowItWorksModal, { type ExplainerConfig } from '../layout/HowItWorksModal';
 import { useUstryDashboard } from './useUstryDashboard';
 import {
@@ -41,7 +42,6 @@ const SUBTITLES: Record<string, string> = {
   markets: 'Convert USDC and USTRY using executable exchange quotes with a minimum output.',
   vault: 'Fixed-vault availability for the selected USTRY series.',
   liquidity: 'Pool and liquidity-position availability for the selected USTRY series.',
-  bridge: 'Bridge availability and supported acquisition routes for USTRY.',
   solvency: 'Live USTRY backing against token obligations — and what can interrupt an exit.',
   activity: 'Your confirmed deposits, claims, transfers and redemptions for this USTRY series.',
 };
@@ -73,7 +73,7 @@ function explainer(section: string, title: string): ExplainerConfig {
       body: 'Payouts use USTRY, whose NAV can fall. PT does not guarantee dollar principal. Unsplit receipt exits and finalized token payouts do not need a live oracle.',
     },
   };
-  if (['vault', 'liquidity', 'bridge'].includes(section))
+  if (['vault', 'liquidity'].includes(section))
     return {
       ...common,
       steps: [
@@ -83,9 +83,7 @@ function explainer(section: string, title: string): ExplainerConfig {
           body:
             section === 'vault'
               ? 'No USTRY fixed-rate vault is deployed. Deposit and SR Wrapper remain available.'
-              : section === 'liquidity'
-                ? 'No USTRY PT pool or LP contract is deployed. Markets can convert the underlying USTRY asset.'
-                : 'No USTRY bridge route is enabled. Supported test USDC can be converted on Stellar using Markets.',
+              : 'No USTRY PT pool or LP contract is deployed. Markets can convert the underlying USTRY asset.',
         },
       ],
     };
@@ -189,7 +187,7 @@ export default function UstryDashboard() {
           onNavChange={navValue.navigate}
         />
         <main className="flex min-w-0 grow flex-col">
-          <Header section={nav.label} onGuide={() => setHelpOpen(true)} />
+          <Header section={nav.label} />
           <div className="grow overflow-y-auto px-4 pt-6 pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8 lg:pt-8 lg:pb-16">
             <div className="mx-auto max-w-7xl space-y-6">
               <div className="flex flex-col gap-3 pb-2 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
@@ -314,7 +312,6 @@ export default function UstryDashboard() {
           onNavChange={navValue.navigate}
           moreOpen={moreOpen}
           onMoreOpenChange={setMoreOpen}
-          onGuide={() => setHelpOpen(true)}
         />
         <HowItWorksModal
           open={helpOpen}
@@ -322,6 +319,7 @@ export default function UstryDashboard() {
           sectionId={nav.id}
           config={explainer(nav.id, nav.label)}
         />
+        <InteractiveAppTour />
       </div>
     </NavProvider>
   );

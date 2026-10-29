@@ -1044,16 +1044,13 @@ export function UstryActivity({ model: m }: Props) {
 export function UstryUnavailable({ model: m, section }: Props & { section: string }) {
   const navigate = useNavigate();
   const liquidity = section === 'liquidity';
-  const bridge = section === 'bridge';
-  const title = liquidity ? 'Provide Liquidity' : bridge ? 'Bridge Assets' : 'Fixed-Rate Vault';
+  const title = liquidity ? 'Provide Liquidity' : 'Fixed-Rate Vault';
   const description = liquidity
     ? 'No USTRY PT liquidity pool is deployed for this series.'
-    : bridge
-      ? 'USTRY does not currently have an enabled bridge route in Spield.'
-      : 'No USTRY fixed-rate vault is deployed for this series.';
+    : 'No USTRY fixed-rate vault is deployed for this series.';
   return (
     <div className="space-y-6">
-      {!bridge && <UstryStats model={m} kind={liquidity ? 'liquidity' : 'vault'} />}
+      <UstryStats model={m} kind={liquidity ? 'liquidity' : 'vault'} />
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
         <div className="lg:col-span-5">
           <Card className="h-full">
@@ -1063,14 +1060,12 @@ export function UstryUnavailable({ model: m, section }: Props & { section: strin
             </CardHeader>
             <CardContent className="space-y-4">
               <EmptyState
-                icon={liquidity ? Droplets : bridge ? Wallet : Lock}
+                icon={liquidity ? Droplets : Lock}
                 title="Unavailable for USTRY"
                 body={
                   liquidity
                     ? 'Existing USTRY can be converted to USDC on Markets. That conversion does not trade PT or create LP tokens.'
-                    : bridge
-                      ? 'Acquire supported test USDC on Stellar, then use Markets to convert to USTRY.'
-                      : 'Use Deposit to split USTRY into PT/YT, or SR Wrapper to hold unsplit USTRY receipts.'
+                    : 'Use Deposit to split USTRY into PT/YT, or SR Wrapper to hold unsplit USTRY receipts.'
                 }
               />
               <Button className="w-full" disabled>
@@ -1085,9 +1080,7 @@ export function UstryUnavailable({ model: m, section }: Props & { section: strin
               <CardTitle>
                 {liquidity
                   ? 'Your liquidity position'
-                  : bridge
-                    ? 'Available on Stellar'
-                    : 'Your vault receipts'}
+                  : 'Your vault receipts'}
               </CardTitle>
               <CardDescription>Available actions for the selected USTRY series</CardDescription>
             </CardHeader>
@@ -1097,17 +1090,15 @@ export function UstryUnavailable({ model: m, section }: Props & { section: strin
                 title={
                   liquidity
                     ? 'No USTRY LP deployment'
-                    : bridge
-                      ? 'Convert or deposit USTRY'
-                      : 'No USTRY fixed-vault deployment'
+                    : 'No USTRY fixed-vault deployment'
                 }
                 body="Your USTRY receipt, PT and YT balances remain available on their respective pages."
                 action={
                   <Button
                     variant="outline"
-                    onClick={() => navigate(liquidity || bridge ? '/markets' : '/deposit')}
+                    onClick={() => navigate(liquidity ? '/markets' : '/deposit')}
                   >
-                    {liquidity || bridge ? 'Go to Markets' : 'Go to Deposit'}
+                    {liquidity ? 'Go to Markets' : 'Go to Deposit'}
                   </Button>
                 }
               />

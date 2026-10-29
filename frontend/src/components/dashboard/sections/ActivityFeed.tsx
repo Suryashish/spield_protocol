@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowDownToLine,
   Sparkles,
@@ -104,26 +104,24 @@ const ActivityFeed = () => {
   const { lastUpdated, maturity } = useProtocol();
   const { share } = useShareCard();
   const { push } = useToast();
-  const [items, setItems] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [mineOnly, setMineOnly] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const data = await getRecentActivity(30);
-    setItems(data);
-    setLoading(false);
-  }, []);
+  const [feed, setFeed] = useState<{ address: string | null; items: Activity[] }>({
+    address: null,
+    items: [],
+  });
 
   useEffect(() => {
-    if (!lastUpdated) return;
-    // Legitimate data-fetch effect; loading state lives inside the async `load`.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [lastUpdated, load]);
+    if (!isConnected || !address) return;
+    let cancelled = false;
+    void getRecentActivity(30, address).then((items) => {
+      if (!cancelled) setFeed({ address, items });
+    });
+    return () => { cancelled = true; };
+  }, [lastUpdated, address, isConnected]);
 
-  const visible =
-    mineOnly && isConnected && address ? items.filter((i) => i.user === address) : items;
+  const loading = isConnected && !!address && feed.address !== address;
+  const visible = isConnected && address && feed.address === address
+    ? feed.items.filter((item) => item.user === address)
+    : [];
 
   const onShare = async (item: Activity) => {
     const card = await cardFor(item, maturity);
@@ -142,30 +140,6 @@ const ActivityFeed = () => {
     <Card className="gap-0 overflow-hidden rounded-xl py-0">
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">Activity</h3>
-        <div className="flex items-center gap-1">
-          {isConnected && (
-            <div className="mr-1 flex items-center well rounded-lg p-0.5 text-[12px] font-medium">
-              <button
-                onClick={() => setMineOnly(true)}
-                className={cn(
-                  'rounded-md px-2.5 py-1 transition-all',
-                  mineOnly ? 'border border-border bg-card text-foreground shadow-float-sm' : 'text-muted-foreground',
-                )}
-              >
-                Mine
-              </button>
-              <button
-                onClick={() => setMineOnly(false)}
-                className={cn(
-                  'rounded-md px-2.5 py-1 transition-all',
-                  !mineOnly ? 'border border-border bg-card text-foreground shadow-float-sm' : 'text-muted-foreground',
-                )}
-              >
-                All
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       {loading ? (
@@ -177,11 +151,11 @@ const ActivityFeed = () => {
       ) : visible.length === 0 ? (
         <EmptyState
           icon={History}
-          title="No activity yet"
+          title={isConnected && address ? 'No activity yet' : 'Connect your wallet'}
           body={
-            mineOnly && isConnected
+            isConnected && address
               ? 'Your deposits, claims and redemptions will appear here.'
-              : 'Protocol activity will appear here as users transact.'
+              : 'Connect your wallet to see your deposits, claims and redemptions.'
           }
         />
       ) : (
@@ -217,10 +191,7 @@ const ActivityFeed = () => {
                       {formatAmount(item.amount)} USDC
                     </span>
                   )}
-                  {/* Only on your own rows. The "All" view lists everyone, and a card is a
-                      first-person statement: nobody should be handed one for a stranger's trade.
-                      The slot is there on every row, filled or not, so the amounts stay in one
-                      column instead of stepping sideways wherever a row has nothing to share. */}
+                  {/* Reserve the share slot so amounts stay aligned on every row. */}
                   <span className="grid size-[13px] place-items-center">
                     {item.share && item.user === address && (
                       <button
