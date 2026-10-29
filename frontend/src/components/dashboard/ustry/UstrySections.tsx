@@ -777,7 +777,7 @@ export function UstryYield({ model: m }: Props) {
             className="w-full"
             disabled={
               !!m.address &&
-              (!m.onCorrectNetwork || m.busy || m.loading || m.unsafe || m.claimable <= 0n)
+              (!m.onCorrectNetwork || m.busy || m.loading || m.unsafe || m.frozen || m.claimable <= 0n)
             }
             onClick={() =>
               !m.address

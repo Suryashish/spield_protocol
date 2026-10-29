@@ -97,7 +97,7 @@ export const ALL_SERIES: SeriesConfig[] = [
     maturityDate: new Date(ustryDeployment.expiry * 1000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }),
     fixedAprPct: 0, ptCode: 'PT-USTRY',
     description: 'Tokenized Treasury sandbox series. Deposits and payouts in USTRY; USD face is not a principal guarantee.',
-    ustry: ustryDeployment,
+    ustry: { ...ustryDeployment, version: 1, network: 'testnet' },
   },
   // ── Mainnet Series ────────────────────────────────────────────────────────
   {

@@ -14,7 +14,7 @@ import {
   ustryContracts,
   writeUstry,
   entitlement,
-  formatUstrySimulationError,
+  ustryErrorFormatter,
   type UstrySnapshot,
 } from '@/lib/ustry';
 const errorText = (error: unknown) =>
@@ -126,14 +126,20 @@ export function useUstryDashboard() {
     (Number(data.latest.timestamp) > clock / 1000 + 30 ||
       clock / 1000 - Number(data.latest.timestamp) > c.maxAge);
   const priceUnsafe = !data || !!error || !!data.syncError || (stale && !data.state.finalized);
+  // Clawback policy A (fail-closed): when custody is below receipts + backing, the contract
+  // refuses every USTRY payout and new entry until the shortfall is restored. PT/YT transfers
+  // move no USTRY and stay open.
+  const shortfall = data ? data.state.receipts + data.state.backing - data.custody : 0n;
+  const frozen = shortfall > 0n;
   // `unsafe` gates exits (combine, claim, YT transfer). Series 1 reverts those on a stale NAV;
   // v2 never does, so only a failed read can block them there.
   const unsafe = data?.exitsNeedNav === false ? !data || !!error : priceUnsafe;
   // v2 asks the contract (`status().entry_open`); Series 1 keeps its client-side rule.
   const entryBlocked =
     data?.version === 2
-      ? !!error || !data.entryOpen || matured
-      : priceUnsafe ||
+      ? !!error || !data.entryOpen || matured || frozen
+      : frozen ||
+        priceUnsafe ||
         matured ||
         !!data?.paused ||
         (!!data && data.latest.price < data.state.high_water);
@@ -182,14 +188,14 @@ export function useUstryDashboard() {
         c[token],
         'transfer',
         [addr(address), addr(recipient), i128(amount)],
-        formatUstrySimulationError,
+        ustryErrorFormatter(c),
       ),
     );
   }
   async function finalize() {
     if (!address) return false;
     return run('Finalize USTRY series', () =>
-      writeContract(address, c.series, 'finalize', [], formatUstrySimulationError),
+      writeContract(address, c.series, 'finalize', [], ustryErrorFormatter(c)),
     );
   }
   async function onConverted(hash: string) {
@@ -212,6 +218,8 @@ export function useUstryDashboard() {
     matured,
     stale,
     unsafe,
+    frozen,
+    shortfall,
     entryBlocked,
     claimable,
     activity,

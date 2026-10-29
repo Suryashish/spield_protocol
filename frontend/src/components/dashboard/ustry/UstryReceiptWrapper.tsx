@@ -464,11 +464,11 @@ export default function UstryReceiptWrapper({
         ) : (
           <Button
             className={buttonClass}
-            disabled={disabled || entered <= 0n || !quote || quote.wallet !== m.address || quote.seriesId !== m.activeSeries.id || quote.amount !== quoteInput || expired || overBalance || capExceeded || faceTooSmall || (mode === 'wrap' && m.entryBlocked) || (product === 'ptyt' && (factor <= 0n || (mode === 'unwrap' && m.unsafe)))}
+            disabled={disabled || entered <= 0n || !quote || quote.wallet !== m.address || quote.seriesId !== m.activeSeries.id || quote.amount !== quoteInput || expired || overBalance || capExceeded || faceTooSmall || m.frozen || (mode === 'wrap' && m.entryBlocked) || (product === 'ptyt' && (factor <= 0n || (mode === 'unwrap' && m.unsafe)))}
             onClick={() => void submit()}
           >
             {(busy || quoting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {busy ? phase : quoting ? 'Updating quote…' : !m.onCorrectNetwork ? 'Switch wallet network' : mode === 'wrap' && m.entryBlocked ? 'Deposits unavailable' : product === 'ptyt' && mode === 'unwrap' && m.unsafe ? 'Waiting for valid NAV' : !quote || expired ? 'Waiting for live quote' : product === 'ptyt' ? mode === 'wrap' ? 'Deposit USDC' : m.matured ? 'Redeem to USDC' : 'Combine to USDC' : mode === 'wrap' ? 'Wrap USDC' : 'Unwrap to USDC'}
+            {busy ? phase : quoting ? 'Updating quote…' : !m.onCorrectNetwork ? 'Switch wallet network' : m.frozen ? 'Frozen: custody shortfall' : mode === 'wrap' && m.entryBlocked ? 'Deposits unavailable' : product === 'ptyt' && mode === 'unwrap' && m.unsafe ? 'Waiting for valid NAV' : !quote || expired ? 'Waiting for live quote' : product === 'ptyt' ? mode === 'wrap' ? 'Deposit USDC' : m.matured ? 'Redeem to USDC' : 'Combine to USDC' : mode === 'wrap' ? 'Wrap USDC' : 'Unwrap to USDC'}
           </Button>
         )}
         <p className="text-xs leading-relaxed text-muted-foreground">

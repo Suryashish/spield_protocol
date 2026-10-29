@@ -3,7 +3,7 @@ extern crate std;
 use super::*;
 use soroban_sdk::{
     contract, contractimpl,
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, IssuerFlags, Ledger as _},
     token::StellarAssetClient,
 };
 use spield_ustry_nav::{UstryNav, UstryNavClient};
@@ -117,6 +117,8 @@ impl World {
             .with_mut(|l| l.min_persistent_entry_ttl = 120_960);
         let admin = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        // Real USTRY has clawback enabled on both networks; every balance here inherits it.
+        sac.issuer().set_flag(IssuerFlags::ClawbackEnabledFlag);
         let asset = sac.address();
         let feed = if fault {
             let id = env.register(FaultFeed, ());
@@ -602,6 +604,53 @@ fn self_transfers_and_burns_keep_supply_consistent() {
     w.token(2).burn(&a, &UNIT);
     assert_eq!(w.token(2).total_supply(), face - UNIT);
     assert_eq!(c.state().total_yt, face - UNIT);
+}
+
+// ------------------------------------------------------------------ clawback
+
+/// Policy A (fail-closed): a clawback from the series freezes every exit that pays USTRY, and
+/// new entry, until the shortfall is restored. Nobody can leave whole at the others' expense.
+/// Claim transfers move no USTRY and stay open, so positions can still change hands.
+#[test]
+fn clawback_freezes_payouts_until_the_shortfall_is_restored() {
+    let w = World::new();
+    let c = w.c();
+    let a = w.user(10 * UNIT);
+    let b = w.user(10 * UNIT);
+    let face = c.deposit_split(&a, &(4 * UNIT), &0);
+    c.deposit(&a, &UNIT);
+    c.deposit_split(&b, &(2 * UNIT), &0);
+    w.at(START + 10 * DAY);
+    w.publish(130_000_000);
+    c.sync();
+    let owed = w.obligations();
+    StellarAssetClient::new(&w.env, &w.asset).clawback(&w.series, &(UNIT / 2));
+    assert_eq!(w.usdry(&w.series), owed - UNIT / 2);
+
+    let frozen = e(SeriesError::Insolvent);
+    assert_eq!(World::err(c.try_withdraw_receipts(&a, &1)), frozen);
+    assert_eq!(World::err(c.try_redeem(&a, &1, &0)), frozen);
+    assert_eq!(World::err(c.try_claim_yield(&a)), frozen);
+    assert_eq!(World::err(c.try_deposit(&b, &UNIT)), frozen);
+    assert_eq!(World::err(c.try_deposit_split(&b, &UNIT, &0)), frozen);
+    assert_eq!(World::err(c.try_split(&a, &1, &0)), frozen);
+    w.token(1).transfer(&a, &b, &1);
+    w.token(2).transfer(&a, &b, &1);
+    c.sync();
+
+    // Maturity is not blocked either; payouts stay frozen after it.
+    w.at(START + TERM + 8 * DAY);
+    assert!(c.finalize().finalized);
+    assert_eq!(World::err(c.try_redeem(&a, &1, &0)), frozen);
+    assert_eq!(c.state().receipts + c.state().backing, owed);
+
+    // Anyone restoring the shortfall with a plain transfer reopens every exit, at full value.
+    let donor = w.user(UNIT);
+    token::Client::new(&w.env, &w.asset).transfer(&donor, &w.series, &(UNIT / 2));
+    c.withdraw_receipts(&a, &UNIT);
+    c.claim_yield(&a);
+    assert!(c.redeem(&a, &(face - 1), &0) > 0);
+    assert!(w.usdry(&w.series) >= w.obligations());
 }
 
 // ------------------------------------------------------------------ admin

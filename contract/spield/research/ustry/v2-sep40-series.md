@@ -52,6 +52,9 @@ next `sync()`. The relay calls `sync()` after each publish (`--sync`), so stored
 - Deploy: `node scripts/deploy_ustry_v2.mjs testnet --admin <key> --publisher <key> --label <name>`.
   Mainnet: `node scripts/deploy_ustry_v2.mjs mainnet --admin <key> --label <name> --confirm-mainnet`.
   Resumable; verifies everything on chain; writes `frontend/src/lib/ustry-v2-<network>-<label>.json`.
+- Local dev: `pnpm run dev` in `frontend/` starts the Series 2 relay (`frontend/vite-ustry-relay.ts`)
+  and stops it with the server. One relay per machine (lock in `~/.spield/`); it exits by itself if
+  the dev server is killed. `USTRY_RELAY=0` skips it.
 - Relay (testnet only): `node scripts/ustry_nav_relay.mjs --oracle <C…> --sync <series>`; scheduled by
   `.github/workflows/ustry-nav-relay.yml` (secret `USTRY_PUBLISHER_SECRET`, variables
   `USTRY_ORACLE`, `USTRY_SERIES`). Missing runs pause new deposits only.
@@ -60,9 +63,12 @@ next `sync()`. The relay calls `sync()` after each publish (`--sync`), so stored
 
 ## Open decisions
 
-- **Clawback.** USTRY has `auth_clawback_enabled` on both networks. A clawback from the series makes
-  `assert_custody` fail every exit until the shortfall is restored (fail-closed, as in Series 1).
-  A pro-rata haircut would keep exits open at the reduced ratio. This is a product and legal choice.
+- **Clawback: decided, fail-closed (policy A).** USTRY has `auth_clawback_enabled` on both networks.
+  After a clawback from the series, `assert_custody` refuses every USTRY payout (receipt withdrawal,
+  combine/redeem, yield claim) and new entry until anyone restores the shortfall with a plain
+  transfer; then every exit reopens at full value. PT/YT transfers and finalization move no USTRY and
+  stay open. Covered by `clawback_freezes_payouts_until_the_shortfall_is_restored`; the app shows a
+  freeze banner and maps `Insolvent` (v2 #12, v1 #15) to a plain message.
 - **Upgrade trust.** The 24h timelock lets holders of both legs combine and leave; a holder of only
   PT or only YT cannot exit before finalization. Use a different, multi-signature admin on mainnet.
 - **Window flush.** If more than `window` samples arrive between folds, older ones are skipped.

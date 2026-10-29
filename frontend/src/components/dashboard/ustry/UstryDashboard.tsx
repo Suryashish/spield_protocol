@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
 import { APP_ORIGIN } from '@/lib/site';
 import { NETWORK } from '@/lib/config';
+import { units } from '@/lib/ustry';
 import { NavProvider } from '@/context/NavContext';
 import { navById, NAV_ITEMS } from '../data';
 import Sidebar from '../layout/Sidebar';
@@ -251,6 +252,14 @@ export default function UstryDashboard() {
                 <Banner tone="danger">
                   New USTRY deposits and splits are paused. Existing exits remain available when
                   their price requirements are met.
+                </Banner>
+              )}
+              {model.frozen && (
+                <Banner tone="danger">
+                  The series holds {units(model.shortfall)} USTRY less than it owes, most likely after an
+                  issuer clawback. Withdrawals, redemptions, yield claims and new deposits are frozen
+                  for everyone until the shortfall is restored, so no holder can exit at the
+                  others&apos; expense. PT and YT transfers remain available.
                 </Banner>
               )}
               {error && (

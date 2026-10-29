@@ -2,7 +2,7 @@
 // series read RedStone directly and need no relay).
 //
 //   node ustry_nav_relay.mjs --oracle C… [--key env:USTRY_PUBLISHER_SECRET | --key ustry-publisher]
-//                            [--every 14400] [--sync C…[,C…]] [--loop]
+//                            [--every 14400] [--sync C…[,C…]] [--loop] [--quiet]
 //
 // `--sync` folds each listed series after a publish. Series exits never read the feed, so this
 // keeps their stored state current and a user's claim pays everything already published.
@@ -10,6 +10,13 @@
 // One shot (default) is what a scheduler runs: exit 0 = published or not yet due, exit 1 = failed
 // or the feed is close to stale, so the scheduler's failure alert is the staleness alarm.
 // Running it more often than needed is harmless: the oracle rejects early or duplicate samples.
+//
+// `--loop` runs until stopped and exits by itself if its parent process dies, so a dev server that
+// spawned it (frontend/vite-ustry-relay.ts) never leaves it orphaned. `--quiet` drops the
+// once-a-minute "healthy" line and keeps publishes, syncs and errors.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fetchNav } from './ustry_nav.mjs';
 import { client, i128, keypair, stellarAsset, u32, u64 } from './ustry_v2.mjs';
 
@@ -21,6 +28,7 @@ const oracle = arg('oracle', process.env.USTRY_ORACLE);
 const keySpec = arg('key', process.env.USTRY_PUBLISHER_SECRET ? 'env:USTRY_PUBLISHER_SECRET' : 'ustry-publisher');
 const every = Number(arg('every', 4 * 3_600));
 const warnAge = Number(arg('warn-age', 10 * 3_600));
+const quiet = process.argv.includes('--quiet');
 const syncTargets = (arg('sync', process.env.USTRY_SERIES) ?? '').split(',').filter(Boolean);
 if (!oracle) throw new Error('--oracle (or USTRY_ORACLE) is required');
 const c = client('testnet');
@@ -38,7 +46,7 @@ async function once() {
   const moved = nav.price > last.price ? nav.price - last.price : last.price - nav.price;
   const deviated = moved * 1000n >= BigInt(last.price) && age >= 60;
   if (age < every && !deviated) {
-    console.log(`healthy: last $${Number(last.price) / 1e8} ${(age / 3600).toFixed(2)}h ago; next due in ${((every - age) / 3600).toFixed(2)}h`);
+    if (!quiet) console.log(`healthy: last $${Number(last.price) / 1e8} ${(age / 3600).toFixed(2)}h ago; next due in ${((every - age) / 3600).toFixed(2)}h`);
     // Retry any sync a previous run missed; this only submits when a series lags the feed.
     await syncAll(kp);
     return;
@@ -57,6 +65,15 @@ async function syncAll(kp) {
   }
 }
 
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
 async function health() {
   const cfg = await c.view(oracle, 'config');
   const last = await c.view(oracle, 'lastprice', [stellarAsset(cfg.asset)]);
@@ -67,6 +84,34 @@ async function health() {
 }
 
 if (process.argv.includes('--loop')) {
+  // Fail fast on a missing or wrong key instead of logging the same error every minute.
+  const kp = keypair(keySpec);
+  const cfg = await c.view(oracle, 'config');
+  if (cfg.publisher !== kp.publicKey())
+    throw new Error(`Signer ${kp.publicKey()} is not the oracle publisher ${cfg.publisher}`);
+  // One looping relay per machine and oracle, however many dev servers start one.
+  const lock = path.join(os.homedir(), '.spield', `ustry-relay-${oracle}.pid`);
+  fs.mkdirSync(path.dirname(lock), { recursive: true });
+  const holder = Number(fs.existsSync(lock) ? fs.readFileSync(lock, 'utf8') : 0);
+  if (holder && holder !== process.pid && alive(holder)) {
+    console.log(`already running (pid ${holder}); this instance is not needed`);
+    process.exit(0);
+  }
+  fs.writeFileSync(lock, String(process.pid));
+  const release = () => {
+    try {
+      if (Number(fs.readFileSync(lock, 'utf8')) === process.pid) fs.unlinkSync(lock);
+    } catch {
+      /* already gone */
+    }
+  };
+  process.on('exit', release);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(0));
+  const parent = process.ppid;
+  setInterval(() => {
+    if (process.ppid !== parent) process.exit(0);
+  }, 2_000).unref();
+  console.log(`relaying testnet USTRY NAV into ${oracle.slice(0, 8)}… as ${kp.publicKey().slice(0, 8)}…, every ${every / 3600}h${syncTargets.length ? `, syncing ${syncTargets.map((s) => s.slice(0, 8) + '…').join(', ')}` : ''}`);
   for (;;) {
     try {
       await once();

@@ -217,7 +217,7 @@ export async function writeUstry(
     )
   )
     throw new Error('Unsupported USTRY action.');
-  return writeContract(wallet, c.series, method, args, formatUstrySimulationError);
+  return writeContract(wallet, c.series, method, args, ustryErrorFormatter(c));
 }
 export function entitlement(h: Holding, state: UstryState): bigint {
   return (
@@ -227,6 +227,13 @@ export function entitlement(h: Holding, state: UstryState): bigint {
 
 // RWA engine error codes overlap with both Blend and SAC error codes. Preserve
 // the original code without incorrectly instructing users to add a Blend PT line.
-export function formatUstrySimulationError(raw: string, method: string): string {
-  return `USTRY ${method.replaceAll('_', ' ')} was rejected. Refresh the series and check balances, NAV, minimum output and the USTRY trustline. ${raw.slice(0, 160)}`;
+/** `Insolvent` differs by contract: Series 1 (`rwa`) is #15, v2 (`ustry-series`) is #12, and
+ *  each code means something else in the other contract (v1 #12 Drawdown, v2 #15 Cap). */
+const INSOLVENT_CODE = { 1: 15, 2: 12 } as const;
+export function ustryErrorFormatter(c: UstryContractSet) {
+  const insolvent = `Error(Contract, #${INSOLVENT_CODE[c.version === 2 ? 2 : 1]})`;
+  return (raw: string, method: string): string =>
+    raw.includes(insolvent)
+      ? `USTRY ${method.replaceAll('_', ' ')} is frozen: the series holds less USTRY than it owes (likely an issuer clawback). Payouts reopen once the shortfall is restored.`
+      : `USTRY ${method.replaceAll('_', ' ')} was rejected. Refresh the series and check balances, NAV, minimum output and the USTRY trustline. ${raw.slice(0, 160)}`;
 }
