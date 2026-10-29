@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  AlertTriangle,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
@@ -23,12 +24,14 @@ import {
   Loader2,
   Lock,
   Package,
+  RefreshCw,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   TrendingUp,
   Wallet,
   Wallet2,
+  ExternalLink,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -121,12 +124,12 @@ export function UstryStats({
         value={usdcValue}
         sub={usdcSub}
         icon={Wallet2}
-        tone="usdc"
+        tone={kind === 'deposit' ? 'default' : 'usdc'}
         loading={loading && !!address && walletBalances?.gatal == null}
         info="GATAL and Circle test USDC are different Stellar assets. The main figure shows GATAL; the note shows Circle."
       />
       <StatTile
-        label={kind === 'deposit' ? 'PT Balance' : 'Principal Face'}
+        label={kind === 'deposit' ? 'PT Held' : 'Principal Face'}
         value={shown(data?.holding.pt)}
         sub="USD face · payout in USTRY"
         icon={Layers}
@@ -134,11 +137,11 @@ export function UstryStats({
         info="PT face is denominated in USD. It does not guarantee a dollar payout when USTRY NAV falls."
       />
       <StatTile
-        label={kind === 'deposit' ? 'YT Balance' : 'Claimable Yield'}
+        label={kind === 'deposit' ? 'YT Held' : 'Claimable Yield'}
         value={shown(kind === 'deposit' ? data?.holding.yt : claimable)}
-        sub={kind === 'deposit' ? 'USD face · earns until maturity' : 'USTRY · ready to claim'}
-        icon={TrendingUp}
-        tone={claimable > 0n ? 'positive' : 'default'}
+        sub={kind === 'deposit' ? 'Earns the variable rate' : 'USTRY · ready to claim'}
+        icon={kind === 'deposit' ? Sparkles : TrendingUp}
+        tone={kind !== 'deposit' && claimable > 0n ? 'positive' : 'default'}
         loading={loading && !data}
       />
       <StatTile
@@ -385,7 +388,8 @@ export function UstrySolvencyCard({ model: m }: Props) {
                 />
               </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground @md:text-[13px]">
-                Live USTRY custody vs. token obligations, read on-chain.
+                Live USTRY custody vs. token obligations, read on-chain. Measured in USTRY, not
+                dollars.
               </p>
             </div>
           </div>
@@ -409,27 +413,42 @@ export function UstrySolvencyCard({ model: m }: Props) {
           <div className="h-full bg-brand/30" style={{ width: d ? `${100 - share}%` : '0%' }} />
         </div>
         <div className="grid grid-cols-3 gap-2 max-[359px]:grid-cols-1 @md:gap-3">
-          {[
-            ['Backing', d ? units(d.custody) : '—', 'USTRY held by the series'],
-            ['Obligations', d ? units(owed) : '—', 'Receipt plus PT/YT token allocations'],
+          {(
             [
-              'Surplus',
-              d ? `+${units(surplus)}` : '—',
-              'Unallocated USTRY, including rounding; not a promised yield payout',
-            ],
-          ].map(([label, value, info]) => (
+              ['Backing', d ? units(d.custody) : '—', 'USTRY held by the series.', true, undefined],
+              [
+                'Obligations',
+                d ? units(owed) : '—',
+                'Unsplit receipts plus PT/YT token allocations, in USTRY.',
+                false,
+                covered ? 'bg-brand' : 'bg-danger',
+              ],
+              [
+                'Surplus',
+                d ? `+${units(surplus)}` : '—',
+                'Unallocated USTRY, including rounding; not a promised yield payout.',
+                true,
+                'bg-brand/30',
+              ],
+            ] as const
+          ).map(([label, value, info, positive, dot]) => (
             <div key={label} className="min-w-0 well rounded-lg p-2 @md:p-3">
               <div className="flex items-center justify-between gap-1">
-                <p className="eyebrow min-w-0 truncate">{label}</p>
-                <InfoTooltip content={info} size={10} />
+                <p className="flex items-center gap-1 eyebrow @md:gap-1.5">
+                  {dot && <span className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />}
+                  <span className="truncate">{label}</span>
+                </p>
+                <InfoTooltip content={info} size={11} />
               </div>
               <p
-                className="num mt-1.5 truncate text-[13px] font-medium @md:text-base"
-                title={value}
+                className={cn(
+                  'num mt-1 truncate font-display text-[15px] leading-tight font-medium tracking-[-0.015em] sm:text-[17px]',
+                  positive && 'text-brand-text',
+                )}
+                title={`${value} USTRY`}
               >
                 {value}
               </p>
-              <p className="mt-1 text-[10px] text-subtle">USTRY</p>
             </div>
           ))}
         </div>
@@ -447,13 +466,9 @@ export function UstrySolvencyCard({ model: m }: Props) {
             target="_blank"
             rel="noreferrer"
           >
-            View series contract
-            <ArrowUpRight size={11} />
+            View series contract <ExternalLink size={11} />
           </a>
         </div>
-        <p className="text-[12px] leading-relaxed text-muted-foreground">
-          Coverage is measured in USTRY. Falling NAV can reduce the dollar value of principal.
-        </p>
       </CardContent>
     </Card>
   );
@@ -556,78 +571,114 @@ function UstryTransfer({ model: m }: Props) {
     </details>
   );
 }
+/** PositionsPanel's dashed frame for an empty slot. */
+function EmptySlot(props: React.ComponentProps<typeof EmptyState>) {
+  return (
+    <div className="flex flex-1 flex-col justify-center rounded-xl border border-dashed border-border">
+      <EmptyState {...props} />
+    </div>
+  );
+}
+/** Same shell as the Blend PositionsPanel: ruled header, refresh, scrollable body. */
 export function UstryPositions({ model: m, receipt = false }: Props & { receipt?: boolean }) {
   const d = m.data;
   const hasPosition =
     !!d && (d.holding.pt > 0n || d.holding.yt > 0n || d.holding.receipt > 0n || m.claimable > 0n);
   return (
-    <Card className="h-full rounded-xl">
-      <CardHeader>
-        <CardTitle>{receipt ? 'Your receipt position' : 'Your positions'}</CardTitle>
-        <CardDescription>
-          {receipt
-            ? 'Unsplit receipts and PT/YT balances for this series'
-            : 'Principal tokens and yield tokens held by your wallet'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {m.loading && !d ? (
-          <div className="h-56 animate-pulse rounded-xl bg-muted" />
-        ) : !m.address || !hasPosition ? (
-          <EmptyState
-            className="min-h-56"
+    <Card className="flex h-full flex-col gap-0 overflow-hidden rounded-xl py-0">
+      <div className="flex items-start justify-between border-b border-border px-5 py-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">
+              {receipt ? 'Your Receipt Position' : 'Your Positions'}
+            </h3>
+            <InfoTooltip
+              title={receipt ? 'sUSTRY receipts' : 'PT / YT positions'}
+              content="PT and YT are measured in USD face; sUSTRY receipts are measured in USTRY units. Payouts are in USTRY, whose NAV can fall."
+            />
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {receipt
+              ? 'Unsplit receipts and PT/YT balances for this series.'
+              : 'Manage your tranches — claim yield, combine, or transfer.'}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => void m.refresh()}
+          disabled={m.loading || m.busy}
+          className="-mr-1 shrink-0 text-muted-foreground hover:text-foreground"
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={cn(m.loading && 'animate-spin')} />
+        </Button>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto p-5 lg:max-h-128">
+        {!m.address ? (
+          <EmptySlot
+            icon={Coins}
+            title="Connect your wallet"
+            body="Connect your wallet to view and manage your PT/YT and sUSTRY balances."
+          />
+        ) : m.loading && !d ? (
+          <div className="space-y-3">
+            {[0, 1].map((i) => (
+              <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />
+            ))}
+          </div>
+        ) : !hasPosition ? (
+          <EmptySlot
             icon={Layers}
-            title={m.address ? 'No positions yet' : 'Connect your wallet'}
-            body="Deposit USTRY to start a position. Your balances will appear here."
-            action={
-              !m.address ? (
-                <Button size="sm" onClick={m.openWalletPicker}>
-                  Connect Wallet
-                </Button>
-              ) : undefined
+            title="No open positions"
+            body={
+              receipt
+                ? 'Wrap USDC to receive your first sUSTRY receipt.'
+                : 'Deposit USDC to mint your first PT + YT position.'
             }
           />
         ) : (
-          <>
-            {[
-              ['PT', 'Principal · USD face', d!.holding.pt],
-              ['YT', 'Yield entitlement · USD face', d!.holding.yt],
-              ['sUSTRY', 'Unsplit receipts · USTRY units', d!.holding.receipt],
-            ].map(([symbol, description, value]) => (
-              <div
-                key={String(symbol)}
-                className="flex items-center justify-between gap-4 rounded-xl border border-border bg-sunken/40 p-4"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="well grid size-10 shrink-0 place-items-center rounded-lg text-brand-text">
-                    <Layers size={16} />
-                  </span>
-                  <div>
-                    <p className="text-[13px] font-semibold">{String(symbol)}</p>
-                    <p className="text-[11.5px] text-muted-foreground">{String(description)}</p>
-                  </div>
-                </div>
-                <span className="num text-right font-display text-lg">
-                  {units(value as bigint)}
-                </span>
+          <div className="well rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="well grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground">
+                <Layers size={16} />
               </div>
-            ))}
-            <div className="well space-y-2 rounded-lg p-3">
+              <div>
+                <p className="text-[13.5px] font-medium">Your {m.activeSeries.name} position</p>
+                <p className="text-xs text-muted-foreground">Matures {date(m.activeSeries.expiry)}</p>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+              {(
+                [
+                  ['PT', 'text-brand-text', d!.holding.pt],
+                  ['YT', 'text-ember-text', d!.holding.yt],
+                  ['sUSTRY', 'text-brand-text', d!.holding.receipt],
+                ] as const
+              ).map(([symbol, tone, value]) => (
+                <div key={symbol} className="rounded-lg border border-border bg-card py-2.5">
+                  <p className={cn('text-xs font-semibold', tone)}>{symbol}</p>
+                  <p className="num mt-1 text-[14px] font-medium">{units(value)}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 space-y-2">
               <Pair label="PT principal allocation">
                 {units((d!.holding.pt * d!.state.factor) / FACTOR_SCALE)} USTRY
               </Pair>
               <Pair label="Claimable yield">{units(m.claimable)} USTRY</Pair>
             </div>
-          </>
+          </div>
         )}
         <UstryTransfer model={m} />
-      </CardContent>
+      </div>
     </Card>
   );
 }
 export function UstryDeposit({ model }: Props) {
   return (
     <div className="space-y-6">
+      <UstryStats model={model} kind="deposit" />
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
         <div className="lg:col-span-5" data-tour="deposit-panel">
           <UstryReceiptWrapper model={model} product="ptyt" />
@@ -651,30 +702,51 @@ export function UstryReceipts({ model }: Props) {
     </div>
   );
 }
+/** SrYieldPanel's row: label, tooltip and hint on the left, figure on the right. */
+function YieldRow({ label, value, hint, info }: { label: string; value: string; hint: string; info: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b py-2 last:border-b-0">
+      <div>
+        <div className="flex items-center gap-1.5 text-sm">
+          <span>{label}</span>
+          <InfoTooltip content={info} size={12} />
+        </div>
+        <div className="text-[11px] text-muted-foreground">{hint}</div>
+      </div>
+      <div className="shrink-0 font-medium tabular-nums">{value}</div>
+    </div>
+  );
+}
 export function UstryYield({ model: m }: Props) {
   const d = m.data;
   const rows = [
     [
       'Claimable now',
-      m.address && d ? `${units(m.claimable)} USTRY` : '—',
-      'Earned token units, paid without burning YT',
+      `${m.address && d ? units(m.claimable) : '0'} USTRY`,
+      'paid without burning YT',
+      'Earned USTRY claimable now. Claiming does not burn or reduce your YT tokens.',
     ],
     [
       'YT face held',
-      m.address && d ? `${units(d.holding.yt)} YT` : '—',
-      'USD face earning variable yield',
+      `${m.address && d ? units(d.holding.yt) : '0'} YT`,
+      'the notional earning yield for you',
+      'USD face of YT earning USTRY yield for your wallet.',
     ],
     [
       'High-water NAV',
       d ? `$${units(d.state.high_water, 8)}` : '—',
-      'New yield accrues above this level',
+      'new yield accrues above this level',
+      'YT earns only when USTRY NAV rises above its previous high. A recovery below it earns nothing new.',
     ],
     [
       'Accruing until',
-      m.matured ? 'Matured' : date(m.activeSeries.expiry),
-      'Yield stops at this series maturity',
+      m.matured ? 'matured' : `${Math.max(0, Math.ceil((m.activeSeries.expiry - m.clock / 1000) / 86400))} days`,
+      m.matured ? 'this series has matured' : 'maturity',
+      m.matured
+        ? 'This series has matured. Accrued yield remains claimable with no deadline.'
+        : 'Yield continues to accrue until the series reaches maturity.',
     ],
-  ];
+  ] as const;
   return (
     <div data-tour="yield-panel">
       <Card>
@@ -695,12 +767,8 @@ export function UstryYield({ model: m }: Props) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
-            {rows.map(([label, value, hint]) => (
-              <div key={label} className="border-b border-border/60 py-3">
-                <p className="text-[12px] text-muted-foreground">{label}</p>
-                <p className="num mt-1 font-display text-lg font-medium">{value}</p>
-                <p className="mt-1 text-[11.5px] text-subtle">{hint}</p>
-              </div>
+            {rows.map(([label, value, hint, info]) => (
+              <YieldRow key={label} label={label} value={value} hint={hint} info={info} />
             ))}
           </div>
           <Button
@@ -715,15 +783,17 @@ export function UstryYield({ model: m }: Props) {
                 : void m.transact('Claim USTRY yield', 'claim_yield')
             }
           >
-            {m.busy ? (
+            {!m.address ? (
+              <Wallet className="mr-2 h-4 w-4" aria-hidden />
+            ) : m.busy ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Coins className="mr-2 h-4 w-4" />
             )}
             {!m.address
-              ? 'Connect Wallet'
+              ? 'Connect wallet'
               : !m.onCorrectNetwork
-                ? 'Switch wallet network'
+                ? 'Switch your wallet network'
                 : m.claimable > 0n
                   ? `Claim ${units(m.claimable)} USTRY`
                   : 'Nothing to claim yet'}
@@ -749,26 +819,30 @@ export function UstryMarkets({ model }: Props) {
 }
 export function UstrySolvency({ model: m }: Props) {
   const d = m.data;
-  const risks: [LucideIcon, string, string][] = [
+  const risks: [LucideIcon, string, string, 'high' | 'medium'][] = [
     [
       ShieldAlert,
       'NAV can fall',
       'Token coverage does not guarantee USD principal. PT and yield payouts remain in USTRY.',
+      'high',
     ],
     [
       TrendingUp,
       'Prices depend on the NAV relay',
       'Priced actions stop when observations are stale. Missing maturity history can delay settlement.',
+      'medium',
     ],
     [
       Lock,
       'Issuer controls apply',
       'USTRY issuer freezes or clawbacks can prevent token transfers and withdrawals.',
+      'high',
     ],
     [
       Coins,
       'Cash exits depend on liquidity',
       'USDC conversion uses executable exchange quotes. Fiat redemption is operated through Spield’s registered Etherfuse account.',
+      'medium',
     ],
   ];
   return (
@@ -776,23 +850,56 @@ export function UstrySolvency({ model: m }: Props) {
       <UstrySolvencyCard model={m} />
       <Card>
         <CardHeader>
-          <CardTitle>Risk Disclosure</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />
+            Risks you are taking
+          </CardTitle>
           <CardDescription>
-            What backs this series today, and what can interrupt an exit
+            The honest version. Read this before depositing — not after.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2">
-            {risks.map(([Icon, title, body]) => (
-              <div key={title} className="rounded-xl border border-border bg-sunken/40 p-4">
-                <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
-                  <Icon size={16} className="shrink-0 text-ember-text" />
-                  {title}
-                </div>
-                <p className="text-[12.5px] leading-relaxed text-muted-foreground">{body}</p>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <Lock className="h-3.5 w-3.5" aria-hidden />
+              Deposit cap
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Cap</div>
+                <div className="tabular-nums">{m.c.capUstry} USTRY</div>
               </div>
-            ))}
+              <div>
+                <div className="text-xs text-muted-foreground">Backing</div>
+                <div className="tabular-nums">{d ? units(d.custody) : '—'} USTRY</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Matures</div>
+                <div className="tabular-nums">{date(m.activeSeries.expiry)}</div>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              The cap is enforced on chain and gates deposits only — it can never block a withdrawal.
+            </p>
           </div>
+          <ul className="space-y-3">
+            {risks.map(([Icon, title, body, severity]) => (
+              <li key={title} className="flex gap-3">
+                <Icon
+                  className={
+                    severity === 'high'
+                      ? 'mt-0.5 h-4 w-4 shrink-0 text-destructive'
+                      : 'mt-0.5 h-4 w-4 shrink-0 text-amber-500'
+                  }
+                  aria-hidden
+                />
+                <div>
+                  <div className="text-sm font-medium">{title}</div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{body}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         </CardContent>
       </Card>
       <Card>
@@ -802,8 +909,6 @@ export function UstrySolvency({ model: m }: Props) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-            <Pair label="Deposit cap">{m.c.capUstry} USTRY</Pair>
-            <Pair label="Maturity">{date(m.activeSeries.expiry)}</Pair>
             <Pair label="Settlement">
               {d?.settledOnChain
                 ? 'Finalized on chain'
@@ -862,50 +967,47 @@ export function UstrySolvency({ model: m }: Props) {
 }
 export function UstryActivity({ model: m }: Props) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recent Activity</CardTitle>
-        <CardDescription>
-          Confirmed actions for this wallet and series recorded on this device
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {!m.address || !m.activity.length ? (
-          <EmptyState
-            icon={History}
-            title={m.address ? 'No activity yet' : 'Connect your wallet'}
-            body="Your confirmed deposits, claims, transfers and redemptions appear here. On-chain balances are read independently of this device history."
-          />
-        ) : (
-          <div className="divide-y divide-border">
-            {m.activity.map((a) => (
+    <Card className="gap-0 overflow-hidden rounded-xl py-0">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <h3 className="font-display text-[15px] font-medium tracking-[-0.015em]">Activity</h3>
+      </div>
+      {!m.address || !m.activity.length ? (
+        <EmptyState
+          icon={History}
+          title={m.address ? 'No activity yet' : 'Connect your wallet'}
+          body="Your confirmed deposits, claims, transfers and redemptions on this device appear here."
+        />
+      ) : (
+        <div className="divide-y divide-border">
+          {m.activity.map((a) => (
+            <div
+              key={a.hash}
+              className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors duration-200 hover:bg-accent/60"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="well grid size-8 shrink-0 place-items-center rounded-lg text-subtle">
+                  <CheckCircle2 size={15} />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{a.label}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {new Date(a.time).toLocaleString()}
+                  </p>
+                </div>
+              </div>
               <a
-                key={a.hash}
                 href={explorerTx(a.hash)}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center justify-between gap-3 py-4"
+                className="text-muted-foreground transition-colors hover:text-foreground"
+                title="View on explorer"
               >
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="well grid size-9 shrink-0 place-items-center rounded-lg text-brand-text">
-                    <CheckCircle2 size={16} />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium">{a.label}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {new Date(a.time).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-                <span className="mono flex shrink-0 items-center gap-1 text-xs text-brand-text">
-                  {a.hash.slice(0, 6)}…{a.hash.slice(-4)}
-                  <ArrowUpRight size={12} />
-                </span>
+                <ExternalLink size={13} />
               </a>
-            ))}
-          </div>
-        )}
-      </CardContent>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }

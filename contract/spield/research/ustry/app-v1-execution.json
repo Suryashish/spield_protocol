@@ -47,6 +47,10 @@
       "endingTokens": "33111516",
       "custody": "1",
       "roundingUnits": "1"
+    },
+    "navPublished": {
+      "price": "110687400",
+      "timestamp": 1793276430
     }
   },
   "transactions": [
@@ -112,10 +116,31 @@
       "hash": "d5773860a4e2b3b4a0f70d8391b71c15e0a78505985854414517739132232194",
       "successful": true,
       "returnValue": "999999"
+    },
+    {
+      "contract": "CAYVM7ND6WHWCPKXMIUY4OFQQIJ2XHF7SMVKAVT2XMXOINRKA3ZW2BWV",
+      "method": "publish",
+      "hash": "3a7ec6adc3d0e86f28f13e81dbe7cd7effdc4922c5f522fe88c7c38e3b2bca3e",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAYVM7ND6WHWCPKXMIUY4OFQQIJ2XHF7SMVKAVT2XMXOINRKA3ZW2BWV",
+      "method": "publish",
+      "hash": "58ebc6281e16ad21d3af977edecad5febe328002b50f559bc4e18d4c2524f611",
+      "successful": true,
+      "returnValue": null
+    },
+    {
+      "contract": "CAYVM7ND6WHWCPKXMIUY4OFQQIJ2XHF7SMVKAVT2XMXOINRKA3ZW2BWV",
+      "method": "publish",
+      "hash": "8fa268e3edf9939d3b13a379c575f6097fe1788500b2029c9a3a577fc3bec111",
+      "successful": true,
+      "returnValue": null
     }
   ],
   "oracleMode": "issuer sandbox NAV, authenticated relay observations; not RedStone",
-  "updatedAtUtc": "2026-10-27T14:02:23.386Z",
+  "updatedAtUtc": "2026-10-29T12:20:36.224Z",
   "initialNav": {
     "price": "110672500",
     "fetchedAt": "2026-10-27T13:51:27.446Z",
@@ -176,5 +201,49 @@
     "expiry": 1794318684,
     "maxAge": 46800,
     "capUstry": 1000
+  },
+  "lastNav": {
+    "price": "110687400",
+    "fetchedAt": "2026-10-29T12:20:32.268Z",
+    "source": "https://api.sand.etherfuse.com/lookup/tokens/cost/ustry",
+    "response": {
+      "token_symbol": "USTRY",
+      "token_mint": "BoTpvjYEDn8esZDrBkipexoUMeSBQ9DDG6A5mtzsDGSt",
+      "token_kind": "bond",
+      "currency": "USD",
+      "token_cost_in_fiat": "1.106874",
+      "token_cost_in_usd": "1.106874",
+      "fiat_exchange_rate_with_usd": "1",
+      "current_basis_points": 254,
+      "current_time": "2026-10-29T12:20:32.209308627+00:00",
+      "payment_mint": "BXTou3CvPxpFVAJvzvEZcAnRLGCHqT1LHKsFTSQft7s",
+      "sources": {
+        "8333dd29-55fc-49c6-94d1-bf97a967654c": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106874",
+          "updated_at": 1793276420
+        },
+        "c83470e8-282f-41e8-90a5-7eef368311c0": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106874",
+          "updated_at": 1793275849
+        },
+        "4ac820d6-2b2f-4e52-b62f-c83861d82322": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106874",
+          "updated_at": 1793276410
+        },
+        "7302046e-794e-4c29-b46f-8e6e24ae621f": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106874",
+          "updated_at": 1793276430
+        },
+        "369ed8ed-033a-46e7-84ab-db60002f8d50": {
+          "exchange_rate": "1",
+          "token_cost_in_usd": "1.106874",
+          "updated_at": 1793276399
+        }
+      }
+    }
   }
 }

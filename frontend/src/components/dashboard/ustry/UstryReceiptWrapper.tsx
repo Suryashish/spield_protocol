@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDown, Loader2, Wallet } from 'lucide-react';
+import { ArrowDown, Loader2, Package, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/context/ToastContext';
 import {
   addConversionTrustlines,
@@ -18,6 +20,7 @@ import {
 } from '@/lib/ustry-conversion';
 import { FACTOR_SCALE, quantity, units } from '@/lib/ustry';
 import AmountField from '../sections/AmountField';
+import IssuerSelect from './IssuerSelect';
 import type { UstryDashboardModel } from './useUstryDashboard';
 
 type Mode = 'wrap' | 'unwrap';
@@ -307,13 +310,36 @@ export default function UstryReceiptWrapper({
   }
 
   const disabled = busy || quoting || m.busy || !m.onCorrectNetwork || m.loading;
+  // Deposit's primary action is DepositPanel's tall button; the wrapper keeps SrWrapPanel's default.
+  const buttonClass = product === 'ptyt' ? 'h-11 w-full text-[14px] font-medium' : 'w-full';
   return (
     <Card className="h-full rounded-xl">
       <CardHeader>
-        <CardTitle>{product === 'ptyt' ? 'Deposit and Combine' : 'sUSTRY Wrapper'}</CardTitle>
+        <CardTitle className="flex items-center justify-between">
+          {product === 'ptyt' ? (
+            <span>{mode === 'wrap' ? 'Deposit' : m.matured ? 'Redeem' : 'Combine'}</span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <Package className="h-4 w-4" aria-hidden />
+              sUSTRY Wrapper
+            </span>
+          )}
+          <InfoTooltip
+            title={product === 'ptyt' ? 'Deposit & Mint' : 'sUSTRY Receipt'}
+            content={
+              product === 'ptyt'
+                ? 'USDC is converted to USTRY, then split into equal PT (USD face, principal) and YT (yield above the NAV high). Combining burns equal PT + YT and converts the USTRY back to USDC.'
+                : 'sUSTRY is an unsplit USTRY receipt. It holds the USTRY itself, so exiting it never needs a live NAV observation.'
+            }
+          />
+        </CardTitle>
         <CardDescription>
           {product === 'ptyt'
-            ? 'Deposit USDC to mint PT + YT, or combine your position to receive USDC.'
+            ? mode === 'wrap'
+              ? 'Supply USDC to mint a principal token (PT) + a yield token (YT)'
+              : m.matured
+                ? 'Burn PT for its USTRY allocation, paid out in USDC'
+                : 'Burn PT + YT together to exit, paid out in USDC'
             : 'Enter with USDC and receive sUSTRY receipts, or withdraw to USDC.'}
         </CardDescription>
       </CardHeader>
@@ -326,7 +352,12 @@ export default function UstryReceiptWrapper({
               aria-pressed={mode === next}
               disabled={busy}
               onClick={() => reset(next, undefined, '')}
-              className={`rounded-md px-2 py-2 text-xs font-medium ${mode === next ? 'bg-card text-foreground shadow-float-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              className={cn(
+                'rounded-md px-2 py-1.5 text-xs font-medium transition',
+                mode === next
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
             >
               <span className="block">
                 {product === 'ptyt'
@@ -341,19 +372,15 @@ export default function UstryReceiptWrapper({
             </button>
           ))}
         </div>
-        <label className="block space-y-1.5">
-          <span className="eyebrow">USDC asset</span>
-          <select
-            className="h-10 w-full rounded-lg border border-border bg-sunken px-3 text-sm"
-            aria-label="USDC issuer"
-            value={issuer}
-            disabled={busy}
-            onChange={(event) => reset(undefined, event.target.value)}
-          >
-            <option value={GATAL_ISSUER}>GATAL test USDC</option>
-            <option value={CIRCLE_ISSUER}>Circle testnet USDC</option>
-          </select>
-        </label>
+        <IssuerSelect
+          label="USDC issuer"
+          value={issuer}
+          disabled={busy}
+          onChange={(value) => reset(undefined, value)}
+        >
+          <option value={GATAL_ISSUER}>GATAL test USDC</option>
+          <option value={CIRCLE_ISSUER}>Circle testnet USDC</option>
+        </IssuerSelect>
         <AmountField
           label="You pay"
           token={mode === 'wrap' ? 'USDC' : product === 'ptyt' ? m.matured ? 'PT' : 'PT + YT' : 'sUSTRY'}
@@ -364,11 +391,23 @@ export default function UstryReceiptWrapper({
           onMax={available !== null && available > 0n ? () => reset(undefined, undefined, units(available)) : undefined}
           invalid={overBalance || (amount !== '' && entered === 0n)}
         />
-        <div className="flex justify-center text-muted-foreground"><ArrowDown size={16} /></div>
+        {product === 'ptyt' ? (
+          <div className="flex items-center gap-3 py-0.5">
+            <span className="rule-soft flex-1" aria-hidden="true" />
+            <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
+              <ArrowDown size={12} />
+            </span>
+            <span className="rule-soft flex-1" aria-hidden="true" />
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            <ArrowDown className="h-4 w-4 text-muted-foreground" aria-hidden />
+          </div>
+        )}
         {product === 'ptyt' && mode === 'wrap' ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <AmountField
-              label="Estimated receive"
+              label="You receive"
               token="PT"
               value={quote && !expired && estimatedFace > 0n ? units(estimatedFace) : ''}
               hint="USD face; redemption value can vary"
@@ -376,7 +415,7 @@ export default function UstryReceiptWrapper({
               loading={quoting}
             />
             <AmountField
-              label="Estimated receive"
+              label="You receive"
               token="YT"
               value={quote && !expired && estimatedFace > 0n ? units(estimatedFace) : ''}
               hint="Variable yield"
@@ -386,7 +425,7 @@ export default function UstryReceiptWrapper({
           </div>
         ) : (
           <AmountField
-            label="Estimated receive"
+            label="You receive"
             token={mode === 'wrap' ? 'sUSTRY' : 'USDC'}
             value={quote && !expired ? units(quote.output) : ''}
             hint={quoting ? 'Updating live quote…' : 'Live exchange quote; output can change until confirmed'}
@@ -394,7 +433,7 @@ export default function UstryReceiptWrapper({
             loading={quoting}
           />
         )}
-        <div className="well space-y-1.5 rounded-lg p-3 text-xs">
+        <div className="well space-y-1.5 rounded-lg p-3 text-[12.5px]">
           <div className="flex justify-between gap-2">
             <span className="text-muted-foreground">Minimum estimated output</span>
             <span>
@@ -420,10 +459,10 @@ export default function UstryReceiptWrapper({
         {error && <p role="alert" className="rounded-lg border border-danger/25 bg-danger/8 p-3 text-xs text-danger-text">{error}</p>}
         {actionError && <p role="alert" className="rounded-lg border border-danger/25 bg-danger/8 p-3 text-xs text-danger-text">{actionError}</p>}
         {!m.address ? (
-          <Button className="w-full" onClick={m.openWalletPicker}><Wallet className="mr-2 h-4 w-4" />Connect Wallet</Button>
+          <Button className={buttonClass} onClick={m.openWalletPicker}><Wallet className="mr-2 h-4 w-4" aria-hidden />Connect Wallet</Button>
         ) : (
           <Button
-            className="w-full"
+            className={buttonClass}
             disabled={disabled || entered <= 0n || !quote || quote.wallet !== m.address || quote.seriesId !== m.activeSeries.id || quote.amount !== quoteInput || expired || overBalance || capExceeded || faceTooSmall || (mode === 'wrap' && m.entryBlocked) || (product === 'ptyt' && (factor <= 0n || (mode === 'unwrap' && m.unsafe)))}
             onClick={() => void submit()}
           >
@@ -431,7 +470,7 @@ export default function UstryReceiptWrapper({
             {busy ? phase : quoting ? 'Updating quote…' : !m.onCorrectNetwork ? 'Switch wallet network' : mode === 'wrap' && m.entryBlocked ? 'Deposits unavailable' : product === 'ptyt' && mode === 'unwrap' && m.unsafe ? 'Waiting for valid NAV' : !quote || expired ? 'Waiting for live quote' : product === 'ptyt' ? mode === 'wrap' ? 'Deposit USDC' : m.matured ? 'Redeem to USDC' : 'Combine to USDC' : mode === 'wrap' ? 'Wrap USDC' : 'Unwrap to USDC'}
           </Button>
         )}
-        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {product === 'ptyt'
             ? 'USDC conversion and PT/YT minting or redemption require separate wallet confirmations. PT and YT use USD face; USDC received on exit depends on USTRY NAV and market liquidity.'
             : 'The swap and receipt action require separate wallet confirmations.'}{' '}

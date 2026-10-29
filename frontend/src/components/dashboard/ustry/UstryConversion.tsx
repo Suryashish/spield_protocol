@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, Loader2, Wallet } from 'lucide-react';
+import { ArrowDown, Layers, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import AmountField from '../sections/AmountField';
+import IssuerSelect from './IssuerSelect';
 import { cn } from '@/lib/utils';
 import { useSeries } from '@/context/SeriesContext';
 import { useWallet } from '@/context/WalletContext';
@@ -114,7 +116,16 @@ export default function UstryConversion({
   return (
     <Card className="rounded-xl">
       <CardHeader>
-        <CardTitle>Trade</CardTitle>
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Layers className="h-4 w-4" aria-hidden />
+            Trade — USDC / USTRY
+          </span>
+          <InfoTooltip
+            title="USTRY conversion"
+            content="This converts the underlying USTRY asset at an executable exchange quote with a minimum output. It does not trade PT or YT; no PT pool is deployed for this series."
+          />
+        </CardTitle>
         <CardDescription>Convert USDC and USTRY using a live exchange quote.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -133,9 +144,9 @@ export default function UstryConversion({
                 setReverse(sell);
               }}
               className={cn(
-                'rounded-md px-3 py-2 text-[12px] font-medium transition-colors',
+                'rounded-md px-2 py-1.5 text-xs font-medium transition',
                 reverse === sell
-                  ? 'bg-card text-foreground shadow-float-sm'
+                  ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -146,22 +157,18 @@ export default function UstryConversion({
             </button>
           ))}
         </div>
-        <label className="block space-y-1.5">
-          <span className="eyebrow">USDC asset</span>
-          <select
-            aria-label="Conversion USDC issuer"
-            className="h-10 w-full min-w-0 rounded-lg border border-border bg-sunken px-3 text-sm"
-            value={issuer}
-            disabled={busy}
-            onChange={(e) => {
-              invalidate();
-              setIssuer(e.target.value);
-            }}
-          >
-            <option value={GATAL_ISSUER}>GATAL test USDC · Blend asset</option>
-            <option value={CIRCLE_ISSUER}>GBBD test USDC · Circle testnet</option>
-          </select>
-        </label>
+        <IssuerSelect
+          label="Conversion USDC issuer"
+          value={issuer}
+          disabled={busy}
+          onChange={(value) => {
+            invalidate();
+            setIssuer(value);
+          }}
+        >
+          <option value={GATAL_ISSUER}>GATAL test USDC · Blend asset</option>
+          <option value={CIRCLE_ISSUER}>GBBD test USDC · Circle testnet</option>
+        </IssuerSelect>
         <AmountField
           label="You pay"
           token={source.code}
@@ -172,12 +179,8 @@ export default function UstryConversion({
           }}
           disabled={busy}
         />
-        <div className="flex items-center gap-3 py-0.5">
-          <span className="rule-soft flex-1" />
-          <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-card text-subtle shadow-float-sm">
-            <ArrowDown size={12} />
-          </span>
-          <span className="rule-soft flex-1" />
+        <div className="flex justify-center">
+          <ArrowDown className="h-4 w-4 text-muted-foreground" aria-hidden />
         </div>
         <AmountField
           label="You receive"
