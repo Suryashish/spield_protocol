@@ -16,11 +16,12 @@ import {
   USTRY_ISSUER,
   type ConversionQuote,
 } from '@/lib/ustry-conversion';
-import { quantity, units } from '@/lib/ustry';
+import { FACTOR_SCALE, quantity, units } from '@/lib/ustry';
 import AmountField from '../sections/AmountField';
 import type { UstryDashboardModel } from './useUstryDashboard';
 
 type Mode = 'wrap' | 'unwrap';
+type Product = 'receipt' | 'ptyt';
 const amountOf = (value: string) => {
   try {
     return quantity(value);
@@ -29,7 +30,13 @@ const amountOf = (value: string) => {
   }
 };
 
-export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboardModel }) {
+export default function UstryReceiptWrapper({
+  model: m,
+  product = 'receipt',
+}: {
+  model: UstryDashboardModel;
+  product?: Product;
+}) {
   const { push, update } = useToast();
   const [mode, setMode] = useState<Mode>('wrap');
   const [issuer, setIssuer] = useState(GATAL_ISSUER);
@@ -46,7 +53,26 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
   const usdc = swapAsset('USDC', issuer);
   const ustry = swapAsset('USTRY', USTRY_ISSUER);
   const entered = amountOf(amount);
-  const available = mode === 'wrap' ? usdcBalance : (m.data?.holding.receipt ?? null);
+  const factor = m.data?.state.factor ?? 0n;
+  const expectedPayout =
+    product === 'ptyt' && factor > 0n ? (entered * factor) / FACTOR_SCALE : entered;
+  const quoteInput = mode === 'wrap' ? entered : expectedPayout;
+  const estimatedFace =
+    quote && factor > 0n ? (quote.output * FACTOR_SCALE) / factor : 0n;
+  const minimumFace =
+    quote && factor > 0n ? (((quote.minimum * FACTOR_SCALE) / factor) * 9950n) / 10000n : 0n;
+  const available =
+    mode === 'wrap'
+      ? usdcBalance
+      : product === 'receipt'
+        ? (m.data?.holding.receipt ?? null)
+        : m.data
+          ? m.matured
+            ? m.data.holding.pt
+            : m.data.holding.pt < m.data.holding.yt
+              ? m.data.holding.pt
+              : m.data.holding.yt
+          : null;
   const overBalance = available !== null && entered > available;
   const capExceeded =
     mode === 'wrap' &&
@@ -54,6 +80,7 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
     !!m.data &&
     m.data.state.receipts + m.data.state.backing + quote.output >
       BigInt(m.c.capUstry) * 10_000_000n;
+  const faceTooSmall = product === 'ptyt' && mode === 'wrap' && !!quote && minimumFace <= 0n;
   const expired = !!quote && now >= quote.expires;
 
   const refreshBalance = useCallback(async () => {
@@ -69,22 +96,35 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
   }, [m.address, issuer]);
 
   useEffect(() => {
-    void refreshBalance();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void refreshBalance();
+    });
+    return () => {
+      active = false;
+    };
   }, [refreshBalance]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    generation.current++;
-    setQuote(null);
-    setError('');
-    setQuoting(false);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      generation.current++;
+      setQuote(null);
+      setError('');
+      setQuoting(false);
+    });
+    return () => {
+      active = false;
+    };
   }, [m.address, m.activeSeries.id]);
 
   useEffect(() => {
-    if (entered <= 0n || busy) return;
-    let timer: ReturnType<typeof setTimeout>;
+    if (quoteInput <= 0n || busy) return;
+    const generationRef = generation;
     const refresh = async () => {
       const request = ++generation.current;
       setQuoting(true);
@@ -94,7 +134,7 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
           m.activeSeries.id,
           mode === 'wrap' ? swapAsset('USDC', issuer) : swapAsset('USTRY', USTRY_ISSUER),
           mode === 'wrap' ? swapAsset('USTRY', USTRY_ISSUER) : swapAsset('USDC', issuer),
-          entered,
+          quoteInput,
         );
         if (request === generation.current) {
           setQuote(result);
@@ -109,14 +149,14 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
         if (request === generation.current) setQuoting(false);
       }
     };
-    timer = setTimeout(() => void refresh(), 400);
+    const timer = setTimeout(() => void refresh(), 400);
     const interval = setInterval(() => void refresh(), 10_000);
     return () => {
       clearTimeout(timer);
       clearInterval(interval);
-      generation.current++;
+      generationRef.current++;
     };
-  }, [entered, mode, issuer, m.address, m.activeSeries.id, busy]);
+  }, [quoteInput, mode, issuer, m.address, m.activeSeries.id, busy]);
 
   function reset(nextMode?: Mode, nextIssuer?: string, nextAmount?: string) {
     generation.current++;
@@ -159,7 +199,20 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
   }
 
   async function submit() {
-    if (!m.address || !quote || expired || busy || quoting || overBalance || capExceeded) return;
+    if (
+      !m.address ||
+      !quote ||
+      quote.wallet !== m.address ||
+      quote.seriesId !== m.activeSeries.id ||
+      quote.amount !== quoteInput ||
+      expired ||
+      busy ||
+      quoting ||
+      overBalance ||
+      capExceeded ||
+      faceTooSmall ||
+      (product === 'ptyt' && factor <= 0n)
+    ) return;
     const address = m.address;
     setBusy(true);
     setActionError('');
@@ -192,24 +245,47 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
         }
         if (received < fresh.minimum)
           throw new Error('The swap succeeded, but the received USTRY is not visible yet. It remains in your wallet; retry depositing after balances refresh.');
-        setPhase('Deposit into sUSTRY');
-        if (!(await m.transact('Deposit USTRY into sUSTRY', 'deposit', received)))
-          throw new Error('The swap succeeded, but the sUSTRY deposit failed. Your USTRY remains in your wallet.');
+        setPhase(product === 'ptyt' ? 'Mint PT + YT' : 'Deposit into sUSTRY');
+        const minted =
+          product === 'ptyt'
+            ? await m.transact('Deposit USDC and mint PT + YT', 'deposit_split', received, minimumFace || 1n)
+            : await m.transact('Deposit USTRY into sUSTRY', 'deposit', received);
+        if (!minted)
+          throw new Error(
+            product === 'ptyt'
+              ? 'The USDC swap succeeded, but PT + YT minting failed. Your USTRY remains in your wallet.'
+              : 'The swap succeeded, but the sUSTRY deposit failed. Your USTRY remains in your wallet.',
+          );
       } else {
-        setPhase('Withdraw sUSTRY');
-        if (!(await m.transact('Withdraw sUSTRY', 'withdraw_receipts', entered)))
-          throw new Error('The sUSTRY withdrawal failed. Your receipts remain in your wallet.');
+        const before = await conversionBalance(address, ustry);
+        setPhase(product === 'ptyt' ? 'Combine PT + YT' : 'Withdraw sUSTRY');
+        const withdrawn =
+          product === 'ptyt'
+            ? await m.transact(
+                m.matured ? 'Redeem PT for USDC' : 'Combine PT + YT for USDC',
+                'redeem',
+                entered,
+                (expectedPayout * 9950n) / 10000n || 1n,
+              )
+            : await m.transact('Withdraw sUSTRY', 'withdraw_receipts', entered);
+        if (!withdrawn)
+          throw new Error(
+            product === 'ptyt'
+              ? 'The PT redemption failed. Your PT and YT remain in your wallet.'
+              : 'The sUSTRY withdrawal failed. Your receipts remain in your wallet.',
+          );
         // Horizon can lag the Soroban withdrawal, while the next payment needs
         // the newly returned USTRY in its account balance.
-        let balance = 0n;
+        let received = 0n;
         for (let attempt = 0; attempt < 5; attempt++) {
-          balance = await conversionBalance(address, ustry);
-          if (balance >= entered) break;
+          const after = await conversionBalance(address, ustry);
+          received = after > before ? after - before : 0n;
+          if (received >= (product === 'ptyt' ? (expectedPayout * 9950n) / 10000n : entered)) break;
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-        if (balance < entered)
+        if (received <= 0n)
           throw new Error('The withdrawal succeeded, but USTRY is not visible in your wallet yet. It remains yours; use Markets after balances refresh.');
-        const fresh = await conversionQuote(address, m.activeSeries.id, ustry, usdc, entered);
+        const fresh = await conversionQuote(address, m.activeSeries.id, ustry, usdc, received);
         if (fresh.output < quote.minimum)
           throw new Error('The withdrawal succeeded, but the new USDC quote is below your reviewed minimum. Your USTRY remains in your wallet; review a new rate on Markets.');
         await convert({
@@ -234,8 +310,12 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
   return (
     <Card className="h-full rounded-xl">
       <CardHeader>
-        <CardTitle>sUSTRY Wrapper</CardTitle>
-        <CardDescription>Enter with USDC and receive sUSTRY receipts, or withdraw to USDC.</CardDescription>
+        <CardTitle>{product === 'ptyt' ? 'Deposit and Combine' : 'sUSTRY Wrapper'}</CardTitle>
+        <CardDescription>
+          {product === 'ptyt'
+            ? 'Deposit USDC to mint PT + YT, or combine your position to receive USDC.'
+            : 'Enter with USDC and receive sUSTRY receipts, or withdraw to USDC.'}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1" aria-label="Wrapper direction">
@@ -248,8 +328,16 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
               onClick={() => reset(next, undefined, '')}
               className={`rounded-md px-2 py-2 text-xs font-medium ${mode === next ? 'bg-card text-foreground shadow-float-sm' : 'text-muted-foreground hover:text-foreground'}`}
             >
-              <span className="block">{next === 'wrap' ? 'Wrap' : 'Unwrap'}</span>
-              <span className="block text-[10px] opacity-70">{next === 'wrap' ? 'USDC → sUSTRY' : 'sUSTRY → USDC'}</span>
+              <span className="block">
+                {product === 'ptyt'
+                  ? next === 'wrap' ? 'Deposit' : m.matured ? 'Redeem' : 'Combine'
+                  : next === 'wrap' ? 'Wrap' : 'Unwrap'}
+              </span>
+              <span className="block text-[10px] opacity-70">
+                {product === 'ptyt'
+                  ? next === 'wrap' ? 'USDC → PT + YT' : m.matured ? 'PT → USDC' : 'PT + YT → USDC'
+                  : next === 'wrap' ? 'USDC → sUSTRY' : 'sUSTRY → USDC'}
+              </span>
             </button>
           ))}
         </div>
@@ -268,7 +356,7 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
         </label>
         <AmountField
           label="You pay"
-          token={mode === 'wrap' ? 'USDC' : 'sUSTRY'}
+          token={mode === 'wrap' ? 'USDC' : product === 'ptyt' ? m.matured ? 'PT' : 'PT + YT' : 'sUSTRY'}
           value={amount}
           onChange={(value) => reset(undefined, undefined, value)}
           disabled={busy}
@@ -277,21 +365,58 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
           invalid={overBalance || (amount !== '' && entered === 0n)}
         />
         <div className="flex justify-center text-muted-foreground"><ArrowDown size={16} /></div>
-        <AmountField
-          label="Estimated receive"
-          token={mode === 'wrap' ? 'sUSTRY' : 'USDC'}
-          value={quote && !expired ? units(quote.output) : ''}
-          hint={quoting ? 'Updating live quote…' : 'Live exchange quote; sUSTRY is minted 1:1 from received USTRY'}
-          hintTone="brand"
-          loading={quoting}
-        />
+        {product === 'ptyt' && mode === 'wrap' ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <AmountField
+              label="Estimated receive"
+              token="PT"
+              value={quote && !expired && estimatedFace > 0n ? units(estimatedFace) : ''}
+              hint="USD face; redemption value can vary"
+              hintTone="brand"
+              loading={quoting}
+            />
+            <AmountField
+              label="Estimated receive"
+              token="YT"
+              value={quote && !expired && estimatedFace > 0n ? units(estimatedFace) : ''}
+              hint="Variable yield"
+              hintTone="ember"
+              loading={quoting}
+            />
+          </div>
+        ) : (
+          <AmountField
+            label="Estimated receive"
+            token={mode === 'wrap' ? 'sUSTRY' : 'USDC'}
+            value={quote && !expired ? units(quote.output) : ''}
+            hint={quoting ? 'Updating live quote…' : 'Live exchange quote; output can change until confirmed'}
+            hintTone="brand"
+            loading={quoting}
+          />
+        )}
         <div className="well space-y-1.5 rounded-lg p-3 text-xs">
-          <div className="flex justify-between gap-2"><span className="text-muted-foreground">Minimum estimated output</span><span>{quote && !expired ? `${units(quote.minimum)} ${mode === 'wrap' ? 'sUSTRY' : 'USDC'}` : '—'}</span></div>
+          <div className="flex justify-between gap-2">
+            <span className="text-muted-foreground">Minimum estimated output</span>
+            <span>
+              {quote && !expired
+                ? product === 'ptyt' && mode === 'wrap'
+                  ? `${units(minimumFace)} PT + ${units(minimumFace)} YT`
+                  : `${units(quote.minimum)} ${mode === 'wrap' ? 'sUSTRY' : 'USDC'}`
+                : '—'}
+            </span>
+          </div>
+          {product === 'ptyt' && (
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">USTRY NAV</span>
+              <span>{m.data ? `$${units(m.data.latest.price, 8)} / USTRY` : '—'}</span>
+            </div>
+          )}
           <div className="flex justify-between gap-2"><span className="text-muted-foreground">Swap slippage limit</span><span>1%</span></div>
           <div className="flex justify-between gap-2"><span className="text-muted-foreground">Quote</span><span>{quoting ? 'Updating…' : quote ? expired ? 'Refreshing…' : `${Math.ceil((quote.expires - now) / 1000)}s remaining` : entered > 0n ? 'Waiting for live quote' : 'Enter an amount'}</span></div>
         </div>
         {capExceeded && <p className="text-xs text-danger-text">The quoted USTRY exceeds this series&apos; deposit cap.</p>}
-        {overBalance && <p className="text-xs text-danger-text">Insufficient {mode === 'wrap' ? 'USDC' : 'sUSTRY'} balance.</p>}
+        {faceTooSmall && <p className="text-xs text-danger-text">The estimated PT and YT output is too small. Increase the USDC amount.</p>}
+        {overBalance && <p className="text-xs text-danger-text">Insufficient {mode === 'wrap' ? 'USDC' : product === 'ptyt' ? m.matured ? 'PT' : 'PT + YT' : 'sUSTRY'} balance.</p>}
         {error && <p role="alert" className="rounded-lg border border-danger/25 bg-danger/8 p-3 text-xs text-danger-text">{error}</p>}
         {actionError && <p role="alert" className="rounded-lg border border-danger/25 bg-danger/8 p-3 text-xs text-danger-text">{actionError}</p>}
         {!m.address ? (
@@ -299,15 +424,18 @@ export default function UstryReceiptWrapper({ model: m }: { model: UstryDashboar
         ) : (
           <Button
             className="w-full"
-            disabled={disabled || entered <= 0n || !quote || expired || overBalance || capExceeded || (mode === 'wrap' && m.entryBlocked)}
+            disabled={disabled || entered <= 0n || !quote || quote.wallet !== m.address || quote.seriesId !== m.activeSeries.id || quote.amount !== quoteInput || expired || overBalance || capExceeded || faceTooSmall || (mode === 'wrap' && m.entryBlocked) || (product === 'ptyt' && (factor <= 0n || (mode === 'unwrap' && m.unsafe)))}
             onClick={() => void submit()}
           >
             {(busy || quoting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {busy ? phase : quoting ? 'Updating quote…' : !m.onCorrectNetwork ? 'Switch wallet network' : mode === 'wrap' && m.entryBlocked ? 'Deposits unavailable' : !quote || expired ? 'Waiting for live quote' : mode === 'wrap' ? 'Wrap USDC' : 'Unwrap to USDC'}
+            {busy ? phase : quoting ? 'Updating quote…' : !m.onCorrectNetwork ? 'Switch wallet network' : mode === 'wrap' && m.entryBlocked ? 'Deposits unavailable' : product === 'ptyt' && mode === 'unwrap' && m.unsafe ? 'Waiting for valid NAV' : !quote || expired ? 'Waiting for live quote' : product === 'ptyt' ? mode === 'wrap' ? 'Deposit USDC' : m.matured ? 'Redeem to USDC' : 'Combine to USDC' : mode === 'wrap' ? 'Wrap USDC' : 'Unwrap to USDC'}
           </Button>
         )}
         <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-          The swap and receipt action require separate wallet confirmations. If the second step fails, the intermediate USTRY stays in your wallet. Use <Link to="/markets" className="underline">Markets</Link> to convert it back. Test XLM is needed for fees.
+          {product === 'ptyt'
+            ? 'USDC conversion and PT/YT minting or redemption require separate wallet confirmations. PT and YT use USD face; USDC received on exit depends on USTRY NAV and market liquidity.'
+            : 'The swap and receipt action require separate wallet confirmations.'}{' '}
+          If a later step fails, intermediate USTRY stays in your wallet. Use <Link to="/markets" className="underline">Markets</Link> to convert it back. Test XLM is needed for fees.
         </p>
       </CardContent>
     </Card>

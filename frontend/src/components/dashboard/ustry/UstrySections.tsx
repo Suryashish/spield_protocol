@@ -893,10 +893,9 @@ export function UstryPositions({ model: m, receipt = false }: Props & { receipt?
 export function UstryDeposit({ model }: Props) {
   return (
     <div className="space-y-6">
-      <UstryStats model={model} kind="deposit" />
       <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
         <div className="lg:col-span-5" data-tour="deposit-panel">
-          <UstryActionPanel model={model} />
+          <UstryReceiptWrapper model={model} product="ptyt" />
         </div>
         <div className="lg:col-span-7">
           <UstryPositions model={model} />

@@ -34,7 +34,7 @@ import {
 
 const SUBTITLES: Record<string, string> = {
   overview: 'Your portfolio at a glance — USTRY balances, principal, yield and backing.',
-  deposit: 'Split USTRY into principal tokens (PT) and yield tokens (YT), or recombine to exit.',
+  deposit: 'Deposit USDC for PT and YT, or combine your position to receive USDC.',
   v2: 'What your YT has earned — claimable straight to USTRY without giving up the position.',
   srwrap: 'Wrap USDC into sUSTRY receipts, or unwrap sUSTRY back to USDC.',
   markets: 'Convert USDC and USTRY using executable exchange quotes with a minimum output.',
@@ -53,7 +53,7 @@ function explainer(section: string, title: string): ExplainerConfig {
       {
         icon: Coins,
         title: '1 · Acquire or deposit USTRY',
-        body: 'Use SR Wrapper to pay with supported test USDC and receive sUSTRY. The app converts through USTRY and deposits it for you.',
+        body: 'Pay with supported test USDC on Deposit to receive PT and YT, or use SR Wrapper to receive sUSTRY. The app converts through USTRY for either path.',
       },
       {
         icon: Layers,
@@ -63,7 +63,7 @@ function explainer(section: string, title: string): ExplainerConfig {
       {
         icon: TrendingUp,
         title: '3 · Claim or exit',
-        body: 'Claim earned yield in USTRY. Before maturity, recombine matching PT and YT; after settlement, redeem PT alone. Unsplit receipts withdraw one-for-one in USTRY.',
+        body: 'Claim earned yield in USTRY. Before maturity, combine matching PT and YT; after settlement, redeem PT alone. Deposit and Combine converts the USTRY payout to USDC.',
       },
     ],
     callout: {
